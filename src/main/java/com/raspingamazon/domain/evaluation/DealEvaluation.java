@@ -122,11 +122,24 @@ public final class DealEvaluation {
         this.eligible = eligible;
 
         /*
-         * O motivo de rejeição é opcional neste nível estrutural.
-         *
-         * A regra que determina quando ele deve obrigatoriamente existir
-         * será formalizada junto ao comportamento de avaliação.
+         * Uma avaliação elegível não pode possuir motivo de rejeição.
          */
+        if (eligible && rejectionReason != null) {
+            throw new IllegalArgumentException(
+                    "eligible evaluation must not have rejectionReason"
+            );
+        }
+
+        /*
+         * Uma avaliação não elegível precisa registrar o motivo controlado
+         * da rejeição.
+         */
+        if (!eligible && rejectionReason == null) {
+            throw new IllegalArgumentException(
+                    "ineligible evaluation must have rejectionReason"
+            );
+        }
+
         this.rejectionReason = rejectionReason;
 
         /*

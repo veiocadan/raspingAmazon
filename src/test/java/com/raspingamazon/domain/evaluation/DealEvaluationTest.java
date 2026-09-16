@@ -39,6 +39,7 @@ class DealEvaluationTest {
             PRODUCT,
             OffsetDateTime.parse("2026-09-13T19:00:00-03:00"),
             Money.of("199.90"),
+            null,
             Money.of("249.90"),
             null,
             null,
@@ -140,6 +141,40 @@ class DealEvaluationTest {
 
         assertNull(evaluation.score());
         assertNull(evaluation.momentum());
+    }
+
+    @Test
+    void shouldRejectEligibleEvaluationWithRejectionReason() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        RejectionReason.SELLER_THIRD_PARTY,
+                        "v1",
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectRejectedEvaluationWithoutRejectionReason() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        false,
+                        null,
+                        "v1",
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
     }
 
     @Test

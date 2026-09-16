@@ -42,6 +42,7 @@ class OfferSnapshotTest {
                 PRODUCT,
                 collectedAt,
                 Money.of("199.90"),
+                Money.of("299.90"),
                 Money.of("249.90"),
                 Percentage.of("20.01"),
                 Percentage.of("48"),
@@ -58,6 +59,7 @@ class OfferSnapshotTest {
         assertEquals(PRODUCT, snapshot.product());
         assertEquals(collectedAt, snapshot.collectedAt());
         assertEquals(Money.of("199.90"), snapshot.currentPrice());
+        assertEquals(Money.of("299.90"), snapshot.basisPrice());
         assertEquals(Money.of("249.90"), snapshot.previousPrice());
         assertEquals(Percentage.of("20.01"), snapshot.discountPercentage());
         assertEquals(Percentage.of("48"), snapshot.soldPercentage());
@@ -96,6 +98,7 @@ class OfferSnapshotTest {
                 null
         );
 
+        assertNull(snapshot.basisPrice());
         assertNull(snapshot.previousPrice());
         assertNull(snapshot.discountPercentage());
         assertNull(snapshot.soldPercentage());
@@ -112,6 +115,7 @@ class OfferSnapshotTest {
                         null,
                         OffsetDateTime.now(),
                         Money.of("199.90"),
+                        null,
                         null,
                         null,
                         null,
@@ -142,6 +146,7 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
+                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
                         "amazon-deals"
@@ -157,6 +162,7 @@ class OfferSnapshotTest {
                         null,
                         PRODUCT,
                         OffsetDateTime.now(),
+                        null,
                         null,
                         null,
                         null,
@@ -189,6 +195,7 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
+                        null,
                         DeliveryType.UNKNOWN,
                         "amazon-deals"
                 )
@@ -204,6 +211,7 @@ class OfferSnapshotTest {
                         PRODUCT,
                         OffsetDateTime.now(),
                         Money.of("199.90"),
+                        null,
                         null,
                         null,
                         null,
@@ -234,6 +242,7 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
+                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
                         null
@@ -250,6 +259,7 @@ class OfferSnapshotTest {
                         PRODUCT,
                         OffsetDateTime.now(),
                         Money.of("199.90"),
+                        null,
                         null,
                         null,
                         null,
@@ -282,6 +292,7 @@ class OfferSnapshotTest {
                 PRODUCT,
                 OffsetDateTime.parse("2026-09-13T19:00:00-03:00"),
                 Money.of("199.90"),
+                null,
                 previousPrice,
                 discountPercentage,
                 soldPercentage,

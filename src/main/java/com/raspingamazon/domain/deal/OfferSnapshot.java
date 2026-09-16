@@ -65,6 +65,15 @@ public final class OfferSnapshot {
     private final Money currentPrice;
 
     /**
+     * Preço-base/lista observado na fonte, quando disponível.
+     *
+     * Este valor possui semântica própria e não deve ser confundido
+     * com previousPrice, que representa um preço anterior histórico
+     * quando houver evidência explícita dessa informação.
+     */
+    private final Money basisPrice;
+
+    /**
      * Preço anterior, quando houver evidência dessa informação.
      *
      * O campo é opcional porque a fonte pode não fornecer esse dado.
@@ -152,6 +161,7 @@ public final class OfferSnapshot {
             Product product,
             OffsetDateTime collectedAt,
             Money currentPrice,
+            Money basisPrice,
             Money previousPrice,
             Percentage discountPercentage,
             Percentage soldPercentage,
@@ -193,6 +203,14 @@ public final class OfferSnapshot {
                 currentPrice,
                 "OfferSnapshot currentPrice must not be null"
         );
+
+        /*
+         * basisPrice é opcional porque a fonte pode não fornecer
+         * o preço-base/lista.
+         *
+         * Ele não substitui previousPrice.
+         */
+        this.basisPrice = basisPrice;
 
         /*
          * previousPrice, discountPercentage e soldPercentage podem ser
@@ -270,6 +288,10 @@ public final class OfferSnapshot {
 
     public Money currentPrice() {
         return currentPrice;
+    }
+
+    public Money basisPrice() {
+        return basisPrice;
     }
 
     public Money previousPrice() {

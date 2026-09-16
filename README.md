@@ -4,7 +4,7 @@ Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico
 e publicação de ofertas da Amazon Brasil**, com foco em separação de
 responsabilidades, rastreabilidade, idempotência e evolução escalável.
 
-> **Estado atual: FASE 3 --- Domínio + Contratos internos concluída.**
+> **Estado atual: FASE 3 --- Domínio + Contratos internos concluída; FASE 2 v2 --- evolução comercial da persistência concluída.**
 
 O objetivo do projeto não é simplesmente "raspar ofertas da Amazon". O
 objetivo é construir um sistema no qual **coleta, validação, regras de
@@ -72,6 +72,8 @@ FASE 3   Domínio e contratos internos         CONCLUÍDA
 ### Próxima fase
 
 **FASE 4 --- Configuração e segredos**
+
+A FASE 2 v2 consolidou a evolução comercial da persistência, sem alterar retroativamente a V1 e sem antecipar as responsabilidades das fases posteriores.
 
 A ordem de desenvolvimento deve ser preservada. Não antecipar
 implementações de fases posteriores sem uma decisão explícita de mudança
@@ -251,6 +253,7 @@ id
 product
 collectedAt
 currentPrice
+basisPrice
 previousPrice
 discountPercentage
 soldPercentage
@@ -439,13 +442,17 @@ sem antecipar o gerador efetivo.
 
 O PostgreSQL é a persistência SQL principal do projeto.
 
-Estrutura inicial criada na FASE 2:
+Estrutura criada na FASE 2 e evoluída na FASE 2 v2:
 
 ``` text
 product
     |
     v
 offer_snapshot
+    |
+    +── offer_payment_condition
+    |       |
+    |       +── offer_payment_condition_method
     |
     v
 deal_evaluation
@@ -543,10 +550,21 @@ CollectionRequestTest
 CollectionResultTest
 ```
 
-Resultado final da FASE 3:
+Resultado da FASE 3 antes da evolução da FASE 2 v2:
 
 ``` text
 Tests run: 87
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+Após a FASE 2 v2, a suíte consolidada possui:
+
+``` text
+Tests run: 103
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -697,8 +715,10 @@ preservar o histórico das decisões:
 
 ``` text
 FASE_0_RESULTADO.md
+FASE_0_RESULTADO_v2.md
 FASE_1_RESULTADO.md
 FASE_2_RESULTADO.md
+FASE_2_RESULTADO_v2.md
 FASE_3_RESULTADO.md
 ```
 

@@ -1,7 +1,6 @@
 package com.raspingamazon.domain.publication;
 
 import com.raspingamazon.domain.evaluation.DealEvaluation;
-import com.raspingamazon.domain.evaluation.RejectionReason;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -294,6 +293,7 @@ class PublicationTest {
                 product,
                 OffsetDateTime.now(),
                 Money.of("100.00"),
+                null,
                 Money.of("120.00"),
                 Percentage.of("16.67"),
                 Percentage.of("50"),
