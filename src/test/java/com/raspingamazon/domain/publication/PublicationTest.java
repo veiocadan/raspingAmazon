@@ -1,34 +1,25 @@
 package com.raspingamazon.domain.publication;
 
-import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.deal.OfferSnapshot;
+import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.shared.Money;
-import com.raspingamazon.domain.shared.Percentage;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * Testes do ciclo de vida da Publication.
- *
- * <p>O objetivo principal desta classe é garantir que as transições
- * permitidas pelo domínio funcionem e que transições inválidas sejam
- * rejeitadas.</p>
- */
 class PublicationTest {
 
-    /**
-     * Uma Publication recém-criada deve iniciar no estado informado
-     * pelo seu construtor.
-     */
     @Test
     void shouldCreatePublicationWithCreatedStatus() {
+
         Publication publication = createPublication(
                 PublicationStatus.CREATED
         );
@@ -39,11 +30,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * CREATED -> READY é uma transição válida.
-     */
     @Test
     void shouldMoveFromCreatedToReady() {
+
         Publication publication = createPublication(
                 PublicationStatus.CREATED
         );
@@ -56,11 +45,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * READY -> PUBLISHED representa uma publicação concluída.
-     */
     @Test
     void shouldMoveFromReadyToPublished() {
+
         Publication publication = createPublication(
                 PublicationStatus.READY
         );
@@ -73,12 +60,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * READY -> FAILED representa uma falha durante o processo
-     * de publicação.
-     */
     @Test
     void shouldMoveFromReadyToFailed() {
+
         Publication publication = createPublication(
                 PublicationStatus.READY
         );
@@ -91,12 +75,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * FAILED -> READY representa o retorno ao fluxo para um
-     * eventual retry autorizado por uma camada posterior.
-     */
     @Test
     void shouldRetryFailedPublication() {
+
         Publication publication = createPublication(
                 PublicationStatus.FAILED
         );
@@ -109,11 +90,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication já publicada não pode voltar para READY.
-     */
     @Test
     void shouldRejectReadyTransitionFromPublished() {
+
         Publication publication = createPublication(
                 PublicationStatus.PUBLISHED
         );
@@ -129,12 +108,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication já publicada não pode ser marcada novamente
-     * como publicada.
-     */
     @Test
     void shouldRejectPublishingAlreadyPublishedPublication() {
+
         Publication publication = createPublication(
                 PublicationStatus.PUBLISHED
         );
@@ -150,12 +126,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication FAILED não pode ser marcada diretamente como
-     * PUBLISHED. Primeiro ela precisa retornar para READY.
-     */
     @Test
     void shouldRejectPublishingFailedPublicationDirectly() {
+
         Publication publication = createPublication(
                 PublicationStatus.FAILED
         );
@@ -171,11 +144,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication CREATED não pode ser publicada diretamente.
-     */
     @Test
     void shouldRejectPublishingCreatedPublicationDirectly() {
+
         Publication publication = createPublication(
                 PublicationStatus.CREATED
         );
@@ -191,12 +162,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication CREATED não pode ser marcada como FAILED
-     * diretamente.
-     */
     @Test
     void shouldRejectFailingCreatedPublicationDirectly() {
+
         Publication publication = createPublication(
                 PublicationStatus.CREATED
         );
@@ -212,12 +180,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication READY não pode executar retry, pois retry
-     * é uma transição exclusiva de FAILED.
-     */
     @Test
     void shouldRejectRetryFromReady() {
+
         Publication publication = createPublication(
                 PublicationStatus.READY
         );
@@ -233,11 +198,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication CREATED não pode executar retry.
-     */
     @Test
     void shouldRejectRetryFromCreated() {
+
         Publication publication = createPublication(
                 PublicationStatus.CREATED
         );
@@ -253,11 +216,9 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Uma Publication PUBLISHED não pode executar retry.
-     */
     @Test
     void shouldRejectRetryFromPublished() {
+
         Publication publication = createPublication(
                 PublicationStatus.PUBLISHED
         );
@@ -273,13 +234,10 @@ class PublicationTest {
         );
     }
 
-    /**
-     * Cria uma Publication com dados mínimos válidos.
-     *
-     * <p>Os testes de ciclo de vida não devem depender de infraestrutura.
-     * Por isso, toda a cadeia de objetos é construída diretamente em memória.</p>
-     */
-    private Publication createPublication(PublicationStatus status) {
+    private Publication createPublication(
+            PublicationStatus status
+    ) {
+
         Product product = new Product(
                 1L,
                 new Asin("B000000001"),
@@ -293,17 +251,17 @@ class PublicationTest {
                 product,
                 OffsetDateTime.now(),
                 Money.of("100.00"),
-                null,
                 Money.of("120.00"),
-                Percentage.of("16.67"),
-                Percentage.of("50"),
+                null,
+                null,
                 4.5,
                 100L,
                 "Amazon.com.br",
                 "Amazon",
                 SellerType.AMAZON,
                 DeliveryType.AMAZON,
-                "TEST"
+                "TEST",
+                List.of()
         );
 
         DealEvaluation evaluation = new DealEvaluation(

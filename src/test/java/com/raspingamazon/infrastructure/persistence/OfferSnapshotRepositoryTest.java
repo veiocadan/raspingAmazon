@@ -14,8 +14,10 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -25,7 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * de domínio OfferSnapshot e a tabela offer_snapshot criada pelas
  * migrations.</p>
  *
- * <p>O teste não avalia regras de elegibilidade ou cálculo comercial.</p>
+ * <p>As condições comerciais de pagamento são persistidas
+ * separadamente por OfferPaymentConditionRepository.</p>
  */
 class OfferSnapshotRepositoryTest {
 
@@ -69,14 +72,6 @@ class OfferSnapshotRepositoryTest {
                     "https://example.invalid/offer-snapshot"
             );
 
-            /*
-             * currentPrice representa o principal preço comercial observado.
-             *
-             * basisPrice representa o preço-base/lista observado.
-             *
-             * previousPrice representa um valor histórico anterior
-             * somente para exercitar a persistência dessa coluna.
-             */
             OffsetDateTime collectedAt = OffsetDateTime.parse(
                     "2026-09-15T18:00:00-03:00"
             );
@@ -88,7 +83,6 @@ class OfferSnapshotRepositoryTest {
                     new Money(new BigDecimal("161.40")),
                     new Money(new BigDecimal("299.00")),
                     new Money(new BigDecimal("199.90")),
-                    new Percentage(new BigDecimal("15.00")),
                     new Percentage(new BigDecimal("30.00")),
                     4.7,
                     1234L,
@@ -96,7 +90,8 @@ class OfferSnapshotRepositoryTest {
                     "Amazon",
                     SellerType.AMAZON,
                     DeliveryType.AMAZON,
-                    "amazon"
+                    "amazon",
+                    List.of()
             );
 
             OfferSnapshotRepository repository =
@@ -162,18 +157,24 @@ class OfferSnapshotRepositoryTest {
                             resultSet.getBigDecimal("previous_price")
                     );
 
-                    assertEquals(
-                            new BigDecimal("15.00"),
-                            resultSet.getBigDecimal(
-                                    "discount_percentage"
-                            )
+                    /*
+                     * discount_percentage deixou de fazer parte
+                     * do estado universal de OfferSnapshot.
+                     *
+                     * A informação comercial de desconto pertence
+                     * à PaymentCondition.
+                     *
+                     * A coluna antiga continua existindo no schema
+                     * por enquanto, mas não é mais preenchida pelo
+                     * OfferSnapshotRepository.
+                     */
+                    assertNull(
+                            resultSet.getBigDecimal("discount_percentage")
                     );
 
                     assertEquals(
                             new BigDecimal("30.00"),
-                            resultSet.getBigDecimal(
-                                    "sold_percentage"
-                            )
+                            resultSet.getBigDecimal("sold_percentage")
                     );
 
                     assertEquals(
@@ -193,9 +194,7 @@ class OfferSnapshotRepositoryTest {
 
                     assertEquals(
                             "Amazon",
-                            resultSet.getString(
-                                    "delivery_provider"
-                            )
+                            resultSet.getString("delivery_provider")
                     );
 
                     assertEquals(
@@ -216,6 +215,7 @@ class OfferSnapshotRepositoryTest {
             )) {
 
                 if (snapshotId > 0) {
+
                     try (PreparedStatement statement =
                                  connection.prepareStatement(
                                          "DELETE FROM offer_snapshot WHERE id = ?"
@@ -227,6 +227,7 @@ class OfferSnapshotRepositoryTest {
                 }
 
                 if (productId > 0) {
+
                     try (PreparedStatement statement =
                                  connection.prepareStatement(
                                          "DELETE FROM product WHERE id = ?"

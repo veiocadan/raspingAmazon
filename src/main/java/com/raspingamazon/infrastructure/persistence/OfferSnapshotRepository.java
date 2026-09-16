@@ -10,8 +10,11 @@ import java.sql.SQLException;
 /**
  * Repository JDBC responsável pela persistência de OfferSnapshot.
  *
- * <p>Este componente somente persiste o estado já definido pelo domínio.
+ * <p>Este componente somente persiste o estado definido pelo domínio.
  * Regras comerciais não devem ser implementadas aqui.</p>
+ *
+ * <p>As condições de pagamento possuem persistência própria por meio
+ * de OfferPaymentConditionRepository.</p>
  */
 public final class OfferSnapshotRepository {
 
@@ -23,6 +26,10 @@ public final class OfferSnapshotRepository {
 
     /**
      * Persiste um OfferSnapshot e retorna o identificador gerado.
+     *
+     * <p>O desconto não é mais persistido diretamente no snapshot.
+     * A semântica comercial do desconto pertence a PaymentCondition
+     * e é persistida por OfferPaymentConditionRepository.</p>
      */
     public long insert(OfferSnapshot snapshot) throws SQLException {
 
@@ -33,7 +40,6 @@ public final class OfferSnapshotRepository {
                     current_price,
                     basis_price,
                     previous_price,
-                    discount_percentage,
                     sold_percentage,
                     rating,
                     review_count,
@@ -41,7 +47,7 @@ public final class OfferSnapshotRepository {
                     delivery_provider,
                     source
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """;
 
@@ -81,54 +87,45 @@ public final class OfferSnapshotRepository {
                 );
             }
 
-            if (snapshot.discountPercentage() == null) {
+            if (snapshot.soldPercentage() == null) {
                 statement.setObject(6, null);
             } else {
                 statement.setBigDecimal(
                         6,
-                        snapshot.discountPercentage().value()
-                );
-            }
-
-            if (snapshot.soldPercentage() == null) {
-                statement.setObject(7, null);
-            } else {
-                statement.setBigDecimal(
-                        7,
                         snapshot.soldPercentage().value()
                 );
             }
 
             if (snapshot.rating() == null) {
-                statement.setObject(8, null);
+                statement.setObject(7, null);
             } else {
                 statement.setDouble(
-                        8,
+                        7,
                         snapshot.rating()
                 );
             }
 
             if (snapshot.reviewCount() == null) {
-                statement.setObject(9, null);
+                statement.setObject(8, null);
             } else {
                 statement.setLong(
-                        9,
+                        8,
                         snapshot.reviewCount()
                 );
             }
 
             statement.setString(
-                    10,
+                    9,
                     snapshot.sellerName()
             );
 
             statement.setString(
-                    11,
+                    10,
                     snapshot.deliveryProvider()
             );
 
             statement.setString(
-                    12,
+                    11,
                     snapshot.source()
             );
 

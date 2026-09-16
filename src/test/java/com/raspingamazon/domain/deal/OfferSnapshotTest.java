@@ -9,6 +9,7 @@ import com.raspingamazon.domain.validation.SellerType;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -44,7 +45,6 @@ class OfferSnapshotTest {
                 Money.of("199.90"),
                 Money.of("299.90"),
                 Money.of("249.90"),
-                Percentage.of("20.01"),
                 Percentage.of("48"),
                 4.7,
                 1520L,
@@ -52,7 +52,8 @@ class OfferSnapshotTest {
                 "Amazon",
                 SellerType.AMAZON,
                 DeliveryType.AMAZON,
-                "amazon-deals"
+                "amazon-deals",
+                List.of()
         );
 
         assertEquals(10L, snapshot.id());
@@ -61,7 +62,6 @@ class OfferSnapshotTest {
         assertEquals(Money.of("199.90"), snapshot.currentPrice());
         assertEquals(Money.of("299.90"), snapshot.basisPrice());
         assertEquals(Money.of("249.90"), snapshot.previousPrice());
-        assertEquals(Percentage.of("20.01"), snapshot.discountPercentage());
         assertEquals(Percentage.of("48"), snapshot.soldPercentage());
         assertEquals(4.7, snapshot.rating());
         assertEquals(1520L, snapshot.reviewCount());
@@ -70,6 +70,7 @@ class OfferSnapshotTest {
         assertEquals(SellerType.AMAZON, snapshot.sellerType());
         assertEquals(DeliveryType.AMAZON, snapshot.deliveryType());
         assertEquals("amazon-deals", snapshot.source());
+        assertEquals(List.of(), snapshot.paymentConditions());
     }
 
     @Test
@@ -100,7 +101,6 @@ class OfferSnapshotTest {
 
         assertNull(snapshot.basisPrice());
         assertNull(snapshot.previousPrice());
-        assertNull(snapshot.discountPercentage());
         assertNull(snapshot.soldPercentage());
         assertNull(snapshot.rating());
         assertNull(snapshot.reviewCount());
@@ -122,10 +122,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
-                        "amazon-deals"
+                        "amazon-deals",
+                        List.of()
                 )
         );
     }
@@ -146,10 +146,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
-                        "amazon-deals"
+                        "amazon-deals",
+                        List.of()
                 )
         );
     }
@@ -170,10 +170,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
-                        "amazon-deals"
+                        "amazon-deals",
+                        List.of()
                 )
         );
     }
@@ -195,9 +195,9 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         DeliveryType.UNKNOWN,
-                        "amazon-deals"
+                        "amazon-deals",
+                        List.of()
                 )
         );
     }
@@ -218,10 +218,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         null,
-                        "amazon-deals"
+                        "amazon-deals",
+                        List.of()
                 )
         );
     }
@@ -242,10 +242,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
-                        null
+                        null,
+                        List.of()
                 )
         );
     }
@@ -266,10 +266,10 @@ class OfferSnapshotTest {
                         null,
                         null,
                         null,
-                        null,
                         SellerType.UNKNOWN,
                         DeliveryType.UNKNOWN,
-                        "   "
+                        "   ",
+                        List.of()
                 )
         );
     }
@@ -283,8 +283,8 @@ class OfferSnapshotTest {
      */
     private static OfferSnapshot createValidSnapshot(
             Long id,
+            Money basisPrice,
             Money previousPrice,
-            Percentage discountPercentage,
             Percentage soldPercentage
     ) {
         return new OfferSnapshot(
@@ -292,9 +292,8 @@ class OfferSnapshotTest {
                 PRODUCT,
                 OffsetDateTime.parse("2026-09-13T19:00:00-03:00"),
                 Money.of("199.90"),
-                null,
+                basisPrice,
                 previousPrice,
-                discountPercentage,
                 soldPercentage,
                 null,
                 null,
@@ -302,7 +301,8 @@ class OfferSnapshotTest {
                 null,
                 SellerType.UNKNOWN,
                 DeliveryType.UNKNOWN,
-                "amazon-deals"
+                "amazon-deals",
+                List.of()
         );
     }
 }

@@ -1,91 +1,51 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico
-e publicação de ofertas da Amazon Brasil**, com foco em separação de
-responsabilidades, rastreabilidade, idempotência e evolução escalável.
+Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência e evolução escalável.
 
-> **Estado atual: FASE 3 --- Domínio + Contratos internos concluída; FASE 2 v2 --- evolução comercial da persistência concluída.**
+> **Estado atual: FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
 
-O objetivo do projeto não é simplesmente "raspar ofertas da Amazon". O
-objetivo é construir um sistema no qual **coleta, validação, regras de
-negócio, persistência e canais de comunicação sejam módulos
-independentes**.
+## 1. Objetivo
 
-------------------------------------------------------------------------
+O projeto não é apenas um raspador de ofertas. O objetivo é construir um sistema em que **coleta, normalização, validação, regras de negócio, persistência e publicação permaneçam desacopladas**.
 
-## 1. Objetivo do projeto
+Fluxo conceitual:
 
-O sistema deverá evoluir para o seguinte fluxo conceitual:
-
-``` text
-[ EXECUTAR / ATUALIZAR OFERTAS ]
-                |
-                v
-        coleta de ofertas
-                |
-                v
-        identificação / dados
-                |
-                v
-       validação da oferta
-                |
-                v
-          filtros + score
-                |
-                v
-          BANCO SQL
-       histórico / estado
-                |
-                v
-       revisão / seleção
-                |
-                v
-      geração de publicação
-                |
-                v
-        canais de publicação
-        /                 \
-       v                   v
- WhatsApp              Telegram
-        \                 /
-         v               v
-          STATUS + AUDITORIA
+```text
+coleta
+  ↓
+identificação / normalização
+  ↓
+validação
+  ↓
+filtros + avaliação
+  ↓
+PostgreSQL / histórico
+  ↓
+seleção
+  ↓
+geração de publicação
+  ↓
+canais
 ```
 
-A arquitetura deve permitir que cada etapa evolua sem acoplar o domínio
-às tecnologias externas utilizadas para coleta, persistência ou
-publicação.
-
-------------------------------------------------------------------------
+A ordem das fases deve ser preservada; responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ## 2. Estado atual
 
-### Fases concluídas
+| Fase | Descrição | Status |
+|---|---|---|
+| FASE 0 | Levantamento da fonte e regras | CONCLUÍDA |
+| FASE 1 | Fundação Java | CONCLUÍDA |
+| FASE 2 | PostgreSQL, schema e migrations | CONCLUÍDA |
+| FASE 2 v2 | Evolução comercial da persistência | CONCLUÍDA |
+| FASE 3 | Domínio e contratos internos | CONCLUÍDA |
+| FASE 3 v2 | Revisão comercial e estrutural | CONCLUÍDA |
 
-Fase     Descrição                            Status
-  -------- ------------------------------------ -----------
-FASE 0   Levantamento da fonte e das regras   CONCLUÍDA
-FASE 1   Fundação do projeto Java             CONCLUÍDA
-FASE 2   PostgreSQL, schema e migrations      CONCLUÍDA
-FASE 3   Domínio e contratos internos         CONCLUÍDA
-
-### Próxima fase
-
-**FASE 4 --- Configuração e segredos**
-
-A FASE 2 v2 consolidou a evolução comercial da persistência, sem alterar retroativamente a V1 e sem antecipar as responsabilidades das fases posteriores.
-
-A ordem de desenvolvimento deve ser preservada. Não antecipar
-implementações de fases posteriores sem uma decisão explícita de mudança
-de fase.
-
-------------------------------------------------------------------------
+**Próxima etapa: FASE 4 — Configuração e segredos.**
 
 ## 3. Arquitetura
 
-A estrutura principal do projeto segue a separação:
-
-``` text
+```text
 src/
 ├── main/
 │   ├── java/
@@ -102,52 +62,33 @@ src/
         └── com/raspingamazon/
 ```
 
-### Responsabilidades
+Responsabilidades principais:
 
--   **`domain`** --- conceitos e regras de negócio, sem dependência de
-    infraestrutura.
--   **`application`** --- contratos e casos de uso que coordenam o fluxo
-    da aplicação.
--   **`infrastructure`** --- banco de dados, migrations e demais
-    adaptadores tecnológicos.
--   **`presentation`** --- interfaces de entrada e exposição operacional
-    do sistema.
+- `domain`: conceitos e invariantes de negócio, sem dependência de infraestrutura;
+- `application`: contratos e coordenação do fluxo;
+- `infrastructure`: PostgreSQL, Flyway, JDBC e adaptadores tecnológicos;
+- `presentation`: interfaces de entrada e exposição operacional futura.
 
-A arquitetura foi construída para manter o domínio independente de:
+O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Excel ou canais de publicação.
 
--   HTML;
--   JSON de fontes externas;
--   HTTP;
--   PostgreSQL;
--   Flyway;
--   JDBC;
--   Excel;
--   WhatsApp;
--   Telegram;
--   provedores externos.
+## 4. Stack
 
-------------------------------------------------------------------------
+- Java 25
+- Maven
+- JUnit 5
+- PostgreSQL 18.6
+- Flyway 11.14.1
+- PostgreSQL JDBC 42.7.8
+- Docker / Docker Compose
 
-## 4. Stack atual
+## 5. Domínio atual
 
--   **Java 25**
--   **Maven**
--   **JUnit 5**
--   **PostgreSQL 18.6**
--   **Flyway 11.14.1**
--   **PostgreSQL JDBC 42.7.8**
--   **Docker / Docker Compose** para infraestrutura local
-
-O projeto é empacotado como artefato Maven `jar`.
-
-------------------------------------------------------------------------
-
-## 5. Domínio implementado na FASE 3
-
-A FASE 3 criou a primeira camada efetiva de domínio.
-
-``` text
+```text
 domain/
+├── commercial/
+│   ├── PaymentCondition
+│   ├── PaymentConditionType
+│   └── PaymentMethod
 ├── deal/
 │   └── OfferSnapshot
 ├── evaluation/
@@ -169,93 +110,19 @@ domain/
     └── SellerType
 ```
 
-### `Product`
+### OfferSnapshot
 
-Representa o produto identificado no sistema.
+Representa uma ocorrência temporal de uma oferta e preserva histórico.
 
-Principais dados:
+Campos principais:
 
-``` text
-id
-asin
-title
-imageUrl
-productUrl
-```
-
-O ID interno e o ASIN permanecem separados.
-
-### `Asin`
-
-Value object para representar o identificador ASIN.
-
-Validações atuais:
-
--   não nulo;
--   não vazio;
--   máximo de 10 caracteres.
-
-### `Money`
-
-Value object para valores monetários.
-
-Validações atuais:
-
--   utiliza `BigDecimal`;
--   não nulo;
--   não aceita valores negativos.
-
-### `Percentage`
-
-Value object para percentuais.
-
-Validações atuais:
-
--   não nulo;
--   intervalo de `0` a `100`;
--   suporte à criação a partir de texto.
-
-### `SellerType`
-
-Vocabulário controlado:
-
-``` text
-AMAZON
-THIRD_PARTY
-UNKNOWN
-```
-
-`UNKNOWN` é mantido para permitir a política **fail closed** quando não
-houver evidência suficiente.
-
-### `DeliveryType`
-
-Vocabulário controlado:
-
-``` text
-AMAZON
-THIRD_PARTY
-UNKNOWN
-```
-
-A aplicação efetiva da validação permanece para a fase correspondente.
-
-------------------------------------------------------------------------
-
-## 6. `OfferSnapshot`
-
-`OfferSnapshot` representa uma ocorrência temporal de uma oferta.
-
-Campos:
-
-``` text
+```text
 id
 product
 collectedAt
 currentPrice
 basisPrice
 previousPrice
-discountPercentage
 soldPercentage
 rating
 reviewCount
@@ -264,24 +131,35 @@ deliveryProvider
 sellerType
 deliveryType
 source
+paymentConditions
 ```
 
-O modelo utiliza snapshots para preservar o histórico das observações,
-em vez de simplesmente substituir o estado anterior.
+`basisPrice` continua semanticamente distinto de `previousPrice`.
 
-O campo `% vendidos` permanece opcional quando não existe evidência
-confiável. Ausência de informação não deve ser convertida em zero ou em
-um valor estimado.
+`paymentConditions` representa as condições comerciais estruturadas. Desconto contextual não é tratado como atributo universal do snapshot.
 
-------------------------------------------------------------------------
+### PaymentCondition
 
-## 7. `DealEvaluation`
+Representa uma condição comercial de pagamento, incluindo quando aplicável:
 
-`DealEvaluation` representa o resultado da avaliação de uma oferta.
+```text
+type
+price
+discountPercentage
+installmentCount
+installmentAmount
+installmentTotal
+interest
+paymentMethods
+```
 
-Campos:
+A modelagem permite separar condição à vista de parcelamento, sem inventar preço específico de Pix quando a fonte não fornecer esse dado.
 
-``` text
+### DealEvaluation
+
+Registra o resultado estrutural de uma avaliação:
+
+```text
 id
 offerSnapshot
 eligible
@@ -292,278 +170,56 @@ momentum
 evaluatedAt
 ```
 
-Na FASE 3 foram definidos o modelo e seus invariantes.
+Os motores de filtros, score e momentum ainda não foram implementados.
 
-**Ainda não foram implementados nesta fase:**
-
--   motor de filtros;
--   cálculo de score;
--   cálculo de momentum.
-
-`filterVersion` permite registrar futuramente qual versão das regras
-produziu determinada avaliação.
-
-------------------------------------------------------------------------
-
-## 8. Razões de rejeição
-
-O domínio possui um catálogo controlado:
-
-``` text
-SELLER_UNKNOWN
-SELLER_THIRD_PARTY
-DELIVERY_UNKNOWN
-DELIVERY_THIRD_PARTY
-INSUFFICIENT_DATA
-```
-
-A utilização de códigos controlados evita que decisões importantes
-dependam exclusivamente de textos livres.
-
-------------------------------------------------------------------------
-
-## 9. Publicação
-
-`Publication` representa uma publicação gerada a partir de uma
-avaliação.
-
-Campos:
-
-``` text
-id
-dealEvaluation
-templateVersion
-generatedText
-affiliateUrl
-status
-createdAt
-```
-
-A publicação permanece desacoplada dos canais.
-
-Ela não conhece:
-
--   WhatsApp;
--   Telegram;
--   filas;
--   HTTP;
--   banco de dados;
--   provedores externos.
-
-A geração efetiva das publicações pertence à **FASE 14**.
-
-------------------------------------------------------------------------
-
-## 10. Estados da publicação
-
-Estados definidos no domínio:
-
-``` text
-CREATED
-READY
-PUBLISHED
-FAILED
-```
-
-Transições válidas:
-
-``` text
-CREATED ──> READY
-
-READY ──> PUBLISHED
-READY ──> FAILED
-
-FAILED ──> READY
-```
-
-Transições inválidas são rejeitadas pelo domínio.
-
-A persistência utiliza `publication.status` como texto no PostgreSQL.
-Não foi criado um enum PostgreSQL.
-
-O mapeamento previsto é:
-
-``` text
-PublicationStatus -> status.name()
-status do banco -> PublicationStatus.valueOf(...)
-```
-
-------------------------------------------------------------------------
-
-## 11. Contratos internos
+## 6. Contratos internos
 
 ### Coleta
 
-Foram definidos:
-
-``` text
+```text
 CollectionRequest
 CollectionResult
 ```
 
 Fluxo conceitual:
 
-``` text
-Collector
-    |
-    v
-CollectionResult
-    |
-    v
-Parser
-    |
-    v
-dados normalizados
-    |
-    v
-Domain
+```text
+Collector → CollectionResult → Parser → dados normalizados → Domain
 ```
 
-O collector não decide se uma oferta é boa.
-
-O parser não decide se uma oferta deve ser publicada.
-
-O domínio não interpreta HTML.
+O collector não decide se uma oferta é boa, o parser não decide se ela será publicada e o domínio não interpreta HTML.
 
 ### Publicação
 
-Foi definido:
-
-``` text
+```text
 PublicationRequest
 ```
 
-O contrato representa a entrada necessária para o processo de publicação
-sem antecipar o gerador efetivo.
+O contrato representa a entrada para o processo de publicação sem antecipar o gerador efetivo.
 
-------------------------------------------------------------------------
+## 7. Persistência
 
-## 12. Persistência
+PostgreSQL é a persistência SQL principal. O schema evolui por migrations versionadas e a V1 não é editada retroativamente.
 
-O PostgreSQL é a persistência SQL principal do projeto.
+Estrutura comercial relevante:
 
-Estrutura criada na FASE 2 e evoluída na FASE 2 v2:
-
-``` text
+```text
 product
-    |
-    v
+  ↓
 offer_snapshot
-    |
-    +── offer_payment_condition
-    |       |
-    |       +── offer_payment_condition_method
-    |
-    v
-deal_evaluation
-    |
-    v
-publication
-    |
-    v
-publication_attempt
+  ↓
+offer_payment_condition
+  ↓
+offer_payment_condition_method
 ```
 
-Também existe a estrutura de:
+A persistência de condições comerciais permanece separada das regras de seleção.
 
-``` text
-configuration_version
-```
+## 8. Testes
 
-As migrations são controladas pelo Flyway.
+A suíte consolidada atual:
 
-O Excel/CSV não participa do núcleo de persistência ou processamento.
-
-------------------------------------------------------------------------
-
-## 13. Fonte Amazon
-
-A investigação da FASE 0 identificou:
-
--   página funcional de promoções da Amazon Brasil;
--   comportamento dinâmico da página;
--   carregamento de ofertas em lotes;
--   necessidade de tratamento adequado de paginação/carregamento;
--   identificação por ASIN;
--   dados de vendedor e entrega;
--   indicador de percentual vendido quando disponível.
-
-A página observada foi:
-
-``` text
-https://www.amazon.com.br/deals
-```
-
-Também foi observado tecnicamente um endpoint JSON interno utilizado
-pela aplicação web:
-
-``` text
-GET https://www.amazon.com.br/d2b/api/v1/products/search
-```
-
-Esse endpoint foi classificado como **observado tecnicamente e não
-aprovado automaticamente como fonte de produção**.
-
-A implementação definitiva deve priorizar interfaces oficiais da Amazon
-quando elas fornecerem os dados necessários e respeitar as regras
-contratuais e técnicas aplicáveis.
-
-------------------------------------------------------------------------
-
-## 14. Regras arquiteturais importantes
-
-As seguintes decisões devem ser preservadas durante a evolução do
-projeto:
-
-1.  **Java + SQL são o núcleo do processamento e do estado.**
-2.  **Não depender do Excel.**
-3.  **Credenciais e segredos não ficam no código-fonte.**
-4.  **Seller e delivery devem seguir política fail closed.**
-5.  **Publicação não deve ser acoplada ao domínio.**
-6.  **WhatsApp e Telegram devem ser adaptadores substituíveis.**
-7.  **Execuções importantes devem ser auditáveis.**
-8.  **Reexecuções devem buscar comportamento idempotente.**
-9.  **Interfaces oficiais devem ser priorizadas quando aplicáveis.**
-10. **Coleta, parser, regras de negócio e canais devem permanecer
-    separados.**
-
-------------------------------------------------------------------------
-
-## 15. Testes
-
-A FASE 3 adicionou testes para os principais objetos de domínio e
-contratos:
-
-``` text
-AsinTest
-MoneyTest
-PercentageTest
-SellerTypeTest
-DeliveryTypeTest
-RejectionReasonTest
-ProductTest
-OfferSnapshotTest
-DealEvaluationTest
-PublicationTest
-PublicationRequestTest
-CollectionRequestTest
-CollectionResultTest
-```
-
-Resultado da FASE 3 antes da evolução da FASE 2 v2:
-
-``` text
-Tests run: 87
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-Após a FASE 2 v2, a suíte consolidada possui:
-
-``` text
+```text
 Tests run: 103
 Failures: 0
 Errors: 0
@@ -572,205 +228,75 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-O Maven também confirmou a compilação dos fontes e testes da fase.
+O Flyway validou 2 migrations e o PostgreSQL permaneceu funcional durante os testes.
 
-------------------------------------------------------------------------
+## 9. O que ainda não foi implementado
 
-## 16. O que ainda NÃO foi implementado
+Para preservar a separação entre fases, permanecem para etapas posteriores:
 
-Para manter a separação entre fases, os seguintes itens permanecem para
-etapas posteriores:
+- collector real;
+- cliente HTTP da Amazon;
+- parser HTML/JSON;
+- extração e normalização completa de ASIN;
+- enriquecimento por fonte oficial;
+- validação efetiva de vendedor e entrega;
+- filtros;
+- score;
+- ranking;
+- momentum;
+- repositories das novas entidades de domínio;
+- `PublicationGenerator`;
+- geração efetiva de link de associado;
+- scheduler;
+- filas;
+- interface operacional;
+- WhatsApp/Telegram;
+- observabilidade;
+- resiliência;
+- segurança e governança;
+- Excel/CSV opcional;
+- mecanismos de escalabilidade e evolução.
 
--   collector real;
--   cliente HTTP da Amazon;
--   acesso automatizado ao endpoint técnico;
--   parser HTML/JSON;
--   extração e normalização completa de ASIN;
--   enriquecimento por fonte oficial;
--   validação efetiva de vendedor;
--   validação efetiva de entrega;
--   filtros;
--   score;
--   ranking;
--   momentum;
--   repositories das novas entidades de domínio;
--   `PublicationGenerator`;
--   geração efetiva de link de associado;
--   scheduler;
--   processamento assíncrono;
--   filas;
--   interface operacional;
--   canais WhatsApp/Telegram;
--   observabilidade;
--   resiliência;
--   segurança e governança;
--   Excel/CSV opcional;
--   mecanismos de escalabilidade e evolução.
+## 10. Fonte Amazon
 
-------------------------------------------------------------------------
+A investigação identificou a página funcional de promoções da Amazon Brasil:
 
-## 17. Roadmap
+```text
+https://www.amazon.com.br/deals
+```
 
-A ordem planejada permanece:
+Também foi observado tecnicamente um endpoint interno JSON. Ele não deve ser tratado automaticamente como interface autorizada de produção. A implementação futura deve priorizar interfaces oficiais aplicáveis e preservar a separação entre coleta e domínio.
 
-``` text
-FASE 0  → Levantamento da fonte e das regras
-FASE 1  → Fundação do projeto Java
-FASE 2  → Banco SQL e migrations
-FASE 3  → Domínio e contratos internos
+## 11. Roadmap
+
+```text
 FASE 4  → Configuração e segredos
-FASE 5  → Coleta da página
+FASE 5  → Coleta
 FASE 6  → Parser, ASIN e normalização
-FASE 7  → Enriquecimento por fonte oficial
+FASE 7  → Enriquecimento oficial
 FASE 8  → Validação Amazon
 FASE 9  → Filtros
 FASE 10 → Score
 FASE 11 → Histórico e momentum
-FASE 12 → Orquestração e processamento assíncrono
-FASE 13 → Interface operacional Java
-FASE 14 → Geração de publicações
-FASE 15 → Testes integrados
-FASE 16 → Observabilidade
-FASE 17 → Agendamento
-FASE 18 → Contrato de canais
-FASE 19 → Bot WhatsApp/Telegram
-FASE 20 → Resiliência
-FASE 21 → Segurança e governança
-FASE 22 → Excel/CSV opcional
-FASE 23 → Escalabilidade e evolução
+FASE 12 → Orquestração
+FASE 13 → Interface
+FASE 14 → Publicação
+FASE 15+ → testes integrados, observabilidade, agendamento,
+           canais, resiliência, segurança, Excel/CSV e escalabilidade
 ```
 
-------------------------------------------------------------------------
+## 12. Documentação de fases
 
-## 18. Configuração local
-
-As credenciais locais não devem ser armazenadas no repositório.
-
-O projeto utiliza um arquivo `.env` local e mantém um modelo:
-
-``` text
-.env.example
+```text
+docs/phases/
+├── FASE_0_RESULTADO.md
+├── FASE_0_RESULTADO_v2.md
+├── FASE_0_v2_PRECOS_PARCELAMENTO_PIX.md
+├── FASE_1_RESULTADO.md
+├── FASE_2_RESULTADO.md
+├── FASE_2_RESULTADO_v2.md
+├── FASE_3_RESULTADO.md
+└── FASE_3_RESULTADO_v2.md
 ```
 
-Exemplo conceitual:
-
-``` text
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=rasping_amazon
-DB_USER=rasping
-DB_PASSWORD=CHANGE_ME
-```
-
-O arquivo `.env` real deve permanecer fora do Git.
-
-------------------------------------------------------------------------
-
-## 19. Banco de desenvolvimento
-
-Configuração utilizada na FASE 2:
-
-``` text
-Banco:       rasping_amazon
-Usuário:     rasping
-Schema:      public
-Porta:       5432
-PostgreSQL:  18.6
-Container:   rasping-amazon-postgres
-```
-
-A infraestrutura local utiliza Docker Compose.
-
-------------------------------------------------------------------------
-
-## 20. Desenvolvimento
-
-A verificação básica do projeto pode ser feita com:
-
-``` powershell
-mvn clean test
-```
-
-O build do projeto pode ser realizado com:
-
-``` powershell
-mvn package
-```
-
-Antes de avançar de fase, a expectativa é manter:
-
--   build reproduzível;
--   testes automatizados;
--   mudanças pequenas e rastreáveis;
--   documentação atualizada;
--   separação entre domínio e infraestrutura;
--   histórico Git organizado.
-
-------------------------------------------------------------------------
-
-## 21. Documentação por fase
-
-Os resultados das fases são mantidos em documentos separados para
-preservar o histórico das decisões:
-
-``` text
-FASE_0_RESULTADO.md
-FASE_0_RESULTADO_v2.md
-FASE_1_RESULTADO.md
-FASE_2_RESULTADO.md
-FASE_2_RESULTADO_v2.md
-FASE_3_RESULTADO.md
-```
-
-Esses documentos registram o que foi efetivamente concluído em cada
-etapa e ajudam a impedir que decisões importantes fiquem somente no
-código ou no histórico da conversa.
-
-------------------------------------------------------------------------
-
-## 22. Princípio de evolução
-
-O projeto deve evoluir **uma fase por vez**.
-
-A implementação de uma fase não deve antecipar silenciosamente
-funcionalidades de fases posteriores.
-
-Cada etapa deve possuir:
-
-1.  objetivo definido;
-2.  implementação correspondente;
-3.  testes verificáveis;
-4.  documentação do resultado;
-5.  decisões registradas;
-6.  estado versionado no Git.
-
-Isso mantém o projeto auditável e reduz o risco de acoplamento
-prematuro.
-
-------------------------------------------------------------------------
-
-## 23. Estado de encerramento da FASE 3
-
-``` text
-FASE 3 — Domínio + Contratos internos
-STATUS: CONCLUÍDA
-
-87 testes
-0 falhas
-0 erros
-
-PostgreSQL + Flyway: preservados
-Domínio independente de infraestrutura: OK
-Contratos internos: OK
-Versionamento de avaliação/publicação: OK
-```
-
-**Próxima etapa: FASE 4 --- Configuração e segredos.**
-
-------------------------------------------------------------------------
-
-## Repositório
-
-Projeto no GitHub:
-
-https://github.com/veiocadan/raspingAmazon
+A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.

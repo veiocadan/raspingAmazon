@@ -3,11 +3,11 @@ package com.raspingamazon.infrastructure.persistence;
 import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.commercial.PaymentConditionType;
 import com.raspingamazon.domain.commercial.PaymentMethod;
+import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.shared.Money;
 import com.raspingamazon.domain.shared.Percentage;
-import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import org.junit.jupiter.api.Test;
@@ -20,8 +20,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OfferPaymentConditionRepositoryTest {
 
@@ -78,12 +78,12 @@ class OfferPaymentConditionRepositoryTest {
                     null,
                     null,
                     null,
-                    null,
                     "Amazon.com.br",
                     "Amazon",
                     SellerType.AMAZON,
                     DeliveryType.AMAZON,
-                    "amazon"
+                    "amazon",
+                    List.of()
             );
 
             OfferSnapshotRepository snapshotRepository =
@@ -162,7 +162,9 @@ class OfferPaymentConditionRepositoryTest {
 
                     assertEquals(
                             null,
-                            resultSet.getObject("installment_count")
+                            resultSet.getObject(
+                                    "installment_count"
+                            )
                     );
 
                     assertEquals(
@@ -213,6 +215,8 @@ class OfferPaymentConditionRepositoryTest {
                             "PIX",
                             resultSet.getString("payment_method")
                     );
+
+                    assertFalse(resultSet.next());
                 }
             }
 
@@ -226,52 +230,12 @@ class OfferPaymentConditionRepositoryTest {
                     password
             )) {
 
-                if (conditionId > 0) {
-
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_payment_condition_method " +
-                                         "WHERE payment_condition_id = ?"
-                                 )) {
-
-                        statement.setLong(1, conditionId);
-                        statement.executeUpdate();
-                    }
-
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_payment_condition " +
-                                         "WHERE id = ?"
-                                 )) {
-
-                        statement.setLong(1, conditionId);
-                        statement.executeUpdate();
-                    }
-                }
-
-                if (snapshotId > 0) {
-
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_snapshot WHERE id = ?"
-                                 )) {
-
-                        statement.setLong(1, snapshotId);
-                        statement.executeUpdate();
-                    }
-                }
-
-                if (productId > 0) {
-
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM product WHERE id = ?"
-                                 )) {
-
-                        statement.setLong(1, productId);
-                        statement.executeUpdate();
-                    }
-                }
+                cleanup(
+                        connection,
+                        conditionId,
+                        snapshotId,
+                        productId
+                );
             }
         }
     }
@@ -329,12 +293,12 @@ class OfferPaymentConditionRepositoryTest {
                     null,
                     null,
                     null,
-                    null,
                     "Amazon.com.br",
                     "Amazon",
                     SellerType.AMAZON,
                     DeliveryType.AMAZON,
-                    "amazon"
+                    "amazon",
+                    List.of()
             );
 
             OfferSnapshotRepository snapshotRepository =
@@ -468,52 +432,67 @@ class OfferPaymentConditionRepositoryTest {
                     password
             )) {
 
-                if (conditionId > 0) {
+                cleanup(
+                        connection,
+                        conditionId,
+                        snapshotId,
+                        productId
+                );
+            }
+        }
+    }
 
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_payment_condition_method " +
-                                         "WHERE payment_condition_id = ?"
-                                 )) {
+    private void cleanup(
+            Connection connection,
+            long conditionId,
+            long snapshotId,
+            long productId
+    ) throws Exception {
 
-                        statement.setLong(1, conditionId);
-                        statement.executeUpdate();
-                    }
+        if (conditionId > 0) {
 
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_payment_condition " +
-                                         "WHERE id = ?"
-                                 )) {
+            try (PreparedStatement statement =
+                         connection.prepareStatement(
+                                 "DELETE FROM offer_payment_condition_method " +
+                                 "WHERE payment_condition_id = ?"
+                         )) {
 
-                        statement.setLong(1, conditionId);
-                        statement.executeUpdate();
-                    }
-                }
+                statement.setLong(1, conditionId);
+                statement.executeUpdate();
+            }
 
-                if (snapshotId > 0) {
+            try (PreparedStatement statement =
+                         connection.prepareStatement(
+                                 "DELETE FROM offer_payment_condition " +
+                                 "WHERE id = ?"
+                         )) {
 
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM offer_snapshot WHERE id = ?"
-                                 )) {
+                statement.setLong(1, conditionId);
+                statement.executeUpdate();
+            }
+        }
 
-                        statement.setLong(1, snapshotId);
-                        statement.executeUpdate();
-                    }
-                }
+        if (snapshotId > 0) {
 
-                if (productId > 0) {
+            try (PreparedStatement statement =
+                         connection.prepareStatement(
+                                 "DELETE FROM offer_snapshot WHERE id = ?"
+                         )) {
 
-                    try (PreparedStatement statement =
-                                 connection.prepareStatement(
-                                         "DELETE FROM product WHERE id = ?"
-                                 )) {
+                statement.setLong(1, snapshotId);
+                statement.executeUpdate();
+            }
+        }
 
-                        statement.setLong(1, productId);
-                        statement.executeUpdate();
-                    }
-                }
+        if (productId > 0) {
+
+            try (PreparedStatement statement =
+                         connection.prepareStatement(
+                                 "DELETE FROM product WHERE id = ?"
+                         )) {
+
+                statement.setLong(1, productId);
+                statement.executeUpdate();
             }
         }
     }

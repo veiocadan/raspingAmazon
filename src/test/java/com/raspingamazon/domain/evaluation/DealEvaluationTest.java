@@ -1,3 +1,4 @@
+
 package com.raspingamazon.domain.evaluation;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,13 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Testa a estrutura de DealEvaluation.
- *
- * Estes testes não implementam as regras de elegibilidade ou scoring.
- * Eles verificam somente se a avaliação consegue representar
- * corretamente o resultado produzido por essas regras.
- */
 class DealEvaluationTest {
 
     private static final Product PRODUCT = new Product(
@@ -42,18 +37,19 @@ class DealEvaluationTest {
             null,
             Money.of("249.90"),
             null,
-            null,
             4.7,
             1520L,
             "Amazon.com.br",
             "Amazon",
             SellerType.AMAZON,
             DeliveryType.AMAZON,
-            "amazon-deals"
+            "amazon-deals",
+            List.of()
     );
 
     @Test
     void shouldCreateEligibleEvaluation() {
+
         OffsetDateTime evaluatedAt = OffsetDateTime.parse(
                 "2026-09-13T19:05:00-03:00"
         );
@@ -87,6 +83,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldCreateRejectedEvaluation() {
+
         DealEvaluation evaluation = new DealEvaluation(
                 21L,
                 SNAPSHOT,
@@ -95,10 +92,13 @@ class DealEvaluationTest {
                 "v1",
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
-                OffsetDateTime.parse("2026-09-13T19:05:00-03:00")
+                OffsetDateTime.parse(
+                        "2026-09-13T19:05:00-03:00"
+                )
         );
 
         assertFalse(evaluation.eligible());
+
         assertEquals(
                 RejectionReason.SELLER_THIRD_PARTY,
                 evaluation.rejectionReason()
@@ -107,6 +107,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldAllowNullIdBeforePersistence() {
+
         DealEvaluation evaluation = new DealEvaluation(
                 null,
                 SNAPSHOT,
@@ -115,7 +116,9 @@ class DealEvaluationTest {
                 "v1",
                 null,
                 null,
-                OffsetDateTime.parse("2026-09-13T19:05:00-03:00")
+                OffsetDateTime.parse(
+                        "2026-09-13T19:05:00-03:00"
+                )
         );
 
         assertNull(evaluation.id());
@@ -123,11 +126,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldAllowNullScoreAndMomentum() {
-        /*
-         * O cálculo do score e do momentum ainda será implementado.
-         * Portanto a entidade estrutural permite que esses resultados
-         * estejam ausentes enquanto não houver valor calculado.
-         */
+
         DealEvaluation evaluation = new DealEvaluation(
                 null,
                 SNAPSHOT,
@@ -136,7 +135,9 @@ class DealEvaluationTest {
                 "v1",
                 null,
                 null,
-                OffsetDateTime.parse("2026-09-13T19:05:00-03:00")
+                OffsetDateTime.parse(
+                        "2026-09-13T19:05:00-03:00"
+                )
         );
 
         assertNull(evaluation.score());
@@ -145,6 +146,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectEligibleEvaluationWithRejectionReason() {
+
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new DealEvaluation(
@@ -162,6 +164,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectRejectedEvaluationWithoutRejectionReason() {
+
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new DealEvaluation(
@@ -179,6 +182,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectNullOfferSnapshot() {
+
         assertThrows(
                 NullPointerException.class,
                 () -> new DealEvaluation(
@@ -196,6 +200,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectNullFilterVersion() {
+
         assertThrows(
                 NullPointerException.class,
                 () -> new DealEvaluation(
@@ -213,6 +218,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectBlankFilterVersion() {
+
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new DealEvaluation(
@@ -230,6 +236,7 @@ class DealEvaluationTest {
 
     @Test
     void shouldRejectNullEvaluatedAt() {
+
         assertThrows(
                 NullPointerException.class,
                 () -> new DealEvaluation(
