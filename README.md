@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência e evolução escalável.
 
-> **Estado atual: FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
+> **Estado atual: FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
 
 ## 1. Objetivo
 
@@ -40,8 +40,9 @@ A ordem das fases deve ser preservada; responsabilidades futuras não devem ser 
 | FASE 2 v2 | Evolução comercial da persistência | CONCLUÍDA |
 | FASE 3 | Domínio e contratos internos | CONCLUÍDA |
 | FASE 3 v2 | Revisão comercial e estrutural | CONCLUÍDA |
+| FASE 4 | Configuração e segredos | CONCLUÍDA |
 
-**Próxima etapa: FASE 4 — Configuração e segredos.**
+**Próxima etapa: FASE 5 — Coleta.**
 
 ## 3. Arquitetura
 
@@ -66,7 +67,7 @@ Responsabilidades principais:
 
 - `domain`: conceitos e invariantes de negócio, sem dependência de infraestrutura;
 - `application`: contratos e coordenação do fluxo;
-- `infrastructure`: PostgreSQL, Flyway, JDBC e adaptadores tecnológicos;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração e adaptadores tecnológicos;
 - `presentation`: interfaces de entrada e exposição operacional futura.
 
 O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Excel ou canais de publicação.
@@ -81,7 +82,45 @@ O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Exce
 - PostgreSQL JDBC 42.7.8
 - Docker / Docker Compose
 
-## 5. Domínio atual
+## 5. Configuração e segredos
+
+A configuração da aplicação é centralizada em:
+
+```text
+EnvironmentConfigProvider
+        ↓
+ApplicationConfig
+```
+
+Variáveis de configuração:
+
+```text
+APP_ENV
+DB_HOST
+DB_PORT
+DB_NAME
+DB_USER
+```
+
+Segredo:
+
+```text
+DB_PASSWORD
+```
+
+`DB_PASSWORD` é obrigatório e não possui valor padrão no código.
+
+A leitura de variáveis de ambiente fica centralizada no `EnvironmentConfigProvider`. Os componentes de infraestrutura recebem `ApplicationConfig` em vez de ler o ambiente diretamente.
+
+O `.env` local não é versionado. O `.env.example` documenta as variáveis necessárias sem conter segredo real.
+
+No Docker Compose, a senha do PostgreSQL é recebida por variável de ambiente:
+
+```yaml
+POSTGRES_PASSWORD: ${DB_PASSWORD}
+```
+
+## 6. Domínio atual
 
 ```text
 domain/
@@ -172,7 +211,7 @@ evaluatedAt
 
 Os motores de filtros, score e momentum ainda não foram implementados.
 
-## 6. Contratos internos
+## 7. Contratos internos
 
 ### Coleta
 
@@ -197,7 +236,7 @@ PublicationRequest
 
 O contrato representa a entrada para o processo de publicação sem antecipar o gerador efetivo.
 
-## 7. Persistência
+## 8. Persistência
 
 PostgreSQL é a persistência SQL principal. O schema evolui por migrations versionadas e a V1 não é editada retroativamente.
 
@@ -215,12 +254,12 @@ offer_payment_condition_method
 
 A persistência de condições comerciais permanece separada das regras de seleção.
 
-## 8. Testes
+## 9. Testes
 
 A suíte consolidada atual:
 
 ```text
-Tests run: 103
+Tests run: 106
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -228,9 +267,9 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-O Flyway validou 2 migrations e o PostgreSQL permaneceu funcional durante os testes.
+O Flyway validou 2 migrations, o schema está na versão 2 e o PostgreSQL permaneceu funcional durante os testes.
 
-## 9. O que ainda não foi implementado
+## 10. O que ainda não foi implementado
 
 Para preservar a separação entre fases, permanecem para etapas posteriores:
 
@@ -253,11 +292,11 @@ Para preservar a separação entre fases, permanecem para etapas posteriores:
 - WhatsApp/Telegram;
 - observabilidade;
 - resiliência;
-- segurança e governança;
+- segurança e governança operacional;
 - Excel/CSV opcional;
 - mecanismos de escalabilidade e evolução.
 
-## 10. Fonte Amazon
+## 11. Fonte Amazon
 
 A investigação identificou a página funcional de promoções da Amazon Brasil:
 
@@ -267,11 +306,11 @@ https://www.amazon.com.br/deals
 
 Também foi observado tecnicamente um endpoint interno JSON. Ele não deve ser tratado automaticamente como interface autorizada de produção. A implementação futura deve priorizar interfaces oficiais aplicáveis e preservar a separação entre coleta e domínio.
 
-## 11. Roadmap
+## 12. Roadmap
 
 ```text
-FASE 4  → Configuração e segredos
-FASE 5  → Coleta
+FASE 4  → Configuração e segredos              [CONCLUÍDA]
+FASE 5  → Coleta                               [PRÓXIMA]
 FASE 6  → Parser, ASIN e normalização
 FASE 7  → Enriquecimento oficial
 FASE 8  → Validação Amazon
@@ -281,11 +320,12 @@ FASE 11 → Histórico e momentum
 FASE 12 → Orquestração
 FASE 13 → Interface
 FASE 14 → Publicação
-FASE 15+ → testes integrados, observabilidade, agendamento,
-           canais, resiliência, segurança, Excel/CSV e escalabilidade
+FASE 15+ → testes integrados, observabilidade,
+           agendamento, canais, resiliência,
+           segurança, Excel/CSV e escalabilidade
 ```
 
-## 12. Documentação de fases
+## 13. Documentação de fases
 
 ```text
 docs/phases/
@@ -296,7 +336,8 @@ docs/phases/
 ├── FASE_2_RESULTADO.md
 ├── FASE_2_RESULTADO_v2.md
 ├── FASE_3_RESULTADO.md
-└── FASE_3_RESULTADO_v2.md
+├── FASE_3_RESULTADO_v2.md
+└── FASE_4_RESULTADO.md
 ```
 
 A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.

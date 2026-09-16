@@ -1,5 +1,11 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.infrastructure.config.ApplicationConfig;
+import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+
+import com.raspingamazon.infrastructure.config.ApplicationConfig;
+import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -35,24 +41,14 @@ class OfferSnapshotRepositoryTest {
     @Test
     void shouldPersistOfferSnapshot() throws Exception {
 
-        String host = System.getenv("DB_HOST");
-        String port = System.getenv("DB_PORT");
-        String database = System.getenv("DB_NAME");
-        String username = System.getenv("DB_USER");
-        String password = System.getenv("DB_PASSWORD");
+        ApplicationConfig config = EnvironmentConfigProvider.load();
 
         String asinValue = "B000TEST03";
 
         long productId = 0;
         long snapshotId = 0;
 
-        try (Connection connection = DatabaseConnection.open(
-                host,
-                port,
-                database,
-                username,
-                password
-        )) {
+        try (Connection connection = DatabaseConnection.open(config)) {
 
             ProductRepository productRepository =
                     new ProductRepository(connection);
@@ -206,13 +202,7 @@ class OfferSnapshotRepositoryTest {
 
         } finally {
 
-            try (Connection connection = DatabaseConnection.open(
-                    host,
-                    port,
-                    database,
-                    username,
-                    password
-            )) {
+            try (Connection connection = DatabaseConnection.open(config)) {
 
                 if (snapshotId > 0) {
 

@@ -1,5 +1,11 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.infrastructure.config.ApplicationConfig;
+import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+
+import com.raspingamazon.infrastructure.config.ApplicationConfig;
+import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+
 import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.commercial.PaymentConditionType;
 import com.raspingamazon.domain.commercial.PaymentMethod;
@@ -28,11 +34,7 @@ class OfferPaymentConditionRepositoryTest {
     @Test
     void shouldPersistCashPaymentCondition() throws Exception {
 
-        String host = System.getenv("DB_HOST");
-        String port = System.getenv("DB_PORT");
-        String database = System.getenv("DB_NAME");
-        String username = System.getenv("DB_USER");
-        String password = System.getenv("DB_PASSWORD");
+        ApplicationConfig config = EnvironmentConfigProvider.load();
 
         String asinValue = "B000TEST04";
 
@@ -40,13 +42,7 @@ class OfferPaymentConditionRepositoryTest {
         long snapshotId = 0;
         long conditionId = 0;
 
-        try (Connection connection = DatabaseConnection.open(
-                host,
-                port,
-                database,
-                username,
-                password
-        )) {
+        try (Connection connection = DatabaseConnection.open(config)) {
 
             ProductRepository productRepository =
                     new ProductRepository(connection);
@@ -222,13 +218,7 @@ class OfferPaymentConditionRepositoryTest {
 
         } finally {
 
-            try (Connection connection = DatabaseConnection.open(
-                    host,
-                    port,
-                    database,
-                    username,
-                    password
-            )) {
+            try (Connection connection = DatabaseConnection.open(config)) {
 
                 cleanup(
                         connection,
@@ -243,11 +233,7 @@ class OfferPaymentConditionRepositoryTest {
     @Test
     void shouldPersistCreditInstallmentCondition() throws Exception {
 
-        String host = System.getenv("DB_HOST");
-        String port = System.getenv("DB_PORT");
-        String database = System.getenv("DB_NAME");
-        String username = System.getenv("DB_USER");
-        String password = System.getenv("DB_PASSWORD");
+        ApplicationConfig config = EnvironmentConfigProvider.load();
 
         String asinValue = "B000TEST05";
 
@@ -255,13 +241,7 @@ class OfferPaymentConditionRepositoryTest {
         long snapshotId = 0;
         long conditionId = 0;
 
-        try (Connection connection = DatabaseConnection.open(
-                host,
-                port,
-                database,
-                username,
-                password
-        )) {
+        try (Connection connection = DatabaseConnection.open(config)) {
 
             ProductRepository productRepository =
                     new ProductRepository(connection);
@@ -424,13 +404,7 @@ class OfferPaymentConditionRepositoryTest {
 
         } finally {
 
-            try (Connection connection = DatabaseConnection.open(
-                    host,
-                    port,
-                    database,
-                    username,
-                    password
-            )) {
+            try (Connection connection = DatabaseConnection.open(config)) {
 
                 cleanup(
                         connection,

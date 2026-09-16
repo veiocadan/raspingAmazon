@@ -1,5 +1,6 @@
 package com.raspingamazon.infrastructure.migration;
 
+import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import org.flywaydb.core.Flyway;
 
 public final class DatabaseMigration {
@@ -7,22 +8,20 @@ public final class DatabaseMigration {
     private DatabaseMigration() {
     }
 
-    public static void migrate(
-            String host,
-            String port,
-            String database,
-            String username,
-            String password
-    ) {
+    public static void migrate(ApplicationConfig config) {
         String jdbcUrl = "jdbc:postgresql://"
-                + host
+                + config.databaseHost()
                 + ":"
-                + port
+                + config.databasePort()
                 + "/"
-                + database;
+                + config.databaseName();
 
         Flyway flyway = Flyway.configure()
-                .dataSource(jdbcUrl, username, password)
+                .dataSource(
+                        jdbcUrl,
+                        config.databaseUser(),
+                        config.databasePassword()
+                )
                 .load();
 
         flyway.migrate();
