@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência e evolução escalável.
 
-> **Estado atual: FASE 5 — Coleta da página de promoções concluída; FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
+> **Estado atual: FASE 6 — Parser, ASIN e normalização concluída; FASE 5 — Coleta da página de promoções concluída; FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
 
 ## 1. Objetivo
 
@@ -42,8 +42,9 @@ A ordem das fases deve ser preservada; responsabilidades futuras não devem ser 
 | FASE 3 v2 | Revisão comercial e estrutural | CONCLUÍDA |
 | FASE 4 | Configuração e segredos | CONCLUÍDA |
 | FASE 5 | Coleta da página de promoções | CONCLUÍDA |
+| FASE 6 | Parser, ASIN e normalização | CONCLUÍDA |
 
-**Próxima etapa: FASE 6 — Parser, ASIN e normalização.**
+**Próxima etapa: FASE 7 — Enriquecimento oficial.**
 
 ## 3. Arquitetura
 
@@ -60,8 +61,10 @@ src/
 │       └── db/
 │           └── migration/
 └── test/
-    └── java/
-        └── com/raspingamazon/
+    ├── java/
+    │   └── com/raspingamazon/
+    └── resources/
+        └── amazon/
 ```
 
 Responsabilidades principais:
@@ -81,6 +84,7 @@ O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Exce
 - PostgreSQL 18.6
 - Flyway 11.14.1
 - PostgreSQL JDBC 42.7.8
+- Jackson Databind 2.20.0
 - Docker / Docker Compose
 
 ## 5. Configuração e segredos
@@ -259,7 +263,7 @@ HttpTransport
 HttpTransportResponse
 ```
 
-O conteúdo coletado permanece bruto nesta fase.
+O conteúdo coletado permanece bruto nesta etapa.
 
 ### Tratamento de falhas
 
@@ -300,7 +304,183 @@ A investigação da FASE 0 também observou tecnicamente:
 
 Esse endpoint interno não foi tratado automaticamente como interface autorizada de produção. Interfaces oficiais aplicáveis continuam sendo priorizadas.
 
-## 8. Contratos internos
+## 8. Parser, ASIN e normalização
+
+A FASE 6 implementou a interpretação do conteúdo bruto coletado pela FASE 5.
+
+Fluxo:
+
+```text
+CollectionResult
+      ↓
+DealsParser
+      ↓
+ParsedDeal
+```
+
+Implementações principais:
+
+```text
+DealsParser
+ParsedDeal
+AmazonDealsParser
+AmazonDealsParsingException
+```
+
+### Estrutura observada
+
+A fixture real confirmou a presença de:
+
+```text
+productSearchResponse
+    └── products
+          ├── product
+          ├── product
+          └── ...
+```
+
+O conteúdo da página não é um JSON puro. O parser localiza `productSearchResponse` dentro do documento e extrai o objeto correspondente antes de interpretar a estrutura com Jackson.
+
+### ASIN
+
+O parser:
+
+1. localiza `asin`;
+2. remove espaços externos;
+3. normaliza para maiúsculas;
+4. valida:
+
+```text
+[A-Z0-9]{10}
+```
+
+5. descarta registros sem ASIN confiável.
+
+O parser não fabrica ou infere ASIN ausente.
+
+### URL
+
+Links relativos são normalizados utilizando a origem da coleta.
+
+Exemplo:
+
+```text
+/dp/B087WLJH8Y
+```
+
+torna-se:
+
+```text
+https://www.amazon.com.br/dp/B087WLJH8Y
+```
+
+A FASE 6 não gera link de associado.
+
+### Preços
+
+O preço atual é extraído de:
+
+```text
+price.priceToPay.price
+```
+
+e convertido para `BigDecimal`.
+
+O `basisPrice` é extraído de:
+
+```text
+price.basisPrice.price
+```
+
+e permanece semanticamente distinto de `previousPrice`.
+
+Na FASE 6:
+
+```text
+basisPrice → preenchido quando fornecido
+previousPrice → null
+```
+
+Nenhum `pixPrice` é inferido.
+
+### Percentual de ofertas reivindicadas
+
+Quando disponível, o parser utiliza:
+
+```text
+dealDetails.percentClaimed
+```
+
+como:
+
+```text
+soldPercentage
+```
+
+O valor deve permanecer entre `0` e `100`.
+
+Esse percentual não é confundido com desconto nem com percentuais relacionados às avaliações.
+
+### Desconto
+
+Valores observados em `dealBadge`, como:
+
+```text
+70% off
+66% off
+```
+
+não são transformados automaticamente em regra de negócio ou atributo universal de desconto.
+
+### Imagem
+
+A imagem de alta resolução é preferida:
+
+```text
+image.hiRes.baseUrl
+image.hiRes.extension
+```
+
+com fallback para baixa resolução quando necessário.
+
+### Registros inválidos
+
+São descartados registros sem dados mínimos confiáveis, incluindo:
+
+```text
+ASIN ausente ou inválido
+título ausente
+URL ausente
+preço atual ausente ou inválido
+```
+
+### Deduplicação
+
+A deduplicação considera:
+
+```text
+ASIN
++
+URL
++
+currentPrice
++
+basisPrice
+```
+
+Isso permite preservar contextos de oferta diferentes para o mesmo ASIN.
+
+### Fixture real
+
+O parser é testado com conteúdo local:
+
+```text
+src/test/resources/amazon/deals-sample.html
+```
+
+A fixture representa conteúdo real coletado da Amazon Brasil e permite executar os testes sem nova chamada de rede.
+
+## 9. Contratos internos
 
 ### Coleta
 
@@ -317,6 +497,15 @@ Collector → CollectionResult → Parser → dados normalizados → Domain
 
 O collector não decide se uma oferta é boa, o parser não decide se ela será publicada e o domínio não interpreta HTML.
 
+### Parsing
+
+```text
+DealsParser
+ParsedDeal
+```
+
+O contrato de parsing mantém a interpretação separada da infraestrutura específica da Amazon.
+
 ### Publicação
 
 ```text
@@ -325,7 +514,7 @@ PublicationRequest
 
 O contrato representa a entrada para o processo de publicação sem antecipar o gerador efetivo.
 
-## 9. Persistência
+## 10. Persistência
 
 PostgreSQL é a persistência SQL principal. O schema evolui por migrations versionadas e a V1 não é editada retroativamente.
 
@@ -343,12 +532,12 @@ offer_payment_condition_method
 
 A persistência de condições comerciais permanece separada das regras de seleção.
 
-## 10. Testes
+## 11. Testes
 
-A suíte consolidada atual:
+Após a conclusão da FASE 6, a suíte consolidada atual:
 
 ```text
-Tests run: 136
+Tests run: 161
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -356,18 +545,16 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Os testes abrangem domínio, contratos, infraestrutura, transporte HTTP, coleta e integração local.
+Os testes abrangem domínio, contratos, infraestrutura, transporte HTTP, coleta, parser e fixture real.
 
-A coleta contra a fonte real possui teste/probe diagnóstico para não tornar toda a suíte dependente da disponibilidade da Amazon.
+A fixture do parser é local e não torna a suíte dependente da disponibilidade da Amazon.
 
 O Flyway validou 2 migrations, o schema está na versão 2 e o PostgreSQL permaneceu funcional durante os testes.
 
-## 11. O que ainda não foi implementado
+## 12. O que ainda não foi implementado
 
 Para preservar a separação entre fases, permanecem para etapas posteriores:
 
-- parser HTML/JSON;
-- extração e normalização completa de ASIN;
 - enriquecimento por fonte oficial;
 - validação efetiva de vendedor e entrega;
 - filtros;
@@ -375,7 +562,7 @@ Para preservar a separação entre fases, permanecem para etapas posteriores:
 - ranking;
 - momentum;
 - repositories das novas entidades de domínio;
-- persistência específica dos resultados de coleta;
+- persistência específica dos resultados normalizados;
 - `PublicationGenerator`;
 - geração efetiva de link de associado;
 - scheduler;
@@ -388,7 +575,7 @@ Para preservar a separação entre fases, permanecem para etapas posteriores:
 - Excel/CSV opcional;
 - mecanismos de escalabilidade e evolução.
 
-## 12. Fonte Amazon
+## 13. Fonte Amazon
 
 A investigação identificou a página funcional de promoções da Amazon Brasil:
 
@@ -406,13 +593,13 @@ User-Agent: RaspingAmazon/1.0
 
 Também foi observado tecnicamente um endpoint interno JSON. Ele não deve ser tratado automaticamente como interface autorizada de produção. A implementação futura deve priorizar interfaces oficiais aplicáveis e preservar a separação entre coleta e domínio.
 
-## 13. Roadmap
+## 14. Roadmap
 
 ```text
 FASE 4  → Configuração e segredos              [CONCLUÍDA]
 FASE 5  → Coleta                               [CONCLUÍDA]
-FASE 6  → Parser, ASIN e normalização          [PRÓXIMA]
-FASE 7  → Enriquecimento oficial
+FASE 6  → Parser, ASIN e normalização          [CONCLUÍDA]
+FASE 7  → Enriquecimento oficial               [PRÓXIMA]
 FASE 8  → Validação Amazon
 FASE 9  → Filtros
 FASE 10 → Score
@@ -425,7 +612,7 @@ FASE 15+ → testes integrados, observabilidade,
            segurança, Excel/CSV e escalabilidade
 ```
 
-## 14. Documentação de fases
+## 15. Documentação de fases
 
 ```text
 docs/phases/
@@ -438,37 +625,53 @@ docs/phases/
 ├── FASE_3_RESULTADO.md
 ├── FASE_3_RESULTADO_v2.md
 ├── FASE_4_RESULTADO.md
-└── FASE_5_RESULTADO.md
+├── FASE_5_RESULTADO.md
+└── FASE_6_RESULTADO.md
 ```
 
 A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.
 
-## 15. Estado atual da FASE 5
+## 16. Estado atual da FASE 6
 
 ```text
-FASE 5 — Coleta da página de promoções
+FASE 6 — Parser, ASIN e normalização
 STATUS: CONCLUÍDA
 
-Fonte real:
+Parser:
 OK
 
-Coleta:
+ASIN:
 OK
 
-User-Agent:
-RaspingAmazon/1.0
-
-Conteúdo bruto:
+URL:
 OK
 
-Tratamento de falhas:
+Título:
 OK
 
-Diagnóstico:
+Preço atual:
+OK
+
+basisPrice:
+OK
+
+previousPrice:
+SEPARADO
+
+soldPercentage:
+OK
+
+Imagem:
+OK
+
+Deduplicação:
+OK
+
+Fixture real:
 OK
 
 Testes:
-136
+161
 
 Falhas:
 0
@@ -482,9 +685,6 @@ Ignorados:
 Build:
 SUCCESS
 
-PostgreSQL/Flyway:
-OK
-
 Próxima etapa:
-FASE 6 — Parser, ASIN e normalização
+FASE 7 — Enriquecimento oficial
 ```
