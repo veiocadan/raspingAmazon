@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência e evolução escalável.
 
-> **Estado atual: FASE 6 — Parser, ASIN e normalização concluída; FASE 5 — Coleta da página de promoções concluída; FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
+> **Estado atual: FASE 7 — Enriquecimento da página individual concluído; FASE 6 — Parser, ASIN e normalização concluída; FASE 5 — Coleta da página de promoções concluída; FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
 
 ## 1. Objetivo
 
@@ -43,8 +43,9 @@ A ordem das fases deve ser preservada; responsabilidades futuras não devem ser 
 | FASE 4 | Configuração e segredos | CONCLUÍDA |
 | FASE 5 | Coleta da página de promoções | CONCLUÍDA |
 | FASE 6 | Parser, ASIN e normalização | CONCLUÍDA |
+| FASE 7 | Enriquecimento da página individual | CONCLUÍDA |
 
-**Próxima etapa: FASE 7 — Enriquecimento oficial.**
+**Próxima etapa: FASE 8 — Validação Amazon.**
 
 ## 3. Arquitetura
 
@@ -506,6 +507,29 @@ ParsedDeal
 
 O contrato de parsing mantém a interpretação separada da infraestrutura específica da Amazon.
 
+### Enriquecimento
+
+```text
+ProductEnrichmentClient
+ProductEnrichmentResult
+```
+
+Fluxo:
+
+```text
+ParsedDeal
+    ↓
+ProductEnrichmentClient
+    ↓
+AmazonProductPageEnrichmentClient
+    ↓
+AmazonProductPageParser
+    ↓
+ProductEnrichmentResult
+```
+
+A FASE 7 utiliza a página individual do produto como fonte de enriquecimento. A implementação não representa uma integração já concluída com uma API oficial da Amazon.
+
 ### Publicação
 
 ```text
@@ -534,10 +558,10 @@ A persistência de condições comerciais permanece separada das regras de sele�
 
 ## 11. Testes
 
-Após a conclusão da FASE 6, a suíte consolidada atual:
+Após a conclusão da FASE 7, a suíte consolidada atual:
 
 ```text
-Tests run: 161
+Tests run: 179
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -545,7 +569,7 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Os testes abrangem domínio, contratos, infraestrutura, transporte HTTP, coleta, parser e fixture real.
+Os testes abrangem domínio, contratos, infraestrutura, transporte HTTP, coleta, parser e enriquecimento da página individual.
 
 A fixture do parser é local e não torna a suíte dependente da disponibilidade da Amazon.
 
@@ -555,7 +579,6 @@ O Flyway validou 2 migrations, o schema está na versão 2 e o PostgreSQL perman
 
 Para preservar a separação entre fases, permanecem para etapas posteriores:
 
-- enriquecimento por fonte oficial;
 - validação efetiva de vendedor e entrega;
 - filtros;
 - score;
@@ -593,14 +616,41 @@ User-Agent: RaspingAmazon/1.0
 
 Também foi observado tecnicamente um endpoint interno JSON. Ele não deve ser tratado automaticamente como interface autorizada de produção. A implementação futura deve priorizar interfaces oficiais aplicáveis e preservar a separação entre coleta e domínio.
 
-## 14. Roadmap
+## 14. Enriquecimento da página individual
+
+A FASE 7 implementou o enriquecimento da oferta normalizada pela FASE 6 utilizando a URL do produto.
+
+Seller e delivery são extraídos de forma independente a partir das evidências da oferta principal. A decisão de elegibilidade permanece reservada à FASE 8.
+
+A implementação atual utiliza a página individual do produto como fonte de enriquecimento. Isso não significa que uma API oficial da Amazon já esteja integrada.
+
+Fixtures:
+
+```text
+amazon-amazonglobal.html
+misto.html
+totalamazon.html
+totalterceiro.html
+```
+
+Validação:
+
+```text
+Tests run: 179
+Failures: 0
+Errors: 0
+Skipped: 0
+BUILD SUCCESS
+```
+
+## 15. Roadmap
 
 ```text
 FASE 4  → Configuração e segredos              [CONCLUÍDA]
 FASE 5  → Coleta                               [CONCLUÍDA]
 FASE 6  → Parser, ASIN e normalização          [CONCLUÍDA]
-FASE 7  → Enriquecimento oficial               [PRÓXIMA]
-FASE 8  → Validação Amazon
+FASE 7  → Enriquecimento da página individual   [CONCLUÍDA]
+FASE 8  → Validação Amazon                      [PRÓXIMA]
 FASE 9  → Filtros
 FASE 10 → Score
 FASE 11 → Histórico e momentum
@@ -612,7 +662,7 @@ FASE 15+ → testes integrados, observabilidade,
            segurança, Excel/CSV e escalabilidade
 ```
 
-## 15. Documentação de fases
+## 16. Documentação de fases
 
 ```text
 docs/phases/
@@ -626,52 +676,38 @@ docs/phases/
 ├── FASE_3_RESULTADO_v2.md
 ├── FASE_4_RESULTADO.md
 ├── FASE_5_RESULTADO.md
-└── FASE_6_RESULTADO.md
+├── FASE_6_RESULTADO.md
+└── FASE_7_RESULTADO.md
 ```
 
 A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.
 
-## 16. Estado atual da FASE 6
+## 17. Estado atual da FASE 7
 
 ```text
-FASE 6 — Parser, ASIN e normalização
+FASE 7 — Enriquecimento da página individual
 STATUS: CONCLUÍDA
 
-Parser:
+Enriquecimento:
 OK
 
-ASIN:
+Parser da página individual:
 OK
 
-URL:
+Seller:
 OK
 
-Título:
+Delivery:
 OK
 
-Preço atual:
+Seller / Delivery independentes:
 OK
 
-basisPrice:
-OK
-
-previousPrice:
-SEPARADO
-
-soldPercentage:
-OK
-
-Imagem:
-OK
-
-Deduplicação:
-OK
-
-Fixture real:
+Fixtures de seller/delivery:
 OK
 
 Testes:
-161
+179
 
 Falhas:
 0
@@ -686,5 +722,5 @@ Build:
 SUCCESS
 
 Próxima etapa:
-FASE 7 — Enriquecimento oficial
+FASE 8 — Validação Amazon
 ```
