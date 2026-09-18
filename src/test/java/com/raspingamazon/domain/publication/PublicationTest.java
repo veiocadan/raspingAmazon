@@ -20,9 +20,10 @@ class PublicationTest {
     @Test
     void shouldCreatePublicationWithCreatedStatus() {
 
-        Publication publication = createPublication(
-                PublicationStatus.CREATED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.CREATED
+                );
 
         assertEquals(
                 PublicationStatus.CREATED,
@@ -33,9 +34,10 @@ class PublicationTest {
     @Test
     void shouldMoveFromCreatedToReady() {
 
-        Publication publication = createPublication(
-                PublicationStatus.CREATED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.CREATED
+                );
 
         publication.markReady();
 
@@ -48,9 +50,10 @@ class PublicationTest {
     @Test
     void shouldMoveFromReadyToPublished() {
 
-        Publication publication = createPublication(
-                PublicationStatus.READY
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.READY
+                );
 
         publication.markPublished();
 
@@ -63,9 +66,10 @@ class PublicationTest {
     @Test
     void shouldMoveFromReadyToFailed() {
 
-        Publication publication = createPublication(
-                PublicationStatus.READY
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.READY
+                );
 
         publication.markFailed();
 
@@ -78,9 +82,10 @@ class PublicationTest {
     @Test
     void shouldRetryFailedPublication() {
 
-        Publication publication = createPublication(
-                PublicationStatus.FAILED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.FAILED
+                );
 
         publication.retry();
 
@@ -93,9 +98,10 @@ class PublicationTest {
     @Test
     void shouldRejectReadyTransitionFromPublished() {
 
-        Publication publication = createPublication(
-                PublicationStatus.PUBLISHED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.PUBLISHED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -111,9 +117,10 @@ class PublicationTest {
     @Test
     void shouldRejectPublishingAlreadyPublishedPublication() {
 
-        Publication publication = createPublication(
-                PublicationStatus.PUBLISHED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.PUBLISHED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -129,9 +136,10 @@ class PublicationTest {
     @Test
     void shouldRejectPublishingFailedPublicationDirectly() {
 
-        Publication publication = createPublication(
-                PublicationStatus.FAILED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.FAILED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -147,9 +155,10 @@ class PublicationTest {
     @Test
     void shouldRejectPublishingCreatedPublicationDirectly() {
 
-        Publication publication = createPublication(
-                PublicationStatus.CREATED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.CREATED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -165,9 +174,10 @@ class PublicationTest {
     @Test
     void shouldRejectFailingCreatedPublicationDirectly() {
 
-        Publication publication = createPublication(
-                PublicationStatus.CREATED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.CREATED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -183,9 +193,10 @@ class PublicationTest {
     @Test
     void shouldRejectRetryFromReady() {
 
-        Publication publication = createPublication(
-                PublicationStatus.READY
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.READY
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -201,9 +212,10 @@ class PublicationTest {
     @Test
     void shouldRejectRetryFromCreated() {
 
-        Publication publication = createPublication(
-                PublicationStatus.CREATED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.CREATED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -219,9 +231,10 @@ class PublicationTest {
     @Test
     void shouldRejectRetryFromPublished() {
 
-        Publication publication = createPublication(
-                PublicationStatus.PUBLISHED
-        );
+        Publication publication =
+                createPublication(
+                        PublicationStatus.PUBLISHED
+                );
 
         assertThrows(
                 IllegalStateException.class,
@@ -238,42 +251,52 @@ class PublicationTest {
             PublicationStatus status
     ) {
 
-        Product product = new Product(
-                1L,
-                new Asin("B000000001"),
-                "Produto de teste",
-                "https://example.com/image.jpg",
-                "https://example.com/product"
-        );
+        Product product =
+                new Product(
+                        1L,
+                        new Asin("B000000001"),
+                        "Produto de teste",
+                        "https://example.com/image.jpg",
+                        "https://example.com/product"
+                );
 
-        OfferSnapshot snapshot = new OfferSnapshot(
-                1L,
-                product,
-                OffsetDateTime.now(),
-                Money.of("100.00"),
-                Money.of("120.00"),
-                null,
-                null,
-                4.5,
-                100L,
-                "Amazon.com.br",
-                "Amazon",
-                SellerType.AMAZON,
-                DeliveryType.AMAZON,
-                "TEST",
-                List.of()
-        );
+        OfferSnapshot snapshot =
+                new OfferSnapshot(
+                        1L,
+                        product,
+                        OffsetDateTime.now(),
+                        Money.of("100.00"),
+                        Money.of("120.00"),
+                        null,
+                        null,
+                        4.5,
+                        100L,
+                        "Amazon.com.br",
+                        "Amazon",
+                        SellerType.AMAZON,
+                        DeliveryType.AMAZON,
+                        "TEST",
+                        List.of()
+                );
 
-        DealEvaluation evaluation = new DealEvaluation(
-                1L,
-                snapshot,
-                true,
-                null,
-                "v1",
-                null,
-                null,
-                OffsetDateTime.now()
-        );
+        /*
+         * Este teste não testa filtros, score ou momentum.
+         * Portanto somente a política estrutural possui versão.
+         */
+        DealEvaluation evaluation =
+                new DealEvaluation(
+                        1L,
+                        snapshot,
+                        true,
+                        null,
+                        "AMAZON_SELLER_DELIVERY_V1",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                );
 
         return new Publication(
                 1L,

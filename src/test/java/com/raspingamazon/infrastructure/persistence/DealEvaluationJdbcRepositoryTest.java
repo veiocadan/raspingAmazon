@@ -10,6 +10,7 @@ import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -27,53 +28,109 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Teste de integração entre DealEvaluation e PostgreSQL.
+ *
+ * <p>A FASE 8.5-C separa as versões de:</p>
+ *
+ * <ul>
+ *     <li>eligibilidade;</li>
+ *     <li>filtros;</li>
+ *     <li>score;</li>
+ *     <li>momentum.</li>
+ * </ul>
+ */
 class DealEvaluationJdbcRepositoryTest {
 
     @Test
-    void shouldPersistEligibleDealEvaluation() throws Exception {
-        ApplicationConfig config = EnvironmentConfigProvider.load();
+    void shouldPersistEligibleDealEvaluation()
+            throws Exception {
+
+        ApplicationConfig config =
+                EnvironmentConfigProvider.load();
+
+        /*
+         * Garante aplicação da migration V4.
+         */
+        DatabaseMigration.migrate(
+                config
+        );
 
         long productId = 0;
         long offerSnapshotId = 0;
         long evaluationId = 0;
 
-        try (Connection connection = DatabaseConnection.open(config)) {
+        try (Connection connection =
+                     DatabaseConnection.open(
+                             config
+                     )) {
 
-            Product product = createProduct(connection);
-            productId = product.id();
+            Product product =
+                    createProduct(
+                            connection
+                    );
 
-            offerSnapshotId = createOfferSnapshot(
-                    connection,
-                    product.id()
-            );
+            productId =
+                    product.id();
 
-            OfferSnapshot offerSnapshot = createOfferSnapshotDomain(
-                    product,
-                    offerSnapshotId
-            );
+            offerSnapshotId =
+                    createOfferSnapshot(
+                            connection,
+                            product.id()
+                    );
 
-            OffsetDateTime evaluatedAt = OffsetDateTime.now();
+            OfferSnapshot offerSnapshot =
+                    createOfferSnapshotDomain(
+                            product,
+                            offerSnapshotId
+                    );
 
-            DealEvaluation evaluation = new DealEvaluation(
-                    null,
-                    offerSnapshot,
-                    true,
-                    null,
-                    "AMAZON_SELLER_DELIVERY_V1",
-                    null,
-                    null,
-                    evaluatedAt
-            );
+            OffsetDateTime evaluatedAt =
+                    OffsetDateTime.now();
+
+            DealEvaluation evaluation =
+                    new DealEvaluation(
+                            null,
+                            offerSnapshot,
+                            true,
+                            null,
+
+                            "AMAZON_SELLER_DELIVERY_V1",
+                            null,
+
+                            null,
+                            null,
+
+                            null,
+                            null,
+
+                            evaluatedAt
+                    );
 
             DealEvaluationJdbcRepository repository =
-                    new DealEvaluationJdbcRepository(connection);
+                    new DealEvaluationJdbcRepository(
+                            connection
+                    );
 
-            DealEvaluation persisted = repository.save(evaluation);
-            evaluationId = persisted.id();
+            DealEvaluation persisted =
+                    repository.save(
+                            evaluation
+                    );
 
-            assertNotNull(persisted);
-            assertNotNull(persisted.id());
-            assertTrue(persisted.id() > 0);
+            evaluationId =
+                    persisted.id();
+
+            assertNotNull(
+                    persisted
+            );
+
+            assertNotNull(
+                    persisted.id()
+            );
+
+            assertTrue(
+                    persisted.id() > 0
+            );
 
             assertEquals(
                     offerSnapshotId,
@@ -90,7 +147,11 @@ class DealEvaluationJdbcRepositoryTest {
 
             assertEquals(
                     "AMAZON_SELLER_DELIVERY_V1",
-                    persisted.filterVersion()
+                    persisted.eligibilityPolicyVersion()
+            );
+
+            assertNull(
+                    persisted.filterProfileVersion()
             );
 
             assertNull(
@@ -98,7 +159,15 @@ class DealEvaluationJdbcRepositoryTest {
             );
 
             assertNull(
+                    persisted.scoreVersion()
+            );
+
+            assertNull(
                     persisted.momentum()
+            );
+
+            assertNull(
+                    persisted.momentumVersion()
             );
 
             assertEquals(
@@ -115,9 +184,14 @@ class DealEvaluationJdbcRepositoryTest {
                     "AMAZON_SELLER_DELIVERY_V1",
                     null,
                     null,
+                    null,
+                    null,
+                    null,
                     evaluatedAt
             );
+
         } finally {
+
             cleanup(
                     config,
                     evaluationId,
@@ -128,50 +202,91 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     @Test
-    void shouldPersistRejectedDealEvaluation() throws Exception {
-        ApplicationConfig config = EnvironmentConfigProvider.load();
+    void shouldPersistRejectedDealEvaluation()
+            throws Exception {
+
+        ApplicationConfig config =
+                EnvironmentConfigProvider.load();
+
+        DatabaseMigration.migrate(
+                config
+        );
 
         long productId = 0;
         long offerSnapshotId = 0;
         long evaluationId = 0;
 
-        try (Connection connection = DatabaseConnection.open(config)) {
+        try (Connection connection =
+                     DatabaseConnection.open(
+                             config
+                     )) {
 
-            Product product = createProduct(connection);
-            productId = product.id();
+            Product product =
+                    createProduct(
+                            connection
+                    );
 
-            offerSnapshotId = createOfferSnapshot(
-                    connection,
-                    product.id()
-            );
+            productId =
+                    product.id();
 
-            OfferSnapshot offerSnapshot = createOfferSnapshotDomain(
-                    product,
-                    offerSnapshotId
-            );
+            offerSnapshotId =
+                    createOfferSnapshot(
+                            connection,
+                            product.id()
+                    );
 
-            OffsetDateTime evaluatedAt = OffsetDateTime.now();
+            OfferSnapshot offerSnapshot =
+                    createOfferSnapshotDomain(
+                            product,
+                            offerSnapshotId
+                    );
 
-            DealEvaluation evaluation = new DealEvaluation(
-                    null,
-                    offerSnapshot,
-                    false,
-                    RejectionReason.SELLER_THIRD_PARTY,
-                    "AMAZON_SELLER_DELIVERY_V1",
-                    null,
-                    null,
-                    evaluatedAt
-            );
+            OffsetDateTime evaluatedAt =
+                    OffsetDateTime.now();
+
+            DealEvaluation evaluation =
+                    new DealEvaluation(
+                            null,
+                            offerSnapshot,
+                            false,
+                            RejectionReason.SELLER_THIRD_PARTY,
+
+                            "AMAZON_SELLER_DELIVERY_V1",
+                            null,
+
+                            null,
+                            null,
+
+                            null,
+                            null,
+
+                            evaluatedAt
+                    );
 
             DealEvaluationJdbcRepository repository =
-                    new DealEvaluationJdbcRepository(connection);
+                    new DealEvaluationJdbcRepository(
+                            connection
+                    );
 
-            DealEvaluation persisted = repository.save(evaluation);
-            evaluationId = persisted.id();
+            DealEvaluation persisted =
+                    repository.save(
+                            evaluation
+                    );
 
-            assertNotNull(persisted);
-            assertNotNull(persisted.id());
-            assertTrue(persisted.id() > 0);
+            evaluationId =
+                    persisted.id();
+
+            assertNotNull(
+                    persisted
+            );
+
+            assertNotNull(
+                    persisted.id()
+            );
+
+            assertTrue(
+                    persisted.id() > 0
+            );
 
             assertEquals(
                     offerSnapshotId,
@@ -189,7 +304,11 @@ class DealEvaluationJdbcRepositoryTest {
 
             assertEquals(
                     "AMAZON_SELLER_DELIVERY_V1",
-                    persisted.filterVersion()
+                    persisted.eligibilityPolicyVersion()
+            );
+
+            assertNull(
+                    persisted.filterProfileVersion()
             );
 
             assertNull(
@@ -197,7 +316,15 @@ class DealEvaluationJdbcRepositoryTest {
             );
 
             assertNull(
+                    persisted.scoreVersion()
+            );
+
+            assertNull(
                     persisted.momentum()
+            );
+
+            assertNull(
+                    persisted.momentumVersion()
             );
 
             assertEquals(
@@ -214,9 +341,14 @@ class DealEvaluationJdbcRepositoryTest {
                     "AMAZON_SELLER_DELIVERY_V1",
                     null,
                     null,
+                    null,
+                    null,
+                    null,
                     evaluatedAt
             );
+
         } finally {
+
             cleanup(
                     config,
                     evaluationId,
@@ -226,11 +358,17 @@ class DealEvaluationJdbcRepositoryTest {
         }
     }
 
+    /**
+     * Cria o Product necessário para o snapshot.
+     */
     private Product createProduct(
             Connection connection
     ) throws SQLException {
+
         ProductRepository repository =
-                new ProductRepository(connection);
+                new ProductRepository(
+                        connection
+                );
 
         String asin =
                 "B000TEST86";
@@ -245,17 +383,23 @@ class DealEvaluationJdbcRepositoryTest {
 
         return new Product(
                 productId,
-                new Asin(asin),
+                new Asin(
+                        asin
+                ),
                 "Produto de teste",
                 null,
                 "https://example.invalid/produto"
         );
     }
 
+    /**
+     * Cria diretamente a linha de offer_snapshot utilizada pelo teste.
+     */
     private long createOfferSnapshot(
             Connection connection,
             long productId
     ) throws SQLException {
+
         String sql = """
                 INSERT INTO offer_snapshot (
                     product_id,
@@ -275,7 +419,9 @@ class DealEvaluationJdbcRepositoryTest {
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(sql)) {
+                     connection.prepareStatement(
+                             sql
+                     )) {
 
             statement.setLong(
                     1,
@@ -341,11 +487,16 @@ class DealEvaluationJdbcRepositoryTest {
                     );
                 }
 
-                return resultSet.getLong("id");
+                return resultSet.getLong(
+                        "id"
+                );
             }
         }
     }
 
+    /**
+     * Cria a representação de domínio correspondente ao snapshot.
+     */
     private OfferSnapshot createOfferSnapshotDomain(
             Product product,
             long offerSnapshotId
@@ -375,32 +526,44 @@ class DealEvaluationJdbcRepositoryTest {
         );
     }
 
+    /**
+     * Verifica a linha persistida diretamente no PostgreSQL.
+     */
     private void assertDatabaseRow(
             Connection connection,
             long evaluationId,
             long offerSnapshotId,
             boolean eligible,
             String rejectionReason,
-            String filterVersion,
+            String eligibilityPolicyVersion,
+            String filterProfileVersion,
             BigDecimal score,
+            String scoreVersion,
             BigDecimal momentum,
+            String momentumVersion,
             OffsetDateTime evaluatedAt
     ) throws SQLException {
+
         String sql = """
                 SELECT
                     offer_snapshot_id,
                     eligible,
                     rejection_reason,
-                    filter_version,
+                    eligibility_policy_version,
+                    filter_profile_version,
                     score,
+                    score_version,
                     momentum,
+                    momentum_version,
                     evaluated_at
                 FROM deal_evaluation
                 WHERE id = ?
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(sql)) {
+                     connection.prepareStatement(
+                             sql
+                     )) {
 
             statement.setLong(
                     1,
@@ -437,9 +600,16 @@ class DealEvaluationJdbcRepositoryTest {
                 );
 
                 assertEquals(
-                        filterVersion,
+                        eligibilityPolicyVersion,
                         resultSet.getString(
-                                "filter_version"
+                                "eligibility_policy_version"
+                        )
+                );
+
+                assertEquals(
+                        filterProfileVersion,
+                        resultSet.getString(
+                                "filter_profile_version"
                         )
                 );
 
@@ -451,9 +621,23 @@ class DealEvaluationJdbcRepositoryTest {
                 );
 
                 assertEquals(
+                        scoreVersion,
+                        resultSet.getString(
+                                "score_version"
+                        )
+                );
+
+                assertEquals(
                         momentum,
                         resultSet.getBigDecimal(
                                 "momentum"
+                        )
+                );
+
+                assertEquals(
+                        momentumVersion,
+                        resultSet.getString(
+                                "momentum_version"
                         )
                 );
 
@@ -479,27 +663,35 @@ class DealEvaluationJdbcRepositoryTest {
         }
     }
 
+    /**
+     * Remove os registros criados pelo teste.
+     */
     private void cleanup(
             ApplicationConfig config,
             long evaluationId,
             long offerSnapshotId,
             long productId
     ) {
-        if (
-                evaluationId == 0
-                        && offerSnapshotId == 0
-                        && productId == 0
-        ) {
+
+        if (evaluationId == 0
+                && offerSnapshotId == 0
+                && productId == 0) {
             return;
         }
 
         try (Connection connection =
-                     DatabaseConnection.open(config)) {
+                     DatabaseConnection.open(
+                             config
+                     )) {
 
             if (evaluationId > 0) {
+
                 try (PreparedStatement statement =
                              connection.prepareStatement(
-                                     "DELETE FROM deal_evaluation WHERE id = ?"
+                                     """
+                                     DELETE FROM deal_evaluation
+                                     WHERE id = ?
+                                     """
                              )) {
 
                     statement.setLong(
@@ -512,9 +704,13 @@ class DealEvaluationJdbcRepositoryTest {
             }
 
             if (offerSnapshotId > 0) {
+
                 try (PreparedStatement statement =
                              connection.prepareStatement(
-                                     "DELETE FROM offer_snapshot WHERE id = ?"
+                                     """
+                                     DELETE FROM offer_snapshot
+                                     WHERE id = ?
+                                     """
                              )) {
 
                     statement.setLong(
@@ -527,9 +723,13 @@ class DealEvaluationJdbcRepositoryTest {
             }
 
             if (productId > 0) {
+
                 try (PreparedStatement statement =
                              connection.prepareStatement(
-                                     "DELETE FROM product WHERE id = ?"
+                                     """
+                                     DELETE FROM product
+                                     WHERE id = ?
+                                     """
                              )) {
 
                     statement.setLong(
@@ -542,6 +742,7 @@ class DealEvaluationJdbcRepositoryTest {
             }
 
         } catch (SQLException exception) {
+
             throw new IllegalStateException(
                     "Failed to clean up persistence test data",
                     exception

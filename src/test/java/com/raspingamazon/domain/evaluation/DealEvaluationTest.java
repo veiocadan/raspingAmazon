@@ -1,4 +1,3 @@
-
 package com.raspingamazon.domain.evaluation;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
@@ -19,85 +18,145 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Testes das invariantes estruturais de DealEvaluation.
+ */
 class DealEvaluationTest {
 
-    private static final Product PRODUCT = new Product(
-            1L,
-            new Asin("B0FN4BK3V7"),
-            "Produto de teste",
-            null,
-            "https://www.amazon.com.br/dp/B0FN4BK3V7"
-    );
+    private static final Product PRODUCT =
+            new Product(
+                    1L,
+                    new Asin("B0FN4BK3V7"),
+                    "Produto de teste",
+                    null,
+                    "https://www.amazon.com.br/dp/B0FN4BK3V7"
+            );
 
-    private static final OfferSnapshot SNAPSHOT = new OfferSnapshot(
-            10L,
-            PRODUCT,
-            OffsetDateTime.parse("2026-09-13T19:00:00-03:00"),
-            Money.of("199.90"),
-            null,
-            Money.of("249.90"),
-            null,
-            4.7,
-            1520L,
-            "Amazon.com.br",
-            "Amazon",
-            SellerType.AMAZON,
-            DeliveryType.AMAZON,
-            "amazon-deals",
-            List.of()
-    );
+    private static final OfferSnapshot SNAPSHOT =
+            new OfferSnapshot(
+                    10L,
+                    PRODUCT,
+                    OffsetDateTime.parse(
+                            "2026-09-13T19:00:00-03:00"
+                    ),
+                    Money.of("199.90"),
+                    null,
+                    Money.of("249.90"),
+                    null,
+                    4.7,
+                    1520L,
+                    "Amazon.com.br",
+                    "Amazon",
+                    SellerType.AMAZON,
+                    DeliveryType.AMAZON,
+                    "amazon-deals",
+                    List.of()
+            );
 
     @Test
-    void shouldCreateEligibleEvaluation() {
+    void shouldCreateCompleteEvaluation() {
 
-        OffsetDateTime evaluatedAt = OffsetDateTime.parse(
-                "2026-09-13T19:05:00-03:00"
-        );
+        OffsetDateTime evaluatedAt =
+                OffsetDateTime.parse(
+                        "2026-09-13T19:05:00-03:00"
+                );
 
-        DealEvaluation evaluation = new DealEvaluation(
+        DealEvaluation evaluation =
+                new DealEvaluation(
+                        20L,
+                        SNAPSHOT,
+                        true,
+                        null,
+
+                        "eligibility-v1",
+                        "filter-v1",
+
+                        new BigDecimal("85.50"),
+                        "score-v1",
+
+                        new BigDecimal("12.30"),
+                        "momentum-v1",
+
+                        evaluatedAt
+                );
+
+        assertEquals(
                 20L,
-                SNAPSHOT,
-                true,
-                null,
-                "v1",
-                new BigDecimal("85.50"),
-                new BigDecimal("12.30"),
-                evaluatedAt
+                evaluation.id()
         );
 
-        assertEquals(20L, evaluation.id());
-        assertEquals(SNAPSHOT, evaluation.offerSnapshot());
-        assertTrue(evaluation.eligible());
-        assertNull(evaluation.rejectionReason());
-        assertEquals("v1", evaluation.filterVersion());
+        assertEquals(
+                SNAPSHOT,
+                evaluation.offerSnapshot()
+        );
+
+        assertTrue(
+                evaluation.eligible()
+        );
+
+        assertNull(
+                evaluation.rejectionReason()
+        );
+
+        assertEquals(
+                "eligibility-v1",
+                evaluation.eligibilityPolicyVersion()
+        );
+
+        assertEquals(
+                "filter-v1",
+                evaluation.filterProfileVersion()
+        );
+
         assertEquals(
                 new BigDecimal("85.50"),
                 evaluation.score()
         );
+
+        assertEquals(
+                "score-v1",
+                evaluation.scoreVersion()
+        );
+
         assertEquals(
                 new BigDecimal("12.30"),
                 evaluation.momentum()
         );
-        assertEquals(evaluatedAt, evaluation.evaluatedAt());
+
+        assertEquals(
+                "momentum-v1",
+                evaluation.momentumVersion()
+        );
+
+        assertEquals(
+                evaluatedAt,
+                evaluation.evaluatedAt()
+        );
     }
 
     @Test
     void shouldCreateRejectedEvaluation() {
 
-        DealEvaluation evaluation = new DealEvaluation(
-                21L,
-                SNAPSHOT,
-                false,
-                RejectionReason.SELLER_THIRD_PARTY,
-                "v1",
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                OffsetDateTime.parse(
-                        "2026-09-13T19:05:00-03:00"
-                )
-        );
+        DealEvaluation evaluation =
+                new DealEvaluation(
+                        21L,
+                        SNAPSHOT,
+                        false,
+                        RejectionReason.SELLER_THIRD_PARTY,
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        OffsetDateTime.parse(
+                                "2026-09-13T19:05:00-03:00"
+                        )
+                );
 
-        assertFalse(evaluation.eligible());
+        assertFalse(
+                evaluation.eligible()
+        );
 
         assertEquals(
                 RejectionReason.SELLER_THIRD_PARTY,
@@ -108,40 +167,43 @@ class DealEvaluationTest {
     @Test
     void shouldAllowNullIdBeforePersistence() {
 
-        DealEvaluation evaluation = new DealEvaluation(
-                null,
-                SNAPSHOT,
-                true,
-                null,
-                "v1",
-                null,
-                null,
-                OffsetDateTime.parse(
-                        "2026-09-13T19:05:00-03:00"
-                )
-        );
+        DealEvaluation evaluation =
+                createCurrentPhaseEvaluation(
+                        null
+                );
 
-        assertNull(evaluation.id());
+        assertNull(
+                evaluation.id()
+        );
     }
 
     @Test
-    void shouldAllowNullScoreAndMomentum() {
+    void shouldAllowFutureVersionsToRemainNull() {
 
-        DealEvaluation evaluation = new DealEvaluation(
-                null,
-                SNAPSHOT,
-                true,
-                null,
-                "v1",
-                null,
-                null,
-                OffsetDateTime.parse(
-                        "2026-09-13T19:05:00-03:00"
-                )
+        DealEvaluation evaluation =
+                createCurrentPhaseEvaluation(
+                        null
+                );
+
+        assertNull(
+                evaluation.filterProfileVersion()
         );
 
-        assertNull(evaluation.score());
-        assertNull(evaluation.momentum());
+        assertNull(
+                evaluation.score()
+        );
+
+        assertNull(
+                evaluation.scoreVersion()
+        );
+
+        assertNull(
+                evaluation.momentum()
+        );
+
+        assertNull(
+                evaluation.momentumVersion()
+        );
     }
 
     @Test
@@ -154,7 +216,10 @@ class DealEvaluationTest {
                         SNAPSHOT,
                         true,
                         RejectionReason.SELLER_THIRD_PARTY,
-                        "v1",
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
                         null,
                         null,
                         OffsetDateTime.now()
@@ -172,7 +237,10 @@ class DealEvaluationTest {
                         SNAPSHOT,
                         false,
                         null,
-                        "v1",
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
                         null,
                         null,
                         OffsetDateTime.now()
@@ -190,7 +258,10 @@ class DealEvaluationTest {
                         null,
                         true,
                         null,
-                        "v1",
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
                         null,
                         null,
                         OffsetDateTime.now()
@@ -199,7 +270,7 @@ class DealEvaluationTest {
     }
 
     @Test
-    void shouldRejectNullFilterVersion() {
+    void shouldRejectNullEligibilityPolicyVersion() {
 
         assertThrows(
                 NullPointerException.class,
@@ -211,13 +282,16 @@ class DealEvaluationTest {
                         null,
                         null,
                         null,
+                        null,
+                        null,
+                        null,
                         OffsetDateTime.now()
                 )
         );
     }
 
     @Test
-    void shouldRejectBlankFilterVersion() {
+    void shouldRejectBlankEligibilityPolicyVersion() {
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -229,6 +303,114 @@ class DealEvaluationTest {
                         "   ",
                         null,
                         null,
+                        null,
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectBlankOptionalVersionFields() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        null,
+                        "eligibility-v1",
+                        "   ",
+                        null,
+                        null,
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectScoreWithoutScoreVersion() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        null,
+                        "eligibility-v1",
+                        null,
+                        new BigDecimal("50.00"),
+                        null,
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectScoreVersionWithoutScore() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        null,
+                        "eligibility-v1",
+                        null,
+                        null,
+                        "score-v1",
+                        null,
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectMomentumWithoutMomentumVersion() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        null,
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
+                        new BigDecimal("10.00"),
+                        null,
+                        OffsetDateTime.now()
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectMomentumVersionWithoutMomentum() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DealEvaluation(
+                        null,
+                        SNAPSHOT,
+                        true,
+                        null,
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
+                        null,
+                        "momentum-v1",
                         OffsetDateTime.now()
                 )
         );
@@ -244,10 +426,41 @@ class DealEvaluationTest {
                         SNAPSHOT,
                         true,
                         null,
-                        "v1",
+                        "eligibility-v1",
+                        null,
+                        null,
+                        null,
                         null,
                         null,
                         null
+                )
+        );
+    }
+
+    /**
+     * Representa exatamente o estágio atual do projeto:
+     *
+     * - elegibilidade existente;
+     * - filtros ainda não aplicados;
+     * - score ainda inexistente;
+     * - momentum ainda inexistente.
+     */
+    private DealEvaluation createCurrentPhaseEvaluation(
+            Long id
+    ) {
+        return new DealEvaluation(
+                id,
+                SNAPSHOT,
+                true,
+                null,
+                "AMAZON_SELLER_DELIVERY_V1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.parse(
+                        "2026-09-13T19:05:00-03:00"
                 )
         );
     }

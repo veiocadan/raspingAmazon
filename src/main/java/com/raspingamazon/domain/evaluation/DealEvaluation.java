@@ -7,175 +7,256 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
- * Representa o resultado de uma avaliação de uma oferta.
+ * Representa o resultado agregado da avaliação de uma oferta.
  *
- * DealEvaluation não realiza a avaliação por conta própria.
- * Ela representa o resultado produzido por uma regra de avaliação
- * que será implementada posteriormente.
+ * <p>DealEvaluation não executa as regras de negócio por conta própria.
+ * Ela registra o resultado produzido pelos diferentes estágios de
+ * decisão do sistema.</p>
  *
- * A separação é intencional:
+ * <p>Os estágios são versionados separadamente para permitir
+ * reprodutibilidade histórica:</p>
  *
- * OfferSnapshot
- *      |
- *      v
- * processo de avaliação
- *      |
- *      v
- * DealEvaluation
+ * <ul>
+ *     <li>política de elegibilidade estrutural;</li>
+ *     <li>perfil de filtros;</li>
+ *     <li>algoritmo de score;</li>
+ *     <li>algoritmo de momentum.</li>
+ * </ul>
  *
- * Dessa forma, o snapshot permanece como registro dos dados observados,
- * enquanto a avaliação registra a interpretação dessas informações pelas
- * regras de negócio.
- *
- * A entidade não conhece PostgreSQL, JDBC, Amazon, HTML, Excel ou canais
- * de publicação.
+ * <p>Nem todos esses estágios já existem. Por isso somente
+ * eligibilityPolicyVersion é obrigatória nesta fase.</p>
  */
 public final class DealEvaluation {
 
     /**
-     * Identificador interno da avaliação.
+     * Identificador persistente.
      *
-     * Pode ser nulo antes da persistência, pois a estratégia de geração
-     * do identificador pertence à infraestrutura.
+     * <p>Pode ser nulo antes da persistência.</p>
      */
     private final Long id;
 
     /**
-     * Snapshot que foi avaliado.
-     *
-     * Uma avaliação sempre precisa estar associada a uma fotografia
-     * específica da oferta.
+     * Snapshot avaliado.
      */
     private final OfferSnapshot offerSnapshot;
 
     /**
-     * Indica se a oferta foi considerada elegível pelas regras aplicadas.
+     * Resultado agregado de elegibilidade.
      */
     private final boolean eligible;
 
     /**
-     * Motivo controlado para uma eventual rejeição.
+     * Motivo principal de rejeição utilizado pelo modelo atual.
      *
-     * Quando a oferta é elegível, o motivo pode ser nulo porque não
-     * existe uma rejeição a registrar.
+     * <p>Na evolução para filtros múltiplos, explicações detalhadas
+     * serão representadas por resultados de regra separados.</p>
      */
     private final RejectionReason rejectionReason;
 
     /**
-     * Identifica a versão das regras/filtros utilizadas na avaliação.
+     * Versão da política estrutural de elegibilidade.
      *
-     * A versão é importante para que uma avaliação histórica possa ser
-     * interpretada sabendo quais regras estavam vigentes naquele momento.
+     * <p>Exemplo atual:</p>
+     *
+     * <pre>
+     * AMAZON_SELLER_DELIVERY_V1
+     * </pre>
      */
-    private final String filterVersion;
+    private final String eligibilityPolicyVersion;
 
     /**
-     * Pontuação produzida pelas regras de scoring.
+     * Versão do perfil de filtros da FASE 9.
      *
-     * O cálculo do score será implementado posteriormente.
+     * <p>Permanece nula enquanto filtros configuráveis ainda
+     * não forem aplicados.</p>
+     */
+    private final String filterProfileVersion;
+
+    /**
+     * Pontuação produzida pelo algoritmo de scoring.
+     *
+     * <p>Ainda não implementado.</p>
      */
     private final BigDecimal score;
 
     /**
-     * Indicador de momentum associado à avaliação.
+     * Versão do algoritmo de scoring.
      *
-     * O significado e cálculo desse indicador serão definidos em etapa
-     * posterior, portanto DealEvaluation apenas armazena o resultado.
+     * <p>Deve ser nula enquanto score não tiver sido calculado.</p>
+     */
+    private final String scoreVersion;
+
+    /**
+     * Indicador de momentum.
+     *
+     * <p>Ainda não implementado.</p>
      */
     private final BigDecimal momentum;
 
     /**
-     * Momento em que a avaliação foi realizada.
+     * Versão do algoritmo de momentum.
+     */
+    private final String momentumVersion;
+
+    /**
+     * Instante da avaliação.
      */
     private final OffsetDateTime evaluatedAt;
 
-    /**
-     * Construtor principal da avaliação.
-     *
-     * Este construtor não calcula elegibilidade, score ou momentum.
-     * Ele somente garante as invariantes estruturais do resultado.
-     */
     public DealEvaluation(
             Long id,
             OfferSnapshot offerSnapshot,
             boolean eligible,
             RejectionReason rejectionReason,
-            String filterVersion,
+            String eligibilityPolicyVersion,
+            String filterProfileVersion,
             BigDecimal score,
+            String scoreVersion,
             BigDecimal momentum,
+            String momentumVersion,
             OffsetDateTime evaluatedAt
     ) {
-        /*
-         * O identificador interno pode ser nulo antes da persistência.
-         */
         this.id = id;
 
-        /*
-         * Uma avaliação sem snapshot não possui o contexto necessário
-         * para saber qual oferta foi avaliada.
-         */
-        this.offerSnapshot = Objects.requireNonNull(
-                offerSnapshot,
-                "DealEvaluation offerSnapshot must not be null"
-        );
+        this.offerSnapshot =
+                Objects.requireNonNull(
+                        offerSnapshot,
+                        "DealEvaluation offerSnapshot must not be null"
+                );
 
         this.eligible = eligible;
 
         /*
-         * Uma avaliação elegível não pode possuir motivo de rejeição.
+         * Mantemos temporariamente a invariante atual:
+         *
+         * - elegível -> sem rejectionReason;
+         * - inelegível -> com rejectionReason.
+         *
+         * A explicabilidade multi-regra será introduzida
+         * separadamente para não misturar responsabilidades.
          */
         if (eligible && rejectionReason != null) {
             throw new IllegalArgumentException(
-                    "eligible evaluation must not have rejectionReason"
+                    "Eligible evaluation must not have rejectionReason"
             );
         }
 
-        /*
-         * Uma avaliação não elegível precisa registrar o motivo controlado
-         * da rejeição.
-         */
         if (!eligible && rejectionReason == null) {
             throw new IllegalArgumentException(
-                    "ineligible evaluation must have rejectionReason"
+                    "Ineligible evaluation must have rejectionReason"
             );
         }
 
-        this.rejectionReason = rejectionReason;
+        this.rejectionReason =
+                rejectionReason;
 
         /*
-         * A versão das regras é obrigatória para manter rastreabilidade
-         * das avaliações realizadas.
+         * Toda avaliação realizada atualmente obrigatoriamente passou
+         * pela política estrutural Amazon.
          */
-        this.filterVersion = requireText(
-                filterVersion,
-                "DealEvaluation filterVersion must not be blank"
-        );
+        this.eligibilityPolicyVersion =
+                requireText(
+                        eligibilityPolicyVersion,
+                        "DealEvaluation eligibilityPolicyVersion must not be blank"
+                );
 
         /*
-         * Score e momentum podem ainda não estar disponíveis quando
-         * a avaliação estrutural for criada. A regra de scoring será
-         * definida posteriormente.
+         * Os filtros configuráveis ainda não existem.
+         *
+         * Quando existirem, a versão será registrada aqui.
          */
-        this.score = score;
-        this.momentum = momentum;
+        this.filterProfileVersion =
+                optionalText(
+                        filterProfileVersion,
+                        "DealEvaluation filterProfileVersion must not be blank"
+                );
+
+        this.score =
+                score;
+
+        this.scoreVersion =
+                optionalText(
+                        scoreVersion,
+                        "DealEvaluation scoreVersion must not be blank"
+                );
+
+        this.momentum =
+                momentum;
+
+        this.momentumVersion =
+                optionalText(
+                        momentumVersion,
+                        "DealEvaluation momentumVersion must not be blank"
+                );
 
         /*
-         * Toda avaliação precisa registrar quando foi realizada.
+         * Se existe um score, ele precisa dizer qual algoritmo o produziu.
+         *
+         * Da mesma forma, não permitimos uma versão de score sem score.
          */
-        this.evaluatedAt = Objects.requireNonNull(
-                evaluatedAt,
-                "DealEvaluation evaluatedAt must not be null"
-        );
+        if ((score == null) != (this.scoreVersion == null)) {
+            throw new IllegalArgumentException(
+                    "DealEvaluation score and scoreVersion must either both be present or both be null"
+            );
+        }
+
+        /*
+         * Mesma regra para momentum.
+         */
+        if ((momentum == null)
+                != (this.momentumVersion == null)) {
+
+            throw new IllegalArgumentException(
+                    "DealEvaluation momentum and momentumVersion must either both be present or both be null"
+            );
+        }
+
+        this.evaluatedAt =
+                Objects.requireNonNull(
+                        evaluatedAt,
+                        "DealEvaluation evaluatedAt must not be null"
+                );
     }
 
     /**
-     * Valida campos textuais obrigatórios.
+     * Valida texto obrigatório.
      */
-    private static String requireText(String value, String message) {
-        Objects.requireNonNull(value, message);
+    private static String requireText(
+            String value,
+            String message
+    ) {
+        Objects.requireNonNull(
+                value,
+                message
+        );
 
         if (value.isBlank()) {
-            throw new IllegalArgumentException(message);
+            throw new IllegalArgumentException(
+                    message
+            );
+        }
+
+        return value;
+    }
+
+    /**
+     * Valida texto opcional.
+     *
+     * <p>null significa "a etapa ainda não foi aplicada".
+     * String vazia, por outro lado, representa dado inválido.</p>
+     */
+    private static String optionalText(
+            String value,
+            String message
+    ) {
+        if (value == null) {
+            return null;
+        }
+
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(
+                    message
+            );
         }
 
         return value;
@@ -197,16 +278,28 @@ public final class DealEvaluation {
         return rejectionReason;
     }
 
-    public String filterVersion() {
-        return filterVersion;
+    public String eligibilityPolicyVersion() {
+        return eligibilityPolicyVersion;
+    }
+
+    public String filterProfileVersion() {
+        return filterProfileVersion;
     }
 
     public BigDecimal score() {
         return score;
     }
 
+    public String scoreVersion() {
+        return scoreVersion;
+    }
+
     public BigDecimal momentum() {
         return momentum;
+    }
+
+    public String momentumVersion() {
+        return momentumVersion;
     }
 
     public OffsetDateTime evaluatedAt() {

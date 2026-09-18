@@ -10,11 +10,10 @@ import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Implementação JDBC do contrato de persistência de DealEvaluation.
+ * Implementação JDBC da persistência de DealEvaluation.
  *
- * <p>Este componente somente persiste o resultado produzido pela
- * camada de aplicação. Não implementa regras de elegibilidade,
- * filtros, score ou momentum.</p>
+ * <p>As versões dos diferentes estágios de decisão são persistidas
+ * separadamente para preservar a semântica histórica.</p>
  */
 public final class DealEvaluationJdbcRepository
         implements DealEvaluationRepository {
@@ -24,19 +23,13 @@ public final class DealEvaluationJdbcRepository
     public DealEvaluationJdbcRepository(
             Connection connection
     ) {
-        this.connection = Objects.requireNonNull(
-                connection,
-                "connection must not be null"
-        );
+        this.connection =
+                Objects.requireNonNull(
+                        connection,
+                        "connection must not be null"
+                );
     }
 
-    /**
-     * Persiste uma avaliação e retorna a entidade com o identificador
-     * gerado pelo banco.
-     *
-     * @param evaluation avaliação produzida pela aplicação
-     * @return avaliação com o identificador persistido
-     */
     @Override
     public DealEvaluation save(
             DealEvaluation evaluation
@@ -57,17 +50,22 @@ public final class DealEvaluationJdbcRepository
                     offer_snapshot_id,
                     eligible,
                     rejection_reason,
-                    filter_version,
+                    eligibility_policy_version,
+                    filter_profile_version,
                     score,
+                    score_version,
                     momentum,
+                    momentum_version,
                     evaluated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(sql)) {
+                     connection.prepareStatement(
+                             sql
+                     )) {
 
             statement.setLong(
                     1,
@@ -87,41 +85,61 @@ public final class DealEvaluationJdbcRepository
             } else {
                 statement.setString(
                         3,
-                        evaluation.rejectionReason().name()
+                        evaluation
+                                .rejectionReason()
+                                .name()
                 );
             }
 
             statement.setString(
                     4,
-                    evaluation.filterVersion()
+                    evaluation.eligibilityPolicyVersion()
+            );
+
+            setNullableString(
+                    statement,
+                    5,
+                    evaluation.filterProfileVersion()
             );
 
             if (evaluation.score() == null) {
                 statement.setObject(
-                        5,
+                        6,
                         null
                 );
             } else {
                 statement.setBigDecimal(
-                        5,
+                        6,
                         evaluation.score()
                 );
             }
 
+            setNullableString(
+                    statement,
+                    7,
+                    evaluation.scoreVersion()
+            );
+
             if (evaluation.momentum() == null) {
                 statement.setObject(
-                        6,
+                        8,
                         null
                 );
             } else {
                 statement.setBigDecimal(
-                        6,
+                        8,
                         evaluation.momentum()
                 );
             }
 
+            setNullableString(
+                    statement,
+                    9,
+                    evaluation.momentumVersion()
+            );
+
             statement.setObject(
-                    7,
+                    10,
                     evaluation.evaluatedAt()
             );
 
@@ -135,24 +153,52 @@ public final class DealEvaluationJdbcRepository
                 }
 
                 long id =
-                        resultSet.getLong("id");
+                        resultSet.getLong(
+                                "id"
+                        );
 
                 return new DealEvaluation(
                         id,
                         evaluation.offerSnapshot(),
                         evaluation.eligible(),
                         evaluation.rejectionReason(),
-                        evaluation.filterVersion(),
+                        evaluation.eligibilityPolicyVersion(),
+                        evaluation.filterProfileVersion(),
                         evaluation.score(),
+                        evaluation.scoreVersion(),
                         evaluation.momentum(),
+                        evaluation.momentumVersion(),
                         evaluation.evaluatedAt()
                 );
             }
 
         } catch (SQLException exception) {
+
             throw new IllegalStateException(
                     "Failed to persist DealEvaluation",
                     exception
+            );
+        }
+    }
+
+    /**
+     * Centraliza o tratamento JDBC de String opcional.
+     */
+    private static void setNullableString(
+            PreparedStatement statement,
+            int index,
+            String value
+    ) throws SQLException {
+
+        if (value == null) {
+            statement.setObject(
+                    index,
+                    null
+            );
+        } else {
+            statement.setString(
+                    index,
+                    value
             );
         }
     }

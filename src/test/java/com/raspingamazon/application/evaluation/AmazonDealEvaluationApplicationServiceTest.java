@@ -22,10 +22,17 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Testes do caso de uso persistente de avaliação Amazon.
+ *
+ * <p>Após a FASE 8.5-C, a versão da política de elegibilidade
+ * é registrada separadamente da futura versão dos filtros.</p>
+ */
 class AmazonDealEvaluationApplicationServiceTest {
 
     @Test
     void shouldEvaluateAndPersistRejectedDeal() {
+
         FakeDealEvaluationRepository repository =
                 new FakeDealEvaluationRepository();
 
@@ -60,9 +67,38 @@ class AmazonDealEvaluationApplicationServiceTest {
                 persisted.rejectionReason()
         );
 
+        /*
+         * A política Amazon agora possui campo próprio.
+         */
         assertEquals(
                 "AMAZON_SELLER_DELIVERY_V1",
-                persisted.filterVersion()
+                persisted.eligibilityPolicyVersion()
+        );
+
+        /*
+         * FASE 9 ainda não foi aplicada.
+         */
+        assertNull(
+                persisted.filterProfileVersion()
+        );
+
+        /*
+         * Score e momentum também ainda não existem.
+         */
+        assertNull(
+                persisted.score()
+        );
+
+        assertNull(
+                persisted.scoreVersion()
+        );
+
+        assertNull(
+                persisted.momentum()
+        );
+
+        assertNull(
+                persisted.momentumVersion()
         );
 
         assertEquals(
@@ -78,6 +114,7 @@ class AmazonDealEvaluationApplicationServiceTest {
 
     @Test
     void shouldEvaluateAndPersistAcceptedDeal() {
+
         FakeDealEvaluationRepository repository =
                 new FakeDealEvaluationRepository();
 
@@ -113,7 +150,27 @@ class AmazonDealEvaluationApplicationServiceTest {
 
         assertEquals(
                 "AMAZON_SELLER_DELIVERY_V1",
-                persisted.filterVersion()
+                persisted.eligibilityPolicyVersion()
+        );
+
+        assertNull(
+                persisted.filterProfileVersion()
+        );
+
+        assertNull(
+                persisted.score()
+        );
+
+        assertNull(
+                persisted.scoreVersion()
+        );
+
+        assertNull(
+                persisted.momentum()
+        );
+
+        assertNull(
+                persisted.momentumVersion()
         );
 
         assertEquals(
@@ -140,6 +197,7 @@ class AmazonDealEvaluationApplicationServiceTest {
     }
 
     private OfferSnapshot createOfferSnapshot() {
+
         Product product =
                 new Product(
                         1L,
@@ -170,6 +228,9 @@ class AmazonDealEvaluationApplicationServiceTest {
         );
     }
 
+    /**
+     * Repository em memória usado para testar somente a camada de aplicação.
+     */
     private static final class FakeDealEvaluationRepository
             implements DealEvaluationRepository {
 

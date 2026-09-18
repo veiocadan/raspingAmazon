@@ -21,12 +21,14 @@ class PublicationRequestTest {
     @Test
     void shouldCreateValidRequest() {
 
-        DealEvaluation evaluation = createEvaluation();
+        DealEvaluation evaluation =
+                createEvaluation();
 
-        PublicationRequest request = new PublicationRequest(
-                evaluation,
-                "template-v1"
-        );
+        PublicationRequest request =
+                new PublicationRequest(
+                        evaluation,
+                        "template-v1"
+                );
 
         assertSame(
                 evaluation,
@@ -89,38 +91,43 @@ class PublicationRequestTest {
 
     private DealEvaluation createEvaluation() {
 
-        Product product = new Product(
-                1L,
-                new Asin("B000000001"),
-                "Produto de teste",
-                "https://example.com/image.jpg",
-                "https://example.com/product"
-        );
+        Product product =
+                new Product(
+                        1L,
+                        new Asin("B000000001"),
+                        "Produto de teste",
+                        "https://example.com/image.jpg",
+                        "https://example.com/product"
+                );
 
-        OfferSnapshot snapshot = new OfferSnapshot(
-                1L,
-                product,
-                OffsetDateTime.now(),
-                Money.of("100.00"),
-                Money.of("120.00"),
-                null,
-                null,
-                4.5,
-                100L,
-                "Amazon.com.br",
-                "Amazon",
-                SellerType.AMAZON,
-                DeliveryType.AMAZON,
-                "TEST",
-                List.of()
-        );
+        OfferSnapshot snapshot =
+                new OfferSnapshot(
+                        1L,
+                        product,
+                        OffsetDateTime.now(),
+                        Money.of("100.00"),
+                        Money.of("120.00"),
+                        null,
+                        null,
+                        4.5,
+                        100L,
+                        "Amazon.com.br",
+                        "Amazon",
+                        SellerType.AMAZON,
+                        DeliveryType.AMAZON,
+                        "TEST",
+                        List.of()
+                );
 
         return new DealEvaluation(
                 1L,
                 snapshot,
                 true,
                 null,
-                "v1",
+                "AMAZON_SELLER_DELIVERY_V1",
+                null,
+                null,
+                null,
                 null,
                 null,
                 OffsetDateTime.now()

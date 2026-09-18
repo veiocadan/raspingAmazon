@@ -11,17 +11,16 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
- * Serviço de aplicação responsável por transformar a validação
- * Amazon em uma DealEvaluation.
+ * Serviço que transforma a validação estrutural Amazon
+ * em uma DealEvaluation ainda não persistida.
  *
- * <p>Esta etapa ainda não persiste a avaliação.</p>
- *
- * <p>Score e momentum permanecem nulos porque serão implementados
- * em fases posteriores.</p>
+ * <p>Este serviço permanece temporariamente por compatibilidade.
+ * A auditoria recomenda consolidá-lo posteriormente com o caso
+ * de uso persistente.</p>
  */
 public final class AmazonDealEvaluationService {
 
-    private static final String FILTER_VERSION =
+    private static final String ELIGIBILITY_POLICY_VERSION =
             "AMAZON_SELLER_DELIVERY_V1";
 
     private final AmazonEligibilityValidator validator;
@@ -29,21 +28,13 @@ public final class AmazonDealEvaluationService {
     public AmazonDealEvaluationService(
             AmazonEligibilityValidator validator
     ) {
-        this.validator = Objects.requireNonNull(
-                validator,
-                "validator must not be null"
-        );
+        this.validator =
+                Objects.requireNonNull(
+                        validator,
+                        "validator must not be null"
+                );
     }
 
-    /**
-     * Avalia uma oferta e produz sua DealEvaluation.
-     *
-     * @param offerSnapshot snapshot da oferta a ser avaliada
-     * @param sellerType vendedor normalizado
-     * @param deliveryType responsável pela entrega normalizado
-     * @param evaluatedAt momento da avaliação
-     * @return avaliação produzida
-     */
     public DealEvaluation evaluate(
             OfferSnapshot offerSnapshot,
             SellerType sellerType,
@@ -81,7 +72,10 @@ public final class AmazonDealEvaluationService {
                 offerSnapshot,
                 result.eligible(),
                 result.rejectionReason(),
-                FILTER_VERSION,
+                ELIGIBILITY_POLICY_VERSION,
+                null,
+                null,
+                null,
                 null,
                 null,
                 evaluatedAt
