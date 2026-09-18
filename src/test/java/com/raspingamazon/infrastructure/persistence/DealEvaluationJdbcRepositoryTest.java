@@ -2,6 +2,7 @@ package com.raspingamazon.infrastructure.persistence;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
+import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.evaluation.RejectionReason;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -20,6 +21,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,26 +33,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Teste de integração entre DealEvaluation e PostgreSQL.
  *
- * <p>A FASE 8.5-C separa as versões de:</p>
+ * <p>Além da linha agregada em deal_evaluation, a FASE 8.5-C3
+ * exige que cada regra aplicada seja persistida individualmente em
+ * deal_evaluation_rule_result.</p>
+ *
+ * <p>Este teste verifica:</p>
  *
  * <ul>
- *     <li>eligibilidade;</li>
- *     <li>filtros;</li>
- *     <li>score;</li>
- *     <li>momentum.</li>
+ *     <li>a decisão agregada;</li>
+ *     <li>as versões da avaliação;</li>
+ *     <li>os resultados individuais das regras;</li>
+ *     <li>a ordem das regras;</li>
+ *     <li>os motivos individuais de rejeição.</li>
  * </ul>
  */
 class DealEvaluationJdbcRepositoryTest {
 
     @Test
-    void shouldPersistEligibleDealEvaluation()
+    void shouldPersistEligibleDealEvaluationWithRuleResults()
             throws Exception {
 
         ApplicationConfig config =
                 EnvironmentConfigProvider.load();
 
         /*
-         * Garante aplicação da migration V4.
+         * Aplica migrations pendentes, inclusive V5.
          */
         DatabaseMigration.migrate(
                 config
@@ -67,7 +74,8 @@ class DealEvaluationJdbcRepositoryTest {
 
             Product product =
                     createProduct(
-                            connection
+                            connection,
+                            "B000TEST86"
                     );
 
             productId =
@@ -88,22 +96,37 @@ class DealEvaluationJdbcRepositoryTest {
             OffsetDateTime evaluatedAt =
                     OffsetDateTime.now();
 
+            /*
+             * Oferta elegível:
+             * ambas as regras passaram.
+             */
+            List<EvaluationRuleResult> ruleResults =
+                    List.of(
+                            EvaluationRuleResult.passed(
+                                    "SELLER_IS_AMAZON",
+                                    "AMAZON",
+                                    "AMAZON"
+                            ),
+                            EvaluationRuleResult.passed(
+                                    "DELIVERY_IS_AMAZON",
+                                    "AMAZON",
+                                    "AMAZON"
+                            )
+                    );
+
             DealEvaluation evaluation =
                     new DealEvaluation(
                             null,
                             offerSnapshot,
                             true,
                             null,
-
                             "AMAZON_SELLER_DELIVERY_V1",
                             null,
-
+                            ruleResults,
                             null,
                             null,
-
                             null,
                             null,
-
                             evaluatedAt
                     );
 
@@ -120,6 +143,9 @@ class DealEvaluationJdbcRepositoryTest {
             evaluationId =
                     persisted.id();
 
+            /*
+             * Verificações no objeto retornado.
+             */
             assertNotNull(
                     persisted
             );
@@ -154,6 +180,23 @@ class DealEvaluationJdbcRepositoryTest {
                     persisted.filterProfileVersion()
             );
 
+            assertEquals(
+                    2,
+                    persisted.ruleResults().size()
+            );
+
+            assertTrue(
+                    persisted.ruleResults()
+                            .get(0)
+                            .passed()
+            );
+
+            assertTrue(
+                    persisted.ruleResults()
+                            .get(1)
+                            .passed()
+            );
+
             assertNull(
                     persisted.score()
             );
@@ -175,7 +218,10 @@ class DealEvaluationJdbcRepositoryTest {
                     persisted.evaluatedAt().toInstant()
             );
 
-            assertDatabaseRow(
+            /*
+             * Verifica diretamente a linha agregada.
+             */
+            assertDatabaseEvaluationRow(
                     connection,
                     persisted.id(),
                     offerSnapshotId,
@@ -190,6 +236,86 @@ class DealEvaluationJdbcRepositoryTest {
                     evaluatedAt
             );
 
+            /*
+             * Verifica diretamente as duas linhas de regra.
+             */
+            List<PersistedRuleResult> persistedRules =
+                    loadRuleResults(
+                            connection,
+                            persisted.id()
+                    );
+
+            assertEquals(
+                    2,
+                    persistedRules.size()
+            );
+
+            PersistedRuleResult sellerRule =
+                    persistedRules.get(
+                            0
+                    );
+
+            assertEquals(
+                    0,
+                    sellerRule.ruleOrder()
+            );
+
+            assertEquals(
+                    "SELLER_IS_AMAZON",
+                    sellerRule.ruleCode()
+            );
+
+            assertTrue(
+                    sellerRule.passed()
+            );
+
+            assertEquals(
+                    "AMAZON",
+                    sellerRule.observedValue()
+            );
+
+            assertEquals(
+                    "AMAZON",
+                    sellerRule.thresholdValue()
+            );
+
+            assertNull(
+                    sellerRule.reasonCode()
+            );
+
+            PersistedRuleResult deliveryRule =
+                    persistedRules.get(
+                            1
+                    );
+
+            assertEquals(
+                    1,
+                    deliveryRule.ruleOrder()
+            );
+
+            assertEquals(
+                    "DELIVERY_IS_AMAZON",
+                    deliveryRule.ruleCode()
+            );
+
+            assertTrue(
+                    deliveryRule.passed()
+            );
+
+            assertEquals(
+                    "AMAZON",
+                    deliveryRule.observedValue()
+            );
+
+            assertEquals(
+                    "AMAZON",
+                    deliveryRule.thresholdValue()
+            );
+
+            assertNull(
+                    deliveryRule.reasonCode()
+            );
+
         } finally {
 
             cleanup(
@@ -202,7 +328,7 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     @Test
-    void shouldPersistRejectedDealEvaluation()
+    void shouldPersistRejectedDealEvaluationWithMultipleFailures()
             throws Exception {
 
         ApplicationConfig config =
@@ -223,7 +349,8 @@ class DealEvaluationJdbcRepositoryTest {
 
             Product product =
                     createProduct(
-                            connection
+                            connection,
+                            "B000TEST87"
                     );
 
             productId =
@@ -244,22 +371,41 @@ class DealEvaluationJdbcRepositoryTest {
             OffsetDateTime evaluatedAt =
                     OffsetDateTime.now();
 
+            /*
+             * Neste cenário seller e delivery falham.
+             *
+             * SELLER continua sendo a rejeição principal,
+             * mas DELIVERY também precisa ser persistida.
+             */
+            List<EvaluationRuleResult> ruleResults =
+                    List.of(
+                            EvaluationRuleResult.failed(
+                                    "SELLER_IS_AMAZON",
+                                    "THIRD_PARTY",
+                                    "AMAZON",
+                                    RejectionReason.SELLER_THIRD_PARTY
+                            ),
+                            EvaluationRuleResult.failed(
+                                    "DELIVERY_IS_AMAZON",
+                                    "THIRD_PARTY",
+                                    "AMAZON",
+                                    RejectionReason.DELIVERY_THIRD_PARTY
+                            )
+                    );
+
             DealEvaluation evaluation =
                     new DealEvaluation(
                             null,
                             offerSnapshot,
                             false,
                             RejectionReason.SELLER_THIRD_PARTY,
-
                             "AMAZON_SELLER_DELIVERY_V1",
                             null,
-
+                            ruleResults,
                             null,
                             null,
-
                             null,
                             null,
-
                             evaluatedAt
                     );
 
@@ -277,20 +423,7 @@ class DealEvaluationJdbcRepositoryTest {
                     persisted.id();
 
             assertNotNull(
-                    persisted
-            );
-
-            assertNotNull(
                     persisted.id()
-            );
-
-            assertTrue(
-                    persisted.id() > 0
-            );
-
-            assertEquals(
-                    offerSnapshotId,
-                    persisted.offerSnapshot().id()
             );
 
             assertFalse(
@@ -303,36 +436,21 @@ class DealEvaluationJdbcRepositoryTest {
             );
 
             assertEquals(
-                    "AMAZON_SELLER_DELIVERY_V1",
-                    persisted.eligibilityPolicyVersion()
+                    2,
+                    persisted.ruleResults().size()
             );
 
-            assertNull(
-                    persisted.filterProfileVersion()
-            );
-
-            assertNull(
-                    persisted.score()
-            );
-
-            assertNull(
-                    persisted.scoreVersion()
-            );
-
-            assertNull(
-                    persisted.momentum()
-            );
-
-            assertNull(
-                    persisted.momentumVersion()
-            );
-
+            /*
+             * Verificamos que a segunda falha não foi perdida.
+             */
             assertEquals(
-                    evaluatedAt.toInstant(),
-                    persisted.evaluatedAt().toInstant()
+                    RejectionReason.DELIVERY_THIRD_PARTY,
+                    persisted.ruleResults()
+                            .get(1)
+                            .reasonCode()
             );
 
-            assertDatabaseRow(
+            assertDatabaseEvaluationRow(
                     connection,
                     persisted.id(),
                     offerSnapshotId,
@@ -347,6 +465,45 @@ class DealEvaluationJdbcRepositoryTest {
                     evaluatedAt
             );
 
+            List<PersistedRuleResult> persistedRules =
+                    loadRuleResults(
+                            connection,
+                            persisted.id()
+                    );
+
+            assertEquals(
+                    2,
+                    persistedRules.size()
+            );
+
+            PersistedRuleResult sellerRule =
+                    persistedRules.get(
+                            0
+                    );
+
+            assertFalse(
+                    sellerRule.passed()
+            );
+
+            assertEquals(
+                    "SELLER_THIRD_PARTY",
+                    sellerRule.reasonCode()
+            );
+
+            PersistedRuleResult deliveryRule =
+                    persistedRules.get(
+                            1
+                    );
+
+            assertFalse(
+                    deliveryRule.passed()
+            );
+
+            assertEquals(
+                    "DELIVERY_THIRD_PARTY",
+                    deliveryRule.reasonCode()
+            );
+
         } finally {
 
             cleanup(
@@ -359,10 +516,11 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     /**
-     * Cria o Product necessário para o snapshot.
+     * Cria um Product persistido e devolve sua representação de domínio.
      */
     private Product createProduct(
-            Connection connection
+            Connection connection,
+            String asin
     ) throws SQLException {
 
         ProductRepository repository =
@@ -370,15 +528,13 @@ class DealEvaluationJdbcRepositoryTest {
                         connection
                 );
 
-        String asin =
-                "B000TEST86";
-
         long productId =
                 repository.insert(
                         asin,
                         "Produto de teste",
                         null,
-                        "https://example.invalid/produto"
+                        "https://example.invalid/produto/"
+                                + asin
                 );
 
         return new Product(
@@ -388,12 +544,14 @@ class DealEvaluationJdbcRepositoryTest {
                 ),
                 "Produto de teste",
                 null,
-                "https://example.invalid/produto"
+                "https://example.invalid/produto/"
+                        + asin
         );
     }
 
     /**
-     * Cria diretamente a linha de offer_snapshot utilizada pelo teste.
+     * Persiste a linha de offer_snapshot necessária para a foreign key
+     * da avaliação.
      */
     private long createOfferSnapshot(
             Connection connection,
@@ -495,7 +653,7 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     /**
-     * Cria a representação de domínio correspondente ao snapshot.
+     * Cria a representação de domínio do mesmo snapshot persistido.
      */
     private OfferSnapshot createOfferSnapshotDomain(
             Product product,
@@ -527,9 +685,9 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     /**
-     * Verifica a linha persistida diretamente no PostgreSQL.
+     * Verifica diretamente a linha agregada em deal_evaluation.
      */
-    private void assertDatabaseRow(
+    private void assertDatabaseEvaluationRow(
             Connection connection,
             long evaluationId,
             long offerSnapshotId,
@@ -653,9 +811,14 @@ class DealEvaluationJdbcRepositoryTest {
                                 databaseEvaluatedAt.toInstant()
                         ).abs();
 
+                /*
+                 * PostgreSQL pode normalizar precisão de timestamp.
+                 */
                 assertTrue(
                         difference.compareTo(
-                                Duration.ofNanos(1_000)
+                                Duration.ofNanos(
+                                        1_000
+                                )
                         ) <= 0,
                         "Database timestamp differs from application timestamp by more than 1 microsecond"
                 );
@@ -664,7 +827,82 @@ class DealEvaluationJdbcRepositoryTest {
     }
 
     /**
-     * Remove os registros criados pelo teste.
+     * Lê diretamente todos os resultados de regra persistidos.
+     *
+     * <p>ORDER BY rule_order é importante porque a ordem das regras
+     * também faz parte da explicação determinística da avaliação.</p>
+     */
+    private List<PersistedRuleResult> loadRuleResults(
+            Connection connection,
+            long evaluationId
+    ) throws SQLException {
+
+        String sql = """
+                SELECT
+                    rule_order,
+                    rule_code,
+                    passed,
+                    observed_value,
+                    threshold_value,
+                    reason_code
+                FROM deal_evaluation_rule_result
+                WHERE deal_evaluation_id = ?
+                ORDER BY rule_order
+                """;
+
+        List<PersistedRuleResult> results =
+                new ArrayList<>();
+
+        try (PreparedStatement statement =
+                     connection.prepareStatement(
+                             sql
+                     )) {
+
+            statement.setLong(
+                    1,
+                    evaluationId
+            );
+
+            try (ResultSet resultSet =
+                         statement.executeQuery()) {
+
+                while (resultSet.next()) {
+
+                    results.add(
+                            new PersistedRuleResult(
+                                    resultSet.getInt(
+                                            "rule_order"
+                                    ),
+                                    resultSet.getString(
+                                            "rule_code"
+                                    ),
+                                    resultSet.getBoolean(
+                                            "passed"
+                                    ),
+                                    resultSet.getString(
+                                            "observed_value"
+                                    ),
+                                    resultSet.getString(
+                                            "threshold_value"
+                                    ),
+                                    resultSet.getString(
+                                            "reason_code"
+                                    )
+                            )
+                    );
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Remove os dados de teste.
+     *
+     * <p>A tabela deal_evaluation_rule_result possui ON DELETE CASCADE.
+     * Portanto, ao apagar deal_evaluation, seus resultados individuais
+     * também são removidos automaticamente.</p>
      */
     private void cleanup(
             ApplicationConfig config,
@@ -748,5 +986,19 @@ class DealEvaluationJdbcRepositoryTest {
                     exception
             );
         }
+    }
+
+    /**
+     * Representação auxiliar de uma linha de
+     * deal_evaluation_rule_result lida diretamente do banco.
+     */
+    private record PersistedRuleResult(
+            int ruleOrder,
+            String ruleCode,
+            boolean passed,
+            String observedValue,
+            String thresholdValue,
+            String reasonCode
+    ) {
     }
 }

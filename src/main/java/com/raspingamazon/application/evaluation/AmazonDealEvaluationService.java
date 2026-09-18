@@ -11,12 +11,10 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
- * Serviço que transforma a validação estrutural Amazon
- * em uma DealEvaluation ainda não persistida.
+ * Serviço não persistente da avaliação Amazon.
  *
- * <p>Este serviço permanece temporariamente por compatibilidade.
- * A auditoria recomenda consolidá-lo posteriormente com o caso
- * de uso persistente.</p>
+ * <p>Permanece temporariamente por compatibilidade enquanto
+ * a consolidação dos casos de uso não é concluída.</p>
  */
 public final class AmazonDealEvaluationService {
 
@@ -74,6 +72,7 @@ public final class AmazonDealEvaluationService {
                 result.rejectionReason(),
                 ELIGIBILITY_POLICY_VERSION,
                 null,
+                result.ruleResults(),
                 null,
                 null,
                 null,

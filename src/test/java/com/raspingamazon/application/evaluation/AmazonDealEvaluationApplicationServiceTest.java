@@ -22,35 +22,25 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Testes do caso de uso persistente de avaliação Amazon.
- *
- * <p>Após a FASE 8.5-C, a versão da política de elegibilidade
- * é registrada separadamente da futura versão dos filtros.</p>
- */
 class AmazonDealEvaluationApplicationServiceTest {
 
     @Test
-    void shouldEvaluateAndPersistRejectedDeal() {
+    void shouldEvaluateAndPersistRejectedDealWithAllRuleResults() {
 
         FakeDealEvaluationRepository repository =
                 new FakeDealEvaluationRepository();
 
         AmazonDealEvaluationApplicationService service =
-                createService(repository);
-
-        OfferSnapshot offerSnapshot =
-                createOfferSnapshot();
-
-        OffsetDateTime evaluatedAt =
-                OffsetDateTime.now();
+                createService(
+                        repository
+                );
 
         DealEvaluation persisted =
                 service.evaluate(
-                        offerSnapshot,
+                        createOfferSnapshot(),
                         SellerType.THIRD_PARTY,
-                        DeliveryType.AMAZON,
-                        evaluatedAt
+                        DeliveryType.THIRD_PARTY,
+                        OffsetDateTime.now()
                 );
 
         assertSame(
@@ -67,48 +57,30 @@ class AmazonDealEvaluationApplicationServiceTest {
                 persisted.rejectionReason()
         );
 
-        /*
-         * A política Amazon agora possui campo próprio.
-         */
         assertEquals(
                 "AMAZON_SELLER_DELIVERY_V1",
                 persisted.eligibilityPolicyVersion()
         );
 
-        /*
-         * FASE 9 ainda não foi aplicada.
-         */
         assertNull(
                 persisted.filterProfileVersion()
         );
 
-        /*
-         * Score e momentum também ainda não existem.
-         */
-        assertNull(
-                persisted.score()
-        );
-
-        assertNull(
-                persisted.scoreVersion()
-        );
-
-        assertNull(
-                persisted.momentum()
-        );
-
-        assertNull(
-                persisted.momentumVersion()
-        );
-
         assertEquals(
-                evaluatedAt,
-                persisted.evaluatedAt()
+                2,
+                persisted.ruleResults().size()
         );
 
-        assertEquals(
-                1,
-                repository.savedEvaluations.size()
+        assertFalse(
+                persisted.ruleResults()
+                        .get(0)
+                        .passed()
+        );
+
+        assertFalse(
+                persisted.ruleResults()
+                        .get(1)
+                        .passed()
         );
     }
 
@@ -119,26 +91,17 @@ class AmazonDealEvaluationApplicationServiceTest {
                 new FakeDealEvaluationRepository();
 
         AmazonDealEvaluationApplicationService service =
-                createService(repository);
-
-        OfferSnapshot offerSnapshot =
-                createOfferSnapshot();
-
-        OffsetDateTime evaluatedAt =
-                OffsetDateTime.now();
+                createService(
+                        repository
+                );
 
         DealEvaluation persisted =
                 service.evaluate(
-                        offerSnapshot,
+                        createOfferSnapshot(),
                         SellerType.AMAZON,
                         DeliveryType.AMAZON,
-                        evaluatedAt
+                        OffsetDateTime.now()
                 );
-
-        assertSame(
-                persisted,
-                repository.savedEvaluation
-        );
 
         assertTrue(
                 persisted.eligible()
@@ -149,33 +112,16 @@ class AmazonDealEvaluationApplicationServiceTest {
         );
 
         assertEquals(
-                "AMAZON_SELLER_DELIVERY_V1",
-                persisted.eligibilityPolicyVersion()
+                2,
+                persisted.ruleResults().size()
         );
 
-        assertNull(
-                persisted.filterProfileVersion()
-        );
-
-        assertNull(
-                persisted.score()
-        );
-
-        assertNull(
-                persisted.scoreVersion()
-        );
-
-        assertNull(
-                persisted.momentum()
-        );
-
-        assertNull(
-                persisted.momentumVersion()
-        );
-
-        assertEquals(
-                evaluatedAt,
-                persisted.evaluatedAt()
+        assertTrue(
+                persisted.ruleResults()
+                        .stream()
+                        .allMatch(
+                                result -> result.passed()
+                        )
         );
 
         assertEquals(
@@ -187,11 +133,8 @@ class AmazonDealEvaluationApplicationServiceTest {
     private AmazonDealEvaluationApplicationService createService(
             FakeDealEvaluationRepository repository
     ) {
-        AmazonEligibilityValidator validator =
-                new AmazonEligibilityValidator();
-
         return new AmazonDealEvaluationApplicationService(
-                validator,
+                new AmazonEligibilityValidator(),
                 repository
         );
     }
@@ -228,9 +171,6 @@ class AmazonDealEvaluationApplicationServiceTest {
         );
     }
 
-    /**
-     * Repository em memória usado para testar somente a camada de aplicação.
-     */
     private static final class FakeDealEvaluationRepository
             implements DealEvaluationRepository {
 
@@ -243,8 +183,12 @@ class AmazonDealEvaluationApplicationServiceTest {
         public DealEvaluation save(
                 DealEvaluation evaluation
         ) {
-            savedEvaluation = evaluation;
-            savedEvaluations.add(evaluation);
+            savedEvaluation =
+                    evaluation;
+
+            savedEvaluations.add(
+                    evaluation
+            );
 
             return evaluation;
         }

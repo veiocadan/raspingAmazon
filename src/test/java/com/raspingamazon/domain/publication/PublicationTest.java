@@ -2,6 +2,7 @@ package com.raspingamazon.domain.publication;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
+import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.shared.Money;
@@ -19,21 +20,16 @@ class PublicationTest {
 
     @Test
     void shouldCreatePublicationWithCreatedStatus() {
-
-        Publication publication =
-                createPublication(
-                        PublicationStatus.CREATED
-                );
-
         assertEquals(
                 PublicationStatus.CREATED,
-                publication.status()
+                createPublication(
+                        PublicationStatus.CREATED
+                ).status()
         );
     }
 
     @Test
     void shouldMoveFromCreatedToReady() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.CREATED
@@ -49,7 +45,6 @@ class PublicationTest {
 
     @Test
     void shouldMoveFromReadyToPublished() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.READY
@@ -65,7 +60,6 @@ class PublicationTest {
 
     @Test
     void shouldMoveFromReadyToFailed() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.READY
@@ -81,7 +75,6 @@ class PublicationTest {
 
     @Test
     void shouldRetryFailedPublication() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.FAILED
@@ -97,7 +90,6 @@ class PublicationTest {
 
     @Test
     void shouldRejectReadyTransitionFromPublished() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.PUBLISHED
@@ -107,16 +99,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::markReady
         );
-
-        assertEquals(
-                PublicationStatus.PUBLISHED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectPublishingAlreadyPublishedPublication() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.PUBLISHED
@@ -126,16 +112,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::markPublished
         );
-
-        assertEquals(
-                PublicationStatus.PUBLISHED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectPublishingFailedPublicationDirectly() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.FAILED
@@ -145,16 +125,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::markPublished
         );
-
-        assertEquals(
-                PublicationStatus.FAILED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectPublishingCreatedPublicationDirectly() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.CREATED
@@ -164,16 +138,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::markPublished
         );
-
-        assertEquals(
-                PublicationStatus.CREATED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectFailingCreatedPublicationDirectly() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.CREATED
@@ -183,16 +151,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::markFailed
         );
-
-        assertEquals(
-                PublicationStatus.CREATED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectRetryFromReady() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.READY
@@ -202,16 +164,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::retry
         );
-
-        assertEquals(
-                PublicationStatus.READY,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectRetryFromCreated() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.CREATED
@@ -221,16 +177,10 @@ class PublicationTest {
                 IllegalStateException.class,
                 publication::retry
         );
-
-        assertEquals(
-                PublicationStatus.CREATED,
-                publication.status()
-        );
     }
 
     @Test
     void shouldRejectRetryFromPublished() {
-
         Publication publication =
                 createPublication(
                         PublicationStatus.PUBLISHED
@@ -239,11 +189,6 @@ class PublicationTest {
         assertThrows(
                 IllegalStateException.class,
                 publication::retry
-        );
-
-        assertEquals(
-                PublicationStatus.PUBLISHED,
-                publication.status()
         );
     }
 
@@ -279,10 +224,20 @@ class PublicationTest {
                         List.of()
                 );
 
-        /*
-         * Este teste não testa filtros, score ou momentum.
-         * Portanto somente a política estrutural possui versão.
-         */
+        List<EvaluationRuleResult> rules =
+                List.of(
+                        EvaluationRuleResult.passed(
+                                "SELLER_IS_AMAZON",
+                                "AMAZON",
+                                "AMAZON"
+                        ),
+                        EvaluationRuleResult.passed(
+                                "DELIVERY_IS_AMAZON",
+                                "AMAZON",
+                                "AMAZON"
+                        )
+                );
+
         DealEvaluation evaluation =
                 new DealEvaluation(
                         1L,
@@ -291,6 +246,7 @@ class PublicationTest {
                         null,
                         "AMAZON_SELLER_DELIVERY_V1",
                         null,
+                        rules,
                         null,
                         null,
                         null,

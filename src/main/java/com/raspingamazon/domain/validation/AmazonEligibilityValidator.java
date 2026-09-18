@@ -1,32 +1,40 @@
 package com.raspingamazon.domain.validation;
 
+import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.evaluation.RejectionReason;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
- * Valida se uma oferta atende ao critério Amazon da FASE 8.
+ * Política estrutural de elegibilidade Amazon.
  *
  * <p>A oferta somente é elegível quando:</p>
  *
  * <ul>
- *     <li>o vendedor é a Amazon; e</li>
- *     <li>a entrega é realizada pela Amazon.</li>
+ *     <li>o vendedor é Amazon;</li>
+ *     <li>a entrega é Amazon.</li>
  * </ul>
  *
- * <p>A validação utiliza política fail-closed:
- * qualquer estado desconhecido ou terceiro resulta em rejeição.</p>
+ * <p>A política permanece fail-closed: UNKNOWN e THIRD_PARTY
+ * são rejeitados.</p>
  *
- * <p>Esta classe não conhece HTML, PostgreSQL, JDBC ou persistência.</p>
+ * <p>Diferentemente da implementação anterior, todas as regras são
+ * avaliadas. Isso permite explicar completamente uma rejeição.</p>
  */
 public final class AmazonEligibilityValidator {
 
+    private static final String SELLER_RULE =
+            "SELLER_IS_AMAZON";
+
+    private static final String DELIVERY_RULE =
+            "DELIVERY_IS_AMAZON";
+
+    private static final String REQUIRED_VALUE =
+            "AMAZON";
+
     /**
-     * Valida vendedor e responsável pela entrega.
-     *
-     * @param sellerType classificação normalizada do vendedor
-     * @param deliveryType classificação normalizada da entrega
-     * @return resultado da validação
+     * Avalia seller e delivery independentemente.
      */
     public AmazonEligibilityResult validate(
             SellerType sellerType,
@@ -42,56 +50,121 @@ public final class AmazonEligibilityValidator {
                 "deliveryType must not be null"
         );
 
+        EvaluationRuleResult sellerResult =
+                evaluateSeller(
+                        sellerType
+                );
+
+        EvaluationRuleResult deliveryResult =
+                evaluateDelivery(
+                        deliveryType
+                );
+
+        List<EvaluationRuleResult> ruleResults =
+                List.of(
+                        sellerResult,
+                        deliveryResult
+                );
+
         /*
-         * Vendedor é avaliado primeiro.
+         * Elegibilidade somente existe quando TODAS as regras passam.
+         */
+        if (sellerResult.passed()
+                && deliveryResult.passed()) {
+
+            return AmazonEligibilityResult.accepted(
+                    ruleResults
+            );
+        }
+
+        /*
+         * rejectionReason continua representando o motivo principal.
          *
-         * Isso mantém uma ordem determinística quando mais de
-         * uma condição estiver inválida, já que DealEvaluation
-         * possui apenas um rejectionReason.
+         * Mantemos seller como primeira prioridade para preservar
+         * deterministicamente o comportamento histórico da FASE 8.
+         *
+         * A diferença é que agora delivery também é avaliado e
+         * preservado em ruleResults.
          */
-        switch (sellerType) {
+        RejectionReason primaryReason;
 
-            case UNKNOWN:
-                return AmazonEligibilityResult.rejected(
-                        RejectionReason.SELLER_UNKNOWN
-                );
-
-            case THIRD_PARTY:
-                return AmazonEligibilityResult.rejected(
-                        RejectionReason.SELLER_THIRD_PARTY
-                );
-
-            case AMAZON:
-                break;
+        if (!sellerResult.passed()) {
+            primaryReason =
+                    sellerResult.reasonCode();
+        } else {
+            primaryReason =
+                    deliveryResult.reasonCode();
         }
 
-        /*
-         * Somente após confirmar que o vendedor é Amazon,
-         * avaliamos o responsável pela entrega.
-         */
-        switch (deliveryType) {
-
-            case UNKNOWN:
-                return AmazonEligibilityResult.rejected(
-                        RejectionReason.DELIVERY_UNKNOWN
-                );
-
-            case THIRD_PARTY:
-                return AmazonEligibilityResult.rejected(
-                        RejectionReason.DELIVERY_THIRD_PARTY
-                );
-
-            case AMAZON:
-                return AmazonEligibilityResult.accepted();
-        }
-
-        /*
-         * O enum DeliveryType atualmente possui todos os estados
-         * tratados acima. Este ponto existe apenas como proteção
-         * caso novos estados sejam adicionados posteriormente.
-         */
-        throw new IllegalStateException(
-                "Unsupported delivery type: " + deliveryType
+        return AmazonEligibilityResult.rejected(
+                primaryReason,
+                ruleResults
         );
+    }
+
+    /**
+     * Avalia exclusivamente a regra de seller.
+     */
+    private EvaluationRuleResult evaluateSeller(
+            SellerType sellerType
+    ) {
+        return switch (sellerType) {
+
+            case AMAZON ->
+                    EvaluationRuleResult.passed(
+                            SELLER_RULE,
+                            sellerType.name(),
+                            REQUIRED_VALUE
+                    );
+
+            case THIRD_PARTY ->
+                    EvaluationRuleResult.failed(
+                            SELLER_RULE,
+                            sellerType.name(),
+                            REQUIRED_VALUE,
+                            RejectionReason.SELLER_THIRD_PARTY
+                    );
+
+            case UNKNOWN ->
+                    EvaluationRuleResult.failed(
+                            SELLER_RULE,
+                            sellerType.name(),
+                            REQUIRED_VALUE,
+                            RejectionReason.SELLER_UNKNOWN
+                    );
+        };
+    }
+
+    /**
+     * Avalia exclusivamente a regra de delivery.
+     */
+    private EvaluationRuleResult evaluateDelivery(
+            DeliveryType deliveryType
+    ) {
+        return switch (deliveryType) {
+
+            case AMAZON ->
+                    EvaluationRuleResult.passed(
+                            DELIVERY_RULE,
+                            deliveryType.name(),
+                            REQUIRED_VALUE
+                    );
+
+            case THIRD_PARTY ->
+                    EvaluationRuleResult.failed(
+                            DELIVERY_RULE,
+                            deliveryType.name(),
+                            REQUIRED_VALUE,
+                            RejectionReason.DELIVERY_THIRD_PARTY
+                    );
+
+            case UNKNOWN ->
+                    EvaluationRuleResult.failed(
+                            DELIVERY_RULE,
+                            deliveryType.name(),
+                            REQUIRED_VALUE,
+                            RejectionReason.DELIVERY_UNKNOWN
+                    );
+        };
     }
 }

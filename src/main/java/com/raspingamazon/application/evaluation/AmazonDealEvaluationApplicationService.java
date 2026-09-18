@@ -12,16 +12,10 @@ import java.util.Objects;
 
 /**
  * Caso de uso responsável por aplicar a política estrutural Amazon
- * e persistir o resultado agregado.
+ * e persistir a avaliação resultante.
  */
 public final class AmazonDealEvaluationApplicationService {
 
-    /**
-     * Esta versão identifica exclusivamente a política de elegibilidade
-     * baseada em seller + delivery.
-     *
-     * <p>Ela não representa filtros configuráveis.</p>
-     */
     private static final String ELIGIBILITY_POLICY_VERSION =
             "AMAZON_SELLER_DELIVERY_V1";
 
@@ -83,26 +77,17 @@ public final class AmazonDealEvaluationApplicationService {
                         offerSnapshot,
                         result.eligible(),
                         result.rejectionReason(),
-
-                        /*
-                         * Política estrutural já aplicada.
-                         */
                         ELIGIBILITY_POLICY_VERSION,
-
-                        /*
-                         * FASE 9 ainda não aplicada.
-                         */
                         null,
 
                         /*
-                         * Score ainda não calculado.
+                         * Preservamos todas as regras produzidas
+                         * pela política Amazon.
                          */
-                        null,
-                        null,
+                        result.ruleResults(),
 
-                        /*
-                         * Momentum ainda não calculado.
-                         */
+                        null,
+                        null,
                         null,
                         null,
 

@@ -2,6 +2,7 @@ package com.raspingamazon.domain.publication.contract;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
+import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.shared.Money;
@@ -43,7 +44,6 @@ class PublicationRequestTest {
 
     @Test
     void shouldRejectNullDealEvaluation() {
-
         assertThrows(
                 NullPointerException.class,
                 () -> new PublicationRequest(
@@ -55,7 +55,6 @@ class PublicationRequestTest {
 
     @Test
     void shouldRejectNullTemplateVersion() {
-
         assertThrows(
                 NullPointerException.class,
                 () -> new PublicationRequest(
@@ -67,7 +66,6 @@ class PublicationRequestTest {
 
     @Test
     void shouldRejectBlankTemplateVersion() {
-
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new PublicationRequest(
@@ -79,7 +77,6 @@ class PublicationRequestTest {
 
     @Test
     void shouldRejectWhitespaceOnlyTemplateVersion() {
-
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new PublicationRequest(
@@ -119,6 +116,20 @@ class PublicationRequestTest {
                         List.of()
                 );
 
+        List<EvaluationRuleResult> rules =
+                List.of(
+                        EvaluationRuleResult.passed(
+                                "SELLER_IS_AMAZON",
+                                "AMAZON",
+                                "AMAZON"
+                        ),
+                        EvaluationRuleResult.passed(
+                                "DELIVERY_IS_AMAZON",
+                                "AMAZON",
+                                "AMAZON"
+                        )
+                );
+
         return new DealEvaluation(
                 1L,
                 snapshot,
@@ -126,6 +137,7 @@ class PublicationRequestTest {
                 null,
                 "AMAZON_SELLER_DELIVERY_V1",
                 null,
+                rules,
                 null,
                 null,
                 null,

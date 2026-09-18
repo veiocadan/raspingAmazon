@@ -4,103 +4,60 @@ import com.raspingamazon.domain.deal.OfferSnapshot;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Objects;
 
 /**
  * Representa o resultado agregado da avaliação de uma oferta.
  *
- * <p>DealEvaluation não executa as regras de negócio por conta própria.
- * Ela registra o resultado produzido pelos diferentes estágios de
- * decisão do sistema.</p>
- *
- * <p>Os estágios são versionados separadamente para permitir
- * reprodutibilidade histórica:</p>
+ * <p>DealEvaluation registra:</p>
  *
  * <ul>
- *     <li>política de elegibilidade estrutural;</li>
- *     <li>perfil de filtros;</li>
- *     <li>algoritmo de score;</li>
- *     <li>algoritmo de momentum.</li>
+ *     <li>a decisão agregada;</li>
+ *     <li>o motivo principal de rejeição;</li>
+ *     <li>as versões das etapas aplicadas;</li>
+ *     <li>os resultados individuais das regras;</li>
+ *     <li>score e momentum, quando existirem.</li>
  * </ul>
  *
- * <p>Nem todos esses estágios já existem. Por isso somente
- * eligibilityPolicyVersion é obrigatória nesta fase.</p>
+ * <p>Os resultados individuais permitem reconstruir exatamente
+ * quais regras passaram ou falharam em uma avaliação histórica.</p>
  */
 public final class DealEvaluation {
 
-    /**
-     * Identificador persistente.
-     *
-     * <p>Pode ser nulo antes da persistência.</p>
-     */
     private final Long id;
 
-    /**
-     * Snapshot avaliado.
-     */
     private final OfferSnapshot offerSnapshot;
 
-    /**
-     * Resultado agregado de elegibilidade.
-     */
     private final boolean eligible;
 
     /**
-     * Motivo principal de rejeição utilizado pelo modelo atual.
+     * Motivo principal da rejeição.
      *
-     * <p>Na evolução para filtros múltiplos, explicações detalhadas
-     * serão representadas por resultados de regra separados.</p>
+     * <p>É mantido como resumo agregado. A explicação completa
+     * encontra-se em ruleResults.</p>
      */
     private final RejectionReason rejectionReason;
 
-    /**
-     * Versão da política estrutural de elegibilidade.
-     *
-     * <p>Exemplo atual:</p>
-     *
-     * <pre>
-     * AMAZON_SELLER_DELIVERY_V1
-     * </pre>
-     */
     private final String eligibilityPolicyVersion;
 
-    /**
-     * Versão do perfil de filtros da FASE 9.
-     *
-     * <p>Permanece nula enquanto filtros configuráveis ainda
-     * não forem aplicados.</p>
-     */
     private final String filterProfileVersion;
 
     /**
-     * Pontuação produzida pelo algoritmo de scoring.
+     * Resultados individuais das regras aplicadas.
      *
-     * <p>Ainda não implementado.</p>
+     * <p>A ordem é deliberadamente preservada.</p>
      */
+    private final List<EvaluationRuleResult> ruleResults;
+
     private final BigDecimal score;
 
-    /**
-     * Versão do algoritmo de scoring.
-     *
-     * <p>Deve ser nula enquanto score não tiver sido calculado.</p>
-     */
     private final String scoreVersion;
 
-    /**
-     * Indicador de momentum.
-     *
-     * <p>Ainda não implementado.</p>
-     */
     private final BigDecimal momentum;
 
-    /**
-     * Versão do algoritmo de momentum.
-     */
     private final String momentumVersion;
 
-    /**
-     * Instante da avaliação.
-     */
     private final OffsetDateTime evaluatedAt;
 
     public DealEvaluation(
@@ -110,6 +67,7 @@ public final class DealEvaluation {
             RejectionReason rejectionReason,
             String eligibilityPolicyVersion,
             String filterProfileVersion,
+            List<EvaluationRuleResult> ruleResults,
             BigDecimal score,
             String scoreVersion,
             BigDecimal momentum,
@@ -126,50 +84,102 @@ public final class DealEvaluation {
 
         this.eligible = eligible;
 
-        /*
-         * Mantemos temporariamente a invariante atual:
-         *
-         * - elegível -> sem rejectionReason;
-         * - inelegível -> com rejectionReason.
-         *
-         * A explicabilidade multi-regra será introduzida
-         * separadamente para não misturar responsabilidades.
-         */
-        if (eligible && rejectionReason != null) {
-            throw new IllegalArgumentException(
-                    "Eligible evaluation must not have rejectionReason"
-            );
-        }
-
-        if (!eligible && rejectionReason == null) {
-            throw new IllegalArgumentException(
-                    "Ineligible evaluation must have rejectionReason"
-            );
-        }
-
-        this.rejectionReason =
-                rejectionReason;
-
-        /*
-         * Toda avaliação realizada atualmente obrigatoriamente passou
-         * pela política estrutural Amazon.
-         */
         this.eligibilityPolicyVersion =
                 requireText(
                         eligibilityPolicyVersion,
                         "DealEvaluation eligibilityPolicyVersion must not be blank"
                 );
 
-        /*
-         * Os filtros configuráveis ainda não existem.
-         *
-         * Quando existirem, a versão será registrada aqui.
-         */
         this.filterProfileVersion =
                 optionalText(
                         filterProfileVersion,
                         "DealEvaluation filterProfileVersion must not be blank"
                 );
+
+        Objects.requireNonNull(
+                ruleResults,
+                "DealEvaluation ruleResults must not be null"
+        );
+
+        if (ruleResults.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "DealEvaluation ruleResults must not be empty"
+            );
+        }
+
+        /*
+         * Cópia defensiva:
+         * depois de criada, a avaliação não pode ter suas regras
+         * alteradas externamente.
+         */
+        this.ruleResults =
+                List.copyOf(
+                        ruleResults
+                );
+
+        /*
+         * A elegibilidade agregada deve refletir TODAS as regras.
+         */
+        boolean allRulesPassed =
+                this.ruleResults.stream()
+                        .allMatch(
+                                EvaluationRuleResult::passed
+                        );
+
+        if (eligible != allRulesPassed) {
+            throw new IllegalArgumentException(
+                    "DealEvaluation eligibility must match rule results"
+            );
+        }
+
+        /*
+         * Encontramos a primeira regra que falhou.
+         *
+         * Sua razão é utilizada como motivo principal da avaliação,
+         * mantendo comportamento determinístico.
+         */
+        RejectionReason firstFailureReason =
+                this.ruleResults.stream()
+                        .filter(
+                                result -> !result.passed()
+                        )
+                        .map(
+                                EvaluationRuleResult::reasonCode
+                        )
+                        .findFirst()
+                        .orElse(
+                                null
+                        );
+
+        if (eligible) {
+
+            if (rejectionReason != null) {
+                throw new IllegalArgumentException(
+                        "Eligible evaluation must not have rejectionReason"
+                );
+            }
+
+        } else {
+
+            if (rejectionReason == null) {
+                throw new IllegalArgumentException(
+                        "Ineligible evaluation must have rejectionReason"
+                );
+            }
+
+            /*
+             * O resumo agregado precisa corresponder à primeira falha
+             * registrada nas regras.
+             */
+            if (rejectionReason != firstFailureReason) {
+                throw new IllegalArgumentException(
+                        "DealEvaluation rejectionReason must match the first failed rule"
+                );
+            }
+        }
+
+        this.rejectionReason =
+                rejectionReason;
 
         this.score =
                 score;
@@ -190,18 +200,18 @@ public final class DealEvaluation {
                 );
 
         /*
-         * Se existe um score, ele precisa dizer qual algoritmo o produziu.
-         *
-         * Da mesma forma, não permitimos uma versão de score sem score.
+         * Score e versão sempre aparecem juntos.
          */
-        if ((score == null) != (this.scoreVersion == null)) {
+        if ((score == null)
+                != (this.scoreVersion == null)) {
+
             throw new IllegalArgumentException(
                     "DealEvaluation score and scoreVersion must either both be present or both be null"
             );
         }
 
         /*
-         * Mesma regra para momentum.
+         * Momentum e versão também sempre aparecem juntos.
          */
         if ((momentum == null)
                 != (this.momentumVersion == null)) {
@@ -218,9 +228,6 @@ public final class DealEvaluation {
                 );
     }
 
-    /**
-     * Valida texto obrigatório.
-     */
     private static String requireText(
             String value,
             String message
@@ -239,12 +246,6 @@ public final class DealEvaluation {
         return value;
     }
 
-    /**
-     * Valida texto opcional.
-     *
-     * <p>null significa "a etapa ainda não foi aplicada".
-     * String vazia, por outro lado, representa dado inválido.</p>
-     */
     private static String optionalText(
             String value,
             String message
@@ -284,6 +285,10 @@ public final class DealEvaluation {
 
     public String filterProfileVersion() {
         return filterProfileVersion;
+    }
+
+    public List<EvaluationRuleResult> ruleResults() {
+        return ruleResults;
     }
 
     public BigDecimal score() {
