@@ -18,6 +18,8 @@ public record ParsedDeal(
         BigDecimal basisPrice,
         BigDecimal previousPrice,
         BigDecimal soldPercentage,
+        Double rating,
+        Long reviewCount,
         OffsetDateTime collectedAt,
         String source
 ) {
