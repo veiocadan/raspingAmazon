@@ -72,32 +72,59 @@ class AmazonDealsParserTest {
         ParsedDeal deal = deals.getFirst();
 
         assertEquals("B087WLJH8Y", deal.asin());
+
         assertEquals(
                 "https://www.amazon.com.br/Creatina-Turbo-300g/dp/B087WLJH8Y",
                 deal.productUrl()
         );
-        assertEquals("Creatina Turbo 300g", deal.title());
+
+        assertEquals(
+                "Creatina Turbo 300g",
+                deal.title()
+        );
+
         assertEquals(
                 "https://m.media-amazon.com/images/I/6165ojDGBPL.jpg",
                 deal.imageUrl()
         );
-        assertEquals(new BigDecimal("15.99"), deal.currentPrice());
-        assertEquals(new BigDecimal("53.46"), deal.basisPrice());
+
+        assertEquals(
+                new BigDecimal("15.99"),
+                deal.currentPrice()
+        );
+
+        assertEquals(
+                new BigDecimal("53.46"),
+                deal.basisPrice()
+        );
 
         /*
-         * O basisPrice representa o preço de referência apresentado pela
-         * fonte. Ele não deve ser interpretado automaticamente como
-         * previousPrice.
+         * basisPrice representa preço de referência.
+         * Não deve ser inferido como preço histórico anterior.
          */
-        assertNull(deal.previousPrice());
+        assertNull(
+                deal.previousPrice()
+        );
 
-        assertEquals(new BigDecimal("89.0"), deal.soldPercentage());
-        assertEquals(COLLECTED_AT, deal.collectedAt());
-        assertEquals(SOURCE, deal.source());
+        assertEquals(
+                new BigDecimal("89.0"),
+                deal.soldPercentage()
+        );
+
+        assertEquals(
+                COLLECTED_AT,
+                deal.collectedAt()
+        );
+
+        assertEquals(
+                SOURCE,
+                deal.source()
+        );
     }
 
     @Test
     void shouldParseAnotherRealisticAmazonDeal() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -123,30 +150,58 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
+        assertEquals(
+                1,
+                deals.size()
+        );
 
-        ParsedDeal deal = deals.getFirst();
+        ParsedDeal deal =
+                deals.getFirst();
 
-        assertEquals("B08R93TVRG", deal.asin());
+        assertEquals(
+                "B08R93TVRG",
+                deal.asin()
+        );
+
         assertEquals(
                 "https://www.amazon.com.br/Fritadeira-Oven-PFR2200P-Philco-127v/dp/B08R93TVRG",
                 deal.productUrl()
         );
+
         assertEquals(
                 "Fritadeira Philco Air Fryer Oven 12L PFR2200P - 127V",
                 deal.title()
         );
-        assertEquals(new BigDecimal("399.0"), deal.currentPrice());
-        assertEquals(new BigDecimal("1199.9"), deal.basisPrice());
-        assertEquals(new BigDecimal("91.0"), deal.soldPercentage());
+
+        assertEquals(
+                new BigDecimal("399.0"),
+                deal.currentPrice()
+        );
+
+        assertEquals(
+                new BigDecimal("1199.9"),
+                deal.basisPrice()
+        );
+
+        assertEquals(
+                new BigDecimal("91.0"),
+                deal.soldPercentage()
+        );
     }
 
     @Test
     void shouldParseMultipleProducts() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -176,18 +231,35 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(2, deals.size());
+        assertEquals(
+                2,
+                deals.size()
+        );
 
-        assertEquals("B087WLJH8Y", deals.get(0).asin());
-        assertEquals("B08R93TVRG", deals.get(1).asin());
+        assertEquals(
+                "B087WLJH8Y",
+                deals.get(0).asin()
+        );
+
+        assertEquals(
+                "B08R93TVRG",
+                deals.get(1).asin()
+        );
     }
 
     @Test
     void shouldParseCommaDecimalPrice() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -210,20 +282,38 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
+        assertEquals(
+                1,
+                deals.size()
+        );
 
-        ParsedDeal deal = deals.getFirst();
+        ParsedDeal deal =
+                deals.getFirst();
 
-        assertEquals(new BigDecimal("15.99"), deal.currentPrice());
-        assertEquals(new BigDecimal("53.46"), deal.basisPrice());
+        assertEquals(
+                new BigDecimal("15.99"),
+                deal.currentPrice()
+        );
+
+        assertEquals(
+                new BigDecimal("53.46"),
+                deal.basisPrice()
+        );
     }
 
     @Test
     void shouldThrowWhenProductSearchResponseIsMissing() {
+
         String content = """
                 {
                   "otherData": {
@@ -232,16 +322,22 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
         assertThrows(
                 AmazonDealsParsingException.class,
-                () -> parser.parse(result)
+                () -> parser.parse(
+                        result
+                )
         );
     }
 
     @Test
     void shouldThrowWhenProductsArrayIsMissing() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -250,16 +346,22 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
         assertThrows(
                 AmazonDealsParsingException.class,
-                () -> parser.parse(result)
+                () -> parser.parse(
+                        result
+                )
         );
     }
 
     @Test
     void shouldDiscardProductWithoutAsin() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -278,15 +380,25 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(0, deals.size());
+        assertEquals(
+                0,
+                deals.size()
+        );
     }
 
     @Test
     void shouldDiscardProductWithInvalidAsin() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -306,15 +418,25 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(0, deals.size());
+        assertEquals(
+                0,
+                deals.size()
+        );
     }
 
     @Test
     void shouldDiscardProductWithoutTitle() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -333,15 +455,25 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(0, deals.size());
+        assertEquals(
+                0,
+                deals.size()
+        );
     }
 
     @Test
     void shouldDiscardProductWithoutProductUrl() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -360,15 +492,25 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(0, deals.size());
+        assertEquals(
+                0,
+                deals.size()
+        );
     }
 
     @Test
     void shouldDiscardProductWithoutCurrentPrice() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -383,15 +525,25 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(0, deals.size());
+        assertEquals(
+                0,
+                deals.size()
+        );
     }
 
     @Test
     void shouldAllowMissingSoldPercentage() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -411,16 +563,30 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
-        assertNull(deals.getFirst().soldPercentage());
+        assertEquals(
+                1,
+                deals.size()
+        );
+
+        assertNull(
+                deals.getFirst()
+                        .soldPercentage()
+        );
     }
 
     @Test
     void shouldSetSoldPercentageToNullWhenSourceValueIsInvalid() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -443,16 +609,30 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
-        assertNull(deals.getFirst().soldPercentage());
+        assertEquals(
+                1,
+                deals.size()
+        );
+
+        assertNull(
+                deals.getFirst()
+                        .soldPercentage()
+        );
     }
 
     @Test
     void shouldKeepBasisPriceSeparateFromPreviousPrice() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -475,27 +655,42 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
+        assertEquals(
+                1,
+                deals.size()
+        );
 
-        ParsedDeal deal = deals.getFirst();
+        ParsedDeal deal =
+                deals.getFirst();
 
-        assertEquals(new BigDecimal("10.00"), deal.currentPrice());
-        assertEquals(new BigDecimal("20.00"), deal.basisPrice());
+        assertEquals(
+                new BigDecimal("10.00"),
+                deal.currentPrice()
+        );
 
-        /*
-         * A fonte não forneceu explicitamente um preço anterior.
-         * Portanto, o parser não deve inferir previousPrice a partir
-         * de basisPrice.
-         */
-        assertNull(deal.previousPrice());
+        assertEquals(
+                new BigDecimal("20.00"),
+                deal.basisPrice()
+        );
+
+        assertNull(
+                deal.previousPrice()
+        );
     }
 
     @Test
     void shouldDeduplicateEquivalentProducts() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -525,16 +720,30 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
-        assertEquals("B012345678", deals.getFirst().asin());
+        assertEquals(
+                1,
+                deals.size()
+        );
+
+        assertEquals(
+                "B012345678",
+                deals.getFirst().asin()
+        );
     }
 
     @Test
     void shouldKeepDifferentOffersForSameAsinWhenOfferContextChanges() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -564,18 +773,35 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(2, deals.size());
+        assertEquals(
+                2,
+                deals.size()
+        );
 
-        assertEquals(new BigDecimal("10.00"), deals.get(0).currentPrice());
-        assertEquals(new BigDecimal("12.00"), deals.get(1).currentPrice());
+        assertEquals(
+                new BigDecimal("10.00"),
+                deals.get(0).currentPrice()
+        );
+
+        assertEquals(
+                new BigDecimal("12.00"),
+                deals.get(1).currentPrice()
+        );
     }
 
     @Test
     void shouldAcceptLowercaseAsinAndNormalizeIt() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -595,16 +821,30 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
-        assertEquals("B012345678", deals.getFirst().asin());
+        assertEquals(
+                1,
+                deals.size()
+        );
+
+        assertEquals(
+                "B012345678",
+                deals.getFirst().asin()
+        );
     }
 
     @Test
     void shouldUseLowResolutionImageWhenHighResolutionImageIsUnavailable() {
+
         String content = """
                 {
                   "productSearchResponse": {
@@ -630,11 +870,20 @@ class AmazonDealsParserTest {
                 }
                 """;
 
-        CollectionResult result = collectionResult(content);
+        CollectionResult result =
+                collectionResult(
+                        content
+                );
 
-        List<ParsedDeal> deals = parser.parse(result);
+        List<ParsedDeal> deals =
+                parser.parse(
+                        result
+                );
 
-        assertEquals(1, deals.size());
+        assertEquals(
+                1,
+                deals.size()
+        );
 
         assertEquals(
                 "https://m.media-amazon.com/images/I/example.jpg",
@@ -645,7 +894,9 @@ class AmazonDealsParserTest {
     /**
      * Cria o contrato de entrada usado pelos testes do parser.
      */
-    private CollectionResult collectionResult(String content) {
+    private CollectionResult collectionResult(
+            String content
+    ) {
         return new CollectionResult(
                 content,
                 COLLECTED_AT,
