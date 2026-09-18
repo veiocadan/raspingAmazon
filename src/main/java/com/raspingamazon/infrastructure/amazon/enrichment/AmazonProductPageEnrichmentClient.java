@@ -12,6 +12,20 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Objects;
 
+/**
+ * Cliente de enriquecimento baseado na página individual do produto.
+ *
+ * <p>A responsabilidade deste adaptador é:</p>
+ *
+ * <ol>
+ *     <li>acessar a página individual;</li>
+ *     <li>obter o HTML;</li>
+ *     <li>entregá-lo ao parser;</li>
+ *     <li>montar o contrato normalizado de enriquecimento.</li>
+ * </ol>
+ *
+ * <p>Ele não decide elegibilidade.</p>
+ */
 public final class AmazonProductPageEnrichmentClient
         implements ProductEnrichmentClient {
 
@@ -28,10 +42,15 @@ public final class AmazonProductPageEnrichmentClient
 
     private final AmazonProductPageParser parser;
 
+    /**
+     * Construtor padrão utilizado pela aplicação.
+     */
     public AmazonProductPageEnrichmentClient() {
         this(
                 HttpClient.newBuilder()
-                        .connectTimeout(REQUEST_TIMEOUT)
+                        .connectTimeout(
+                                REQUEST_TIMEOUT
+                        )
                         .followRedirects(
                                 HttpClient.Redirect.NORMAL
                         )
@@ -40,6 +59,9 @@ public final class AmazonProductPageEnrichmentClient
         );
     }
 
+    /**
+     * Construtor que permite injetar dependências em testes.
+     */
     public AmazonProductPageEnrichmentClient(
             HttpClient httpClient,
             AmazonProductPageParser parser
@@ -57,6 +79,9 @@ public final class AmazonProductPageEnrichmentClient
                 );
     }
 
+    /**
+     * Enriquece uma oferta previamente interpretada pela FASE 6.
+     */
     @Override
     public ProductEnrichmentResult enrich(
             ParsedDeal parsedDeal
@@ -66,7 +91,8 @@ public final class AmazonProductPageEnrichmentClient
                 "Parsed deal must not be null"
         );
 
-        String productUrl = parsedDeal.productUrl();
+        String productUrl =
+                parsedDeal.productUrl();
 
         if (productUrl == null
                 || productUrl.isBlank()) {
@@ -76,12 +102,17 @@ public final class AmazonProductPageEnrichmentClient
             );
         }
 
-        URI uri = URI.create(productUrl);
+        URI uri =
+                URI.create(
+                        productUrl
+                );
 
         HttpRequest request =
                 HttpRequest.newBuilder()
                         .uri(uri)
-                        .timeout(REQUEST_TIMEOUT)
+                        .timeout(
+                                REQUEST_TIMEOUT
+                        )
                         .header(
                                 "User-Agent",
                                 USER_AGENT
@@ -99,16 +130,26 @@ public final class AmazonProductPageEnrichmentClient
             response =
                     httpClient.send(
                             request,
-                            HttpResponse.BodyHandlers.ofString()
+                            HttpResponse
+                                    .BodyHandlers
+                                    .ofString()
                     );
+
         } catch (InterruptedException exception) {
+
+            /*
+             * Quando uma thread é interrompida, restauramos a flag
+             * de interrupção antes de propagar a falha.
+             */
             Thread.currentThread().interrupt();
 
             throw new ProductEnrichmentException(
                     "Product page request was interrupted",
                     exception
             );
+
         } catch (Exception exception) {
+
             throw new ProductEnrichmentException(
                     "Failed to retrieve Amazon product page",
                     exception
@@ -124,33 +165,49 @@ public final class AmazonProductPageEnrichmentClient
             );
         }
 
-        String html = response.body();
+        String html =
+                response.body();
 
-        if (html == null || html.isBlank()) {
+        if (html == null
+                || html.isBlank()) {
+
             throw new ProductEnrichmentException(
                     "Amazon product page returned an empty response"
             );
         }
 
         AmazonProductPageParser.ParsedProductOffer parsed =
-                parser.parse(html);
+                parser.parse(
+                        html
+                );
 
         OffsetDateTime collectedAt =
-                OffsetDateTime.now(ZoneOffset.UTC);
+                OffsetDateTime.now(
+                        ZoneOffset.UTC
+                );
 
+        /*
+         * Esta é a correção central da FASE 8.5-A.
+         *
+         * Antes, vários Strings eram passados posicionalmente,
+         * permitindo que título, seller, source e URL fossem
+         * associados aos campos errados sem erro de compilação.
+         *
+         * Agora seller e delivery já chegam como objetos tipados.
+         */
         return new ProductEnrichmentResult(
                 parsedDeal.asin(),
-                parsedDeal.title(),
-                parsed.sellerType(),
-                parsed.rawSellerValue(),
-                parsed.rawDeliveryValue(),
-                parsed.deliveryType(),
+                parsed.sellerEvidence(),
+                parsed.deliveryEvidence(),
                 SOURCE,
                 productUrl,
                 collectedAt
         );
     }
 
+    /**
+     * Erro específico da operação de enriquecimento.
+     */
     public static final class ProductEnrichmentException
             extends RuntimeException {
 
@@ -164,7 +221,10 @@ public final class AmazonProductPageEnrichmentClient
                 String message,
                 Throwable cause
         ) {
-            super(message, cause);
+            super(
+                    message,
+                    cause
+            );
         }
     }
 }

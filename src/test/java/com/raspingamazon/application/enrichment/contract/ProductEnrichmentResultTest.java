@@ -10,210 +10,229 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Testes do contrato de resultado do enriquecimento.
+ * Testes do contrato de enriquecimento.
  */
 class ProductEnrichmentResultTest {
 
     private static final OffsetDateTime ENRICHED_AT =
-            OffsetDateTime.parse("2026-09-17T10:00:00-03:00");
+            OffsetDateTime.parse(
+                    "2026-09-17T10:00:00-03:00"
+            );
 
     @Test
-    void shouldCreateAmazonAmazonResult() {
+    void shouldCreateCompleteAmazonAmazonResult() {
+
+        SellerEvidence sellerEvidence =
+                new SellerEvidence(
+                        "Amazon.com.br",
+                        SellerType.AMAZON,
+                        "merchantInfoFeature"
+                );
+
+        DeliveryEvidence deliveryEvidence =
+                new DeliveryEvidence(
+                        "Amazon",
+                        DeliveryType.AMAZON,
+                        "fulfillerInfoFeature"
+                );
 
         ProductEnrichmentResult result =
                 new ProductEnrichmentResult(
                         "B012345678",
-                        "Amazon.com.br",
-                        SellerType.AMAZON,
-                        "merchantInfoFeature",
-                        "Amazon",
-                        DeliveryType.AMAZON,
-                        "fulfillerInfoFeature",
+                        sellerEvidence,
+                        deliveryEvidence,
+                        "AMAZON_PRODUCT_PAGE",
                         "https://www.amazon.com.br/dp/B012345678",
                         ENRICHED_AT
                 );
 
-        assertEquals("B012345678", result.asin());
+        /*
+         * O teste verifica campo a campo.
+         *
+         * Isso é importante porque foi justamente a ausência
+         * dessas verificações que permitiu o bug anterior.
+         */
+        assertEquals(
+                "B012345678",
+                result.asin()
+        );
 
         assertEquals(
                 "Amazon.com.br",
-                result.rawSellerValue()
+                result.sellerEvidence().rawValue()
         );
 
         assertEquals(
                 SellerType.AMAZON,
-                result.sellerType()
+                result.sellerEvidence().sellerType()
         );
 
         assertEquals(
                 "merchantInfoFeature",
-                result.sellerEvidenceSource()
+                result.sellerEvidence().source()
         );
 
         assertEquals(
                 "Amazon",
-                result.rawDeliveryValue()
+                result.deliveryEvidence().rawValue()
         );
 
         assertEquals(
                 DeliveryType.AMAZON,
-                result.deliveryType()
+                result.deliveryEvidence().deliveryType()
         );
 
         assertEquals(
                 "fulfillerInfoFeature",
-                result.deliveryEvidenceSource()
+                result.deliveryEvidence().source()
+        );
+
+        assertEquals(
+                "AMAZON_PRODUCT_PAGE",
+                result.source()
+        );
+
+        assertEquals(
+                "https://www.amazon.com.br/dp/B012345678",
+                result.productUrl()
+        );
+
+        assertEquals(
+                ENRICHED_AT,
+                result.enrichedAt()
         );
     }
 
     @Test
-    void shouldPreserveAmazonGlobalRawValueWhileNormalizingToAmazon() {
+    void shouldPreserveAmazonGlobalEvidence() {
 
-        ProductEnrichmentResult result =
-                new ProductEnrichmentResult(
-                        "B012345678",
+        SellerEvidence sellerEvidence =
+                new SellerEvidence(
                         "Amazon Global",
                         SellerType.AMAZON,
-                        "merchantInfoFeature",
-                        "Amazon",
-                        DeliveryType.AMAZON,
-                        "fulfillerInfoFeature",
-                        "https://www.amazon.com.br/dp/B012345678",
-                        ENRICHED_AT
+                        "merchantInfoFeature"
                 );
 
-        /*
-         * O texto original continua disponível para auditoria.
-         */
         assertEquals(
                 "Amazon Global",
-                result.rawSellerValue()
+                sellerEvidence.rawValue()
         );
 
-        /*
-         * A classificação de domínio permanece AMAZON.
-         *
-         * Não existe AMAZON_GLOBAL no domínio.
-         */
         assertEquals(
                 SellerType.AMAZON,
-                result.sellerType()
+                sellerEvidence.sellerType()
         );
     }
 
     @Test
-    void shouldAllowThirdPartySellerWithAmazonDelivery() {
+    void shouldAllowUnknownEvidence() {
 
-        ProductEnrichmentResult result =
-                new ProductEnrichmentResult(
-                        "B012345678",
-                        "Imagem Hitech FULL",
-                        SellerType.THIRD_PARTY,
-                        "merchantInfoFeature",
-                        "Amazon",
-                        DeliveryType.AMAZON,
-                        "fulfillerInfoFeature",
-                        "https://www.amazon.com.br/dp/B012345678",
-                        ENRICHED_AT
-                );
-
-        /*
-         * A FASE 7 apenas registra as evidências.
-         *
-         * Não existe aqui uma propriedade "eligible".
-         *
-         * A decisão pertence à FASE 8.
-         */
-        assertEquals(
-                SellerType.THIRD_PARTY,
-                result.sellerType()
-        );
-
-        assertEquals(
-                DeliveryType.AMAZON,
-                result.deliveryType()
-        );
-    }
-
-    @Test
-    void shouldAllowUnknownClassification() {
-
-        ProductEnrichmentResult result =
-                new ProductEnrichmentResult(
-                        "B012345678",
+        SellerEvidence sellerEvidence =
+                new SellerEvidence(
                         null,
                         SellerType.UNKNOWN,
-                        null,
+                        null
+                );
+
+        DeliveryEvidence deliveryEvidence =
+                new DeliveryEvidence(
                         null,
                         DeliveryType.UNKNOWN,
-                        null,
+                        null
+                );
+
+        ProductEnrichmentResult result =
+                new ProductEnrichmentResult(
+                        "B012345678",
+                        sellerEvidence,
+                        deliveryEvidence,
+                        "AMAZON_PRODUCT_PAGE",
                         "https://www.amazon.com.br/dp/B012345678",
                         ENRICHED_AT
                 );
 
         assertEquals(
                 SellerType.UNKNOWN,
-                result.sellerType()
+                result.sellerEvidence().sellerType()
         );
 
         assertEquals(
                 DeliveryType.UNKNOWN,
-                result.deliveryType()
+                result.deliveryEvidence().deliveryType()
         );
     }
 
     @Test
-    void shouldRejectNullAsin() {
+    void shouldRejectNullSellerEvidence() {
+
+        DeliveryEvidence deliveryEvidence =
+                new DeliveryEvidence(
+                        "Amazon",
+                        DeliveryType.AMAZON,
+                        "fulfillerInfoFeature"
+                );
 
         assertThrows(
                 NullPointerException.class,
                 () -> new ProductEnrichmentResult(
+                        "B012345678",
                         null,
-                        "Amazon.com.br",
-                        SellerType.AMAZON,
-                        "merchantInfoFeature",
-                        "Amazon",
-                        DeliveryType.AMAZON,
-                        "fulfillerInfoFeature",
-                        "source",
+                        deliveryEvidence,
+                        "AMAZON_PRODUCT_PAGE",
+                        "https://www.amazon.com.br/dp/B012345678",
                         ENRICHED_AT
                 )
         );
     }
 
     @Test
-    void shouldRejectNullSellerType() {
+    void shouldRejectNullDeliveryEvidence() {
+
+        SellerEvidence sellerEvidence =
+                new SellerEvidence(
+                        "Amazon.com.br",
+                        SellerType.AMAZON,
+                        "merchantInfoFeature"
+                );
 
         assertThrows(
                 NullPointerException.class,
                 () -> new ProductEnrichmentResult(
                         "B012345678",
-                        "Amazon.com.br",
+                        sellerEvidence,
                         null,
-                        "merchantInfoFeature",
-                        "Amazon",
-                        DeliveryType.AMAZON,
-                        "fulfillerInfoFeature",
-                        "source",
+                        "AMAZON_PRODUCT_PAGE",
+                        "https://www.amazon.com.br/dp/B012345678",
                         ENRICHED_AT
                 )
         );
     }
 
     @Test
-    void shouldRejectNullDeliveryType() {
+    void shouldRejectBlankProductUrl() {
 
-        assertThrows(
-                NullPointerException.class,
-                () -> new ProductEnrichmentResult(
-                        "B012345678",
+        SellerEvidence sellerEvidence =
+                new SellerEvidence(
                         "Amazon.com.br",
                         SellerType.AMAZON,
-                        "merchantInfoFeature",
+                        "merchantInfoFeature"
+                );
+
+        DeliveryEvidence deliveryEvidence =
+                new DeliveryEvidence(
                         "Amazon",
-                        null,
-                        "fulfillerInfoFeature",
-                        "source",
+                        DeliveryType.AMAZON,
+                        "fulfillerInfoFeature"
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ProductEnrichmentResult(
+                        "B012345678",
+                        sellerEvidence,
+                        deliveryEvidence,
+                        "AMAZON_PRODUCT_PAGE",
+                        "   ",
                         ENRICHED_AT
                 )
         );

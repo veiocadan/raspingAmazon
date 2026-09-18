@@ -1,63 +1,49 @@
 package com.raspingamazon.application.enrichment.contract;
 
-import com.raspingamazon.domain.validation.DeliveryType;
-import com.raspingamazon.domain.validation.SellerType;
-
 import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
  * Resultado normalizado do enriquecimento de uma oferta.
  *
- * <p>Este objeto representa evidências obtidas durante o enriquecimento.
- * Ele não representa uma decisão de elegibilidade.</p>
+ * <p>Este contrato representa o que foi observado durante o
+ * enriquecimento da página individual do produto.</p>
  *
- * <p>Os valores brutos são preservados para permitir rastreabilidade
- * e auditoria. As classificações normalizadas permitem que as próximas
- * fases trabalhem sem depender dos textos específicos apresentados
- * pela Amazon.</p>
+ * <p>Ele deliberadamente não contém uma decisão de elegibilidade.
+ * A decisão "seller Amazon + delivery Amazon" pertence à camada de
+ * validação e permanece separada do enriquecimento.</p>
+ *
+ * <p>Seller e delivery são representados por objetos tipados para
+ * evitar o problema de vários argumentos String posicionais.</p>
  */
 public record ProductEnrichmentResult(
 
         /**
-         * ASIN da oferta enriquecida.
+         * ASIN do produto enriquecido.
          */
         String asin,
 
         /**
-         * Valor original observado para o vendedor.
+         * Evidência completa do vendedor.
          */
-        String rawSellerValue,
+        SellerEvidence sellerEvidence,
 
         /**
-         * Classificação normalizada do vendedor.
+         * Evidência completa da entrega.
          */
-        SellerType sellerType,
+        DeliveryEvidence deliveryEvidence,
 
         /**
-         * Campo/estrutura que forneceu a evidência do vendedor.
-         */
-        String sellerEvidenceSource,
-
-        /**
-         * Valor original observado para a entrega.
-         */
-        String rawDeliveryValue,
-
-        /**
-         * Classificação normalizada da entrega.
-         */
-        DeliveryType deliveryType,
-
-        /**
-         * Campo/estrutura que forneceu a evidência da entrega.
-         */
-        String deliveryEvidenceSource,
-
-        /**
-         * Origem do enriquecimento.
+         * Adaptador/fonte responsável pelo enriquecimento.
+         *
+         * <p>Exemplo: {@code AMAZON_PRODUCT_PAGE}.</p>
          */
         String source,
+
+        /**
+         * URL efetivamente utilizada para enriquecer o produto.
+         */
+        String productUrl,
 
         /**
          * Momento em que o enriquecimento foi realizado.
@@ -75,13 +61,13 @@ public record ProductEnrichmentResult(
         );
 
         Objects.requireNonNull(
-                sellerType,
-                "Enrichment sellerType must not be null"
+                sellerEvidence,
+                "Enrichment seller evidence must not be null"
         );
 
         Objects.requireNonNull(
-                deliveryType,
-                "Enrichment deliveryType must not be null"
+                deliveryEvidence,
+                "Enrichment delivery evidence must not be null"
         );
 
         Objects.requireNonNull(
@@ -90,8 +76,13 @@ public record ProductEnrichmentResult(
         );
 
         Objects.requireNonNull(
+                productUrl,
+                "Enrichment product URL must not be null"
+        );
+
+        Objects.requireNonNull(
                 enrichedAt,
-                "Enrichment enrichedAt must not be null"
+                "Enrichment timestamp must not be null"
         );
 
         if (asin.isBlank()) {
@@ -103,6 +94,12 @@ public record ProductEnrichmentResult(
         if (source.isBlank()) {
             throw new IllegalArgumentException(
                     "Enrichment source must not be blank"
+            );
+        }
+
+        if (productUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Enrichment product URL must not be blank"
             );
         }
     }
