@@ -47,11 +47,16 @@ public record FilterProfile(
         new BigDecimal("5");
 
     /**
-     * Valida as invariantes do perfil.
+     * Valida as invariantes estruturais do perfil.
      *
      * Todos os filtros existentes nesta versão possuem um limite
-     * explícito. Um limite igual a zero é válido e, na prática,
-     * permite configurar um critério sem torná-lo restritivo.
+     * explícito.
+     *
+     * Limites numéricos iguais a zero são válidos. Isso significa
+     * apenas que o limiar numérico da regra não é restritivo.
+     *
+     * A ausência do dado observado continua sendo semanticamente
+     * diferente de zero e será tratada pelas regras comerciais.
      */
     public FilterProfile {
 

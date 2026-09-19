@@ -18,31 +18,86 @@ class RejectionReasonTest {
 
     @Test
     void shouldContainSellerUnknownReason() {
-        assertNotNull(RejectionReason.SELLER_UNKNOWN);
+        assertNotNull(
+            RejectionReason.SELLER_UNKNOWN
+        );
     }
 
     @Test
     void shouldContainSellerThirdPartyReason() {
-        assertNotNull(RejectionReason.SELLER_THIRD_PARTY);
+        assertNotNull(
+            RejectionReason.SELLER_THIRD_PARTY
+        );
     }
 
     @Test
     void shouldContainDeliveryUnknownReason() {
-        assertNotNull(RejectionReason.DELIVERY_UNKNOWN);
+        assertNotNull(
+            RejectionReason.DELIVERY_UNKNOWN
+        );
     }
 
     @Test
     void shouldContainDeliveryThirdPartyReason() {
-        assertNotNull(RejectionReason.DELIVERY_THIRD_PARTY);
+        assertNotNull(
+            RejectionReason.DELIVERY_THIRD_PARTY
+        );
     }
 
     @Test
     void shouldContainInsufficientDataReason() {
-        assertNotNull(RejectionReason.INSUFFICIENT_DATA);
+        assertNotNull(
+            RejectionReason.INSUFFICIENT_DATA
+        );
     }
 
     @Test
-    void shouldContainExactlyFiveRejectionReasons() {
-        assertEquals(5, RejectionReason.values().length);
+    void shouldContainCashDiscountUnavailableReason() {
+        assertNotNull(
+            RejectionReason.CASH_DISCOUNT_UNAVAILABLE
+        );
+    }
+
+    @Test
+    void shouldContainCashDiscountBelowMinimumReason() {
+        assertNotNull(
+            RejectionReason.CASH_DISCOUNT_BELOW_MINIMUM
+        );
+    }
+
+    @Test
+    void shouldContainRatingUnavailableReason() {
+        assertNotNull(
+            RejectionReason.RATING_UNAVAILABLE
+        );
+    }
+
+    @Test
+    void shouldContainRatingBelowMinimumReason() {
+        assertNotNull(
+            RejectionReason.RATING_BELOW_MINIMUM
+        );
+    }
+
+    @Test
+    void shouldContainReviewCountUnavailableReason() {
+        assertNotNull(
+            RejectionReason.REVIEW_COUNT_UNAVAILABLE
+        );
+    }
+
+    @Test
+    void shouldContainReviewCountBelowMinimumReason() {
+        assertNotNull(
+            RejectionReason.REVIEW_COUNT_BELOW_MINIMUM
+        );
+    }
+
+    @Test
+    void shouldContainExactlyElevenRejectionReasons() {
+        assertEquals(
+            11,
+            RejectionReason.values().length
+        );
     }
 }
