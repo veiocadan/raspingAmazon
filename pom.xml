@@ -11,25 +11,56 @@
     <version>1.0-SNAPSHOT</version>
 
     <name>rasping-amazon</name>
-    <description>Automação de ofertas Amazon para publicação em grupos de promoções</description>
+
+    <description>
+        Automação de ofertas Amazon para publicação em grupos de promoções
+    </description>
 
     <properties>
+
+        <!--
+            Versão Java definida explicitamente para tornar o build
+            reproduzível entre ambiente local e CI.
+        -->
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
 
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <project.build.sourceEncoding>
+            UTF-8
+        </project.build.sourceEncoding>
 
+        <project.reporting.outputEncoding>
+            UTF-8
+        </project.reporting.outputEncoding>
+
+        <!--
+            Dependências.
+        -->
         <junit.version>5.12.2</junit.version>
         <jackson.version>2.20.0</jackson.version>
 
-        <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
-        <maven.surefire.plugin.version>3.5.4</maven.surefire.plugin.version>
-        <maven.jar.plugin.version>3.5.0</maven.jar.plugin.version>
+        <!--
+            Plugins Maven.
+        -->
+        <maven.compiler.plugin.version>
+            3.15.0
+        </maven.compiler.plugin.version>
+
+        <maven.surefire.plugin.version>
+            3.5.4
+        </maven.surefire.plugin.version>
+
+        <maven.jar.plugin.version>
+            3.5.0
+        </maven.jar.plugin.version>
+
     </properties>
 
     <dependencies>
 
+        <!--
+            JUnit 5.
+        -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -37,6 +68,9 @@
             <scope>test</scope>
         </dependency>
 
+        <!--
+            Flyway.
+        -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -49,12 +83,18 @@
             <version>11.14.1</version>
         </dependency>
 
+        <!--
+            PostgreSQL JDBC.
+        -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.8</version>
         </dependency>
 
+        <!--
+            JSON.
+        -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -64,23 +104,45 @@
     </dependencies>
 
     <build>
+
         <plugins>
 
+            <!--
+                Compilação Java.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven.compiler.plugin.version}</version>
+
                 <configuration>
-                    <release>${maven.compiler.release}</release>
+                    <release>
+                        ${maven.compiler.release}
+                    </release>
                 </configuration>
             </plugin>
 
+            <!--
+                Suíte hermética padrão.
+
+                O Surefire executa os padrões convencionais:
+                    **/Test*.java
+                    **/*Test.java
+                    **/*Tests.java
+                    **/*TestCase.java
+
+                Portanto AmazonDealsExternalProbeIT NÃO entra
+                automaticamente em "mvn test".
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven.surefire.plugin.version}</version>
             </plugin>
 
+            <!--
+                Empacotamento.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -88,6 +150,61 @@
             </plugin>
 
         </plugins>
+
     </build>
+
+    <!--
+        =============================================================
+        PROFILES
+        =============================================================
+    -->
+    <profiles>
+
+        <!--
+            Probe deliberadamente externa.
+
+            Execução:
+
+                mvn -Pexternal-probe test
+
+            Este profile inclui somente classes terminadas em
+            ExternalProbeIT.
+
+            A suíte padrão continua sem acesso à Amazon real.
+        -->
+        <profile>
+
+            <id>external-probe</id>
+
+            <build>
+
+                <plugins>
+
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <version>${maven.surefire.plugin.version}</version>
+
+                        <configuration>
+
+                            <includes>
+
+                                <include>
+                                    **/*ExternalProbeIT.java
+                                </include>
+
+                            </includes>
+
+                        </configuration>
+
+                    </plugin>
+
+                </plugins>
+
+            </build>
+
+        </profile>
+
+    </profiles>
 
 </project>
