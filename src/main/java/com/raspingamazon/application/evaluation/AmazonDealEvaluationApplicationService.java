@@ -1,5 +1,6 @@
 package com.raspingamazon.application.evaluation;
 
+import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.validation.AmazonEligibilityResult;
@@ -11,15 +12,20 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
- * Caso de uso responsável por aplicar a política estrutural Amazon
- * e persistir a avaliação resultante.
+ * Serviço de aplicação responsável pela avaliação estrutural
+ * Amazon de um OfferSnapshot.
+ *
+ * <p>A política atualmente verifica seller e delivery.
+ * O motor de filtros comerciais da FASE 9 continua separado.</p>
  */
-public final class AmazonDealEvaluationApplicationService {
+public final class AmazonDealEvaluationApplicationService
+        implements DealEvaluationProcessingPort {
 
     private static final String ELIGIBILITY_POLICY_VERSION =
             "AMAZON_SELLER_DELIVERY_V1";
 
     private final AmazonEligibilityValidator eligibilityValidator;
+
     private final DealEvaluationRepository evaluationRepository;
 
     public AmazonDealEvaluationApplicationService(
@@ -39,6 +45,10 @@ public final class AmazonDealEvaluationApplicationService {
                 );
     }
 
+    /**
+     * API explícita mantida para consumidores que já fornecem
+     * sellerType e deliveryType separadamente.
+     */
     public DealEvaluation evaluate(
             OfferSnapshot offerSnapshot,
             SellerType sellerType,
@@ -74,20 +84,43 @@ public final class AmazonDealEvaluationApplicationService {
         DealEvaluation evaluation =
                 new DealEvaluation(
                         null,
+
                         offerSnapshot,
+
                         result.eligible(),
+
                         result.rejectionReason(),
+
+                        /*
+                         * Versão da política estrutural de
+                         * seller/delivery.
+                         */
                         ELIGIBILITY_POLICY_VERSION,
+
+                        /*
+                         * filterProfileVersion.
+                         *
+                         * A FASE 9 ainda não foi iniciada.
+                         */
                         null,
 
                         /*
-                         * Preservamos todas as regras produzidas
-                         * pela política Amazon.
+                         * Todos os resultados individuais das regras
+                         * avaliadas são preservados.
                          */
                         result.ruleResults(),
 
+                        /*
+                         * score e scoreVersion ainda não pertencem
+                         * a esta fase.
+                         */
                         null,
                         null,
+
+                        /*
+                         * momentum e momentumVersion ainda não
+                         * pertencem a esta fase.
+                         */
                         null,
                         null,
 
@@ -96,6 +129,31 @@ public final class AmazonDealEvaluationApplicationService {
 
         return evaluationRepository.save(
                 evaluation
+        );
+    }
+
+    /**
+     * Implementação da porta utilizada pelo fluxo vertical.
+     *
+     * <p>SellerType e DeliveryType já fazem parte do OfferSnapshot.
+     * Portanto o orquestrador não precisa transportá-los novamente
+     * como argumentos separados.</p>
+     */
+    @Override
+    public void evaluateAndPersist(
+            OfferSnapshot offerSnapshot,
+            OffsetDateTime evaluatedAt
+    ) {
+        Objects.requireNonNull(
+                offerSnapshot,
+                "offerSnapshot must not be null"
+        );
+
+        evaluate(
+                offerSnapshot,
+                offerSnapshot.sellerType(),
+                offerSnapshot.deliveryType(),
+                evaluatedAt
         );
     }
 }
