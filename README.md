@@ -1,12 +1,12 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência e evolução escalável.
+Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 8 — Validação Amazon concluída; FASE 7 — Enriquecimento da página individual concluída; FASE 6 — Parser, ASIN e normalização concluída; FASE 5 — Coleta da página de promoções concluída; FASE 4 — Configuração e segredos concluída; FASE 3 v2 — Domínio + Contratos internos revisados e concluídos; FASE 2 v2 — evolução comercial da persistência concluída.**
+> **Estado atual: FASE 8.5 concluída localmente. A consolidação do núcleo, provenance, versionamento da avaliação, fluxo transacional, idempotência, CI, Maven Wrapper, fixtures mínimas e higiene do repositório foram implementados. A abertura formal da FASE 9 depende apenas da validação do CI remoto após o próximo push.**
 
 ## 1. Objetivo
 
-O projeto não é apenas um raspador de ofertas. O objetivo é construir um sistema em que **coleta, normalização, validação, regras de negócio, persistência e publicação permaneçam desacopladas**.
+O projeto não é apenas um raspador de ofertas. O objetivo é construir um sistema em que **coleta, normalização, enriquecimento, validação, regras de negócio, persistência e publicação permaneçam desacopladas**.
 
 Fluxo conceitual:
 
@@ -15,13 +15,15 @@ coleta
   ↓
 identificação / normalização
   ↓
-validação
+enriquecimento
   ↓
-filtros + avaliação
+validação estrutural Amazon
+  ↓
+filtros configuráveis
+  ↓
+score / seleção
   ↓
 PostgreSQL / histórico
-  ↓
-seleção
   ↓
 geração de publicação
   ↓
@@ -35,6 +37,7 @@ A ordem das fases deve ser preservada; responsabilidades futuras não devem ser 
 | Fase | Descrição | Status |
 |---|---|---|
 | FASE 0 | Levantamento da fonte e regras | CONCLUÍDA |
+| FASE 0 v2 | Semântica comercial de preços e pagamento | CONCLUÍDA |
 | FASE 1 | Fundação Java | CONCLUÍDA |
 | FASE 2 | PostgreSQL, schema e migrations | CONCLUÍDA |
 | FASE 2 v2 | Evolução comercial da persistência | CONCLUÍDA |
@@ -45,8 +48,8 @@ A ordem das fases deve ser preservada; responsabilidades futuras não devem ser 
 | FASE 6 | Parser, ASIN e normalização | CONCLUÍDA |
 | FASE 7 | Enriquecimento da página individual | CONCLUÍDA |
 | FASE 8 | Validação Amazon | CONCLUÍDA |
-
-**Próxima etapa: FASE 9 — Motor de filtros configuráveis.**
+| FASE 8.5 | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA LOCALMENTE — CI REMOTO PENDENTE |
+| FASE 9 | Motor de filtros configuráveis | PRÓXIMA APÓS CI VERDE |
 
 ## 3. Arquitetura
 
@@ -67,29 +70,54 @@ src/
     │   └── com/raspingamazon/
     └── resources/
         └── amazon/
+            └── fixtures/
+                ├── deals/
+                └── product/
 ```
 
 Responsabilidades principais:
 
 - `domain`: conceitos e invariantes de negócio, sem dependência de infraestrutura;
-- `application`: contratos e coordenação do fluxo;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração e adaptadores tecnológicos;
+- `application`: contratos e coordenação dos casos de uso;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP e adapters tecnológicos;
 - `presentation`: interfaces de entrada e exposição operacional futura.
 
 O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Excel ou canais de publicação.
 
+O projeto permanece em um único módulo Maven enquanto não houver pressão arquitetural real para decomposição.
+
 ## 4. Stack
 
 - Java 25
-- Maven
+- Maven Wrapper 3.3.4
+- Maven 3.9.16
 - JUnit 5
 - PostgreSQL 18.6
 - Flyway 11.14.1
 - PostgreSQL JDBC 42.7.8
 - Jackson Databind 2.20.0
 - Docker / Docker Compose
+- GitHub Actions
 
-## 5. Configuração e segredos
+## 5. Build
+
+O projeto deve ser executado pelo Maven Wrapper versionado.
+
+Windows:
+
+```powershell
+.\mvnw.cmd clean test
+```
+
+Linux/macOS/CI:
+
+```bash
+./mvnw clean test
+```
+
+A instalação global de Maven não é requisito do build versionado.
+
+## 6. Configuração e segredos
 
 A configuração da aplicação é centralizada em:
 
@@ -117,17 +145,18 @@ DB_PASSWORD
 
 `DB_PASSWORD` é obrigatório e não possui valor padrão no código.
 
-A leitura de variáveis de ambiente fica centralizada no `EnvironmentConfigProvider`. Os componentes de infraestrutura recebem `ApplicationConfig` em vez de ler o ambiente diretamente.
-
 O `.env` local não é versionado. O `.env.example` documenta as variáveis necessárias sem conter segredo real.
 
-No Docker Compose, a senha do PostgreSQL é recebida por variável de ambiente:
+No Docker Compose:
 
 ```yaml
-POSTGRES_PASSWORD: ${DB_PASSWORD}
+image: postgres:18.6
+
+environment:
+  POSTGRES_PASSWORD: ${DB_PASSWORD}
 ```
 
-## 6. Domínio atual
+## 7. Domínio atual
 
 ```text
 domain/
@@ -139,31 +168,25 @@ domain/
 │   └── OfferSnapshot
 ├── evaluation/
 │   ├── DealEvaluation
+│   ├── EvaluationRuleResult
 │   └── RejectionReason
 ├── product/
 │   ├── Asin
 │   └── Product
 ├── publication/
-│   ├── Publication
-│   ├── PublicationStatus
-│   └── contract/
-│       └── PublicationRequest
 ├── shared/
-│   ├── Money
-│   └── Percentage
 └── validation/
     ├── DeliveryType
     └── SellerType
 ```
 
-### OfferSnapshot
+### `OfferSnapshot`
 
-Representa uma ocorrência temporal de uma oferta e preserva histórico.
+Representa uma observação temporal de uma oferta.
 
-Campos principais:
+Campos relevantes:
 
 ```text
-id
 product
 collectedAt
 currentPrice
@@ -182,85 +205,13 @@ paymentConditions
 
 `basisPrice` continua semanticamente distinto de `previousPrice`.
 
-`paymentConditions` representa as condições comerciais estruturadas. Desconto contextual não é tratado como atributo universal do snapshot.
+### `DealEvaluation`
 
-### DealEvaluation
+Registra a decisão de elegibilidade e os metadados necessários à sua reprodução e auditoria.
 
-Registra o resultado estrutural de uma avaliação:
+A FASE 8.5 separou os conceitos de versionamento necessários para impedir que a futura versão dos filtros da FASE 9 seja confundida com a política estrutural Amazon.
 
-```text
-id
-offerSnapshot
-eligible
-rejectionReason
-filterVersion
-score
-momentum
-evaluatedAt
-```
-
-A FASE 8 implementou a validação Amazon e a persistência da avaliação. Score e momentum permanecem para fases posteriores.
-
-## 7. Validação Amazon
-
-A FASE 8 implementou a política fail closed para vendedor e entrega.
-
-Regra:
-
-```text
-seller == Amazon
-AND
-deliveryProvider == Amazon
-    ↓
-eligible = true
-
-qualquer outra combinação
-    ↓
-eligible = false
-```
-
-Componentes principais:
-
-```text
-AmazonEligibilityResult
-AmazonEligibilityValidator
-AmazonDealEvaluationApplicationService
-DealEvaluationRepository
-DealEvaluationJdbcRepository
-```
-
-A combinação:
-
-```text
-AMAZON + AMAZON
-```
-
-é aprovada.
-
-As demais combinações são rejeitadas com motivo controlado:
-
-```text
-THIRD_PARTY → SELLER_THIRD_PARTY
-UNKNOWN → SELLER_UNKNOWN
-AMAZON + THIRD_PARTY → DELIVERY_THIRD_PARTY
-AMAZON + UNKNOWN → DELIVERY_UNKNOWN
-```
-
-A validação do vendedor ocorre antes da entrega.
-
-A versão atual da regra é:
-
-```text
-AMAZON_SELLER_DELIVERY_V1
-```
-
-A persistência utiliza a tabela existente:
-
-```text
-deal_evaluation
-```
-
-Nenhuma migration nova foi necessária na FASE 8.
+Resultados de regras podem ser persistidos separadamente da decisão agregada.
 
 ## 8. Coleta da Amazon
 
@@ -270,7 +221,7 @@ A FASE 5 implementou a coleta da página funcional de promoções:
 https://www.amazon.com.br/deals
 ```
 
-A arquitetura da coleta é:
+Fluxo:
 
 ```text
 AmazonDealsCollector
@@ -279,28 +230,24 @@ HttpCollectionCollector
         ↓
 JavaHttpTransport
         ↓
-HTTP
-        ↓
 CollectionResult
 ```
 
-O conteúdo coletado permanece bruto nesta etapa.
+O conteúdo coletado permanece bruto na fronteira de coleta.
+
+O acesso real à Amazon não participa da suíte hermética padrão.
 
 ## 9. Parser, ASIN e normalização
-
-A FASE 6 implementou a interpretação do conteúdo bruto coletado pela FASE 5.
 
 Fluxo:
 
 ```text
 CollectionResult
       ↓
-DealsParser
+AmazonDealsParser
       ↓
 ParsedDeal
 ```
-
-O parser localiza `productSearchResponse` dentro do documento e extrai a estrutura correspondente antes de interpretar os dados com Jackson.
 
 O ASIN é normalizado e validado como:
 
@@ -308,7 +255,7 @@ O ASIN é normalizado e validado como:
 [A-Z0-9]{10}
 ```
 
-Links relativos são normalizados utilizando a origem da coleta.
+Links relativos são normalizados usando a origem da coleta.
 
 O parser preserva a distinção entre:
 
@@ -320,35 +267,33 @@ previousPrice
 
 Nenhum `pixPrice` é inferido.
 
-Quando disponível:
-
-```text
-dealDetails.percentClaimed
-```
-
-é tratado como:
-
-```text
-soldPercentage
-```
-
 Registros sem dados mínimos confiáveis são descartados.
 
-A deduplicação considera:
+A deduplicação considera o contexto da oferta, incluindo ASIN, URL, `currentPrice` e `basisPrice`.
+
+## 10. Fixtures mínimas
+
+As capturas HTML completas deixaram de ser dependência normal dos testes.
+
+Fixtures versionadas:
 
 ```text
-ASIN
-+
-URL
-+
-currentPrice
-+
-basisPrice
+src/test/resources/amazon/fixtures/
+├── deals/
+│   ├── basic-deal.html
+│   ├── duplicate-deal.html
+│   ├── end-to-end-deal.html
+│   └── invalid-deal.html
+└── product/
+    ├── amazon-amazon.html
+    ├── amazon-global.html
+    ├── thirdparty-amazon.html
+    └── thirdparty-thirdparty.html
 ```
 
-## 10. Enriquecimento da página individual
+Capturas completas de diagnóstico devem permanecer fora do fluxo normal, por exemplo em `target/diagnostics/`.
 
-A FASE 7 implementou o enriquecimento da oferta normalizada utilizando a URL do produto.
+## 11. Enriquecimento da página individual
 
 Fluxo:
 
@@ -364,61 +309,217 @@ AmazonProductPageParser
 ProductEnrichmentResult
 ```
 
-Seller e delivery são extraídos de forma independente a partir das evidências da oferta principal.
+Seller e delivery são conceitos independentes.
 
-A implementação utiliza a página individual do produto como fonte de enriquecimento. Isso não significa que uma API oficial da Amazon já esteja integrada.
+A FASE 8.5 consolidou os contratos de enriquecimento e a provenance necessária para auditabilidade.
 
-Fixtures utilizadas:
+A implementação atual utiliza a página individual do produto como fonte de enriquecimento. Isso não significa que uma API oficial da Amazon já esteja integrada.
+
+## 12. Validação Amazon
+
+A política estrutural permanece fail closed:
 
 ```text
-amazon-amazonglobal.html
-misto.html
-totalamazon.html
-totalterceiro.html
+seller == Amazon
+AND
+deliveryProvider == Amazon
+    ↓
+eligible = true
+
+qualquer outra combinação
+    ↓
+eligible = false
 ```
 
-## 11. Persistência
+As razões de rejeição permanecem controladas e seller é validado antes de delivery.
 
-PostgreSQL é a persistência SQL principal. O schema evolui por migrations versionadas e a V1 não é editada retroativamente.
+Essa política é estrutural e não substitui os filtros configuráveis da FASE 9.
 
-Estrutura comercial relevante:
+## 13. Provenance
+
+Seller e delivery possuem evidência auditável persistida.
+
+Campos relevantes incluem:
+
+```text
+evidence_type
+raw_value
+normalized_value
+source_adapter
+source_component
+observed_at
+```
+
+A decisão pode ser examinada posteriormente sem depender de nova coleta da página externa.
+
+## 14. Persistência
+
+PostgreSQL é a persistência operacional principal.
+
+O schema evolui exclusivamente por migrations Flyway versionadas.
+
+Estado atual:
+
+```text
+PostgreSQL: 18.6
+Migrations: 6
+Schema: versão 6
+```
+
+Estruturas relevantes:
 
 ```text
 product
   ↓
 offer_snapshot
+  ├── offer_payment_condition
+  │      ↓
+  │   offer_payment_condition_method
+  │
+  ├── offer_evidence
+  │
+  └── deal_evaluation
+          ↓
+      deal_evaluation_rule_result
+```
+
+## 15. Fluxo vertical
+
+A FASE 8.5 implementou o processamento vertical:
+
+```text
+coleta
   ↓
-offer_payment_condition
+parser
   ↓
-offer_payment_condition_method
+enriquecimento
+  ↓
+Product
+  ↓
+OfferSnapshot
+  ↓
+PaymentConditions
+  ↓
+Evidence
+  ↓
+DealEvaluation
+  ↓
+PostgreSQL
 ```
 
-A persistência de condições comerciais permanece separada das regras de seleção.
+A composição usa uma mesma `Connection` para os adapters JDBC envolvidos na unidade de trabalho.
 
-A FASE 8 utiliza a estrutura existente:
+## 16. Transações
+
+`JdbcTransactionAdapter` diferencia propriedade da transação.
+
+Quando recebe `autoCommit=true`, o adapter controla begin, commit, rollback e restauração de `autoCommit`.
+
+Quando recebe `autoCommit=false`, a transação pertence ao chamador. O adapter cria um Savepoint, não executa commit externo e, em falha, faz rollback apenas até o Savepoint.
+
+## 17. Idempotência
+
+`Product` utiliza upsert atômico no PostgreSQL.
+
+A identidade da observação de `OfferSnapshot` é:
 
 ```text
-deal_evaluation
+product_id
++
+collected_at
++
+source
 ```
 
-para registrar:
+O banco protege essa identidade com restrição única.
+
+Quando a mesma observação é reprocessada, o sistema reutiliza o snapshot já persistido e não duplica indevidamente evidências, condições comerciais ou avaliação.
+
+Há testes específicos de idempotência, concorrência e processamento ponta a ponta.
+
+## 18. Teste ponta a ponta
+
+O teste `AmazonDealProcessingEndToEndTest` exercita:
 
 ```text
-offer_snapshot_id
-eligible
-rejection_reason
-filter_version
-score
-momentum
-evaluated_at
+fixture Deals
+        ↓
+HTTP local
+        ↓
+coleta
+        ↓
+parser
+        ↓
+fixture de produto
+        ↓
+enrichment
+        ↓
+persistência
+        ↓
+avaliação
+        ↓
+PostgreSQL
 ```
 
-## 12. Testes
+O mesmo evento é processado duas vezes para comprovar estabilidade da decisão e ausência de duplicação imprópria.
 
-A validação mais recente da suíte foi executada em 18/09/2026:
+## 19. Testes externos
+
+A suíte padrão é hermética:
 
 ```text
-Tests run: 190
+./mvnw clean test
+```
+
+A probe externa é separada:
+
+```text
+./mvnw --batch-mode -Pexternal-probe test
+```
+
+Workflow:
+
+```text
+.github/workflows/amazon-source-probe.yml
+```
+
+Artefato diagnóstico:
+
+```text
+target/diagnostics/amazon-deals-real.html
+```
+
+## 20. CI
+
+Workflow hermético:
+
+```text
+.github/workflows/ci.yml
+```
+
+Ambiente:
+
+```text
+Ubuntu
+JDK 25
+PostgreSQL 18.6
+Maven Wrapper
+```
+
+Comando:
+
+```text
+./mvnw --batch-mode clean test
+```
+
+A configuração está versionada. A primeira validação remota deste fechamento ainda depende do próximo `push`.
+
+## 21. Testes
+
+Validação local mais recente em 19/09/2026:
+
+```text
+Tests run: 233
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -429,74 +530,86 @@ BUILD SUCCESS
 O Flyway confirmou:
 
 ```text
-Successfully validated 2 migrations
-Current version of schema "public": 2
-Schema "public" is up to date. No migration necessary.
+Successfully validated 6 migrations
+Current version of schema "public": 6
+Schema "public" is up to date.
 ```
 
-Os testes abrangem domínio, contratos, persistência, transporte HTTP, coleta, parser, enriquecimento e validação Amazon.
+Os testes abrangem domínio, contratos, persistência, transações, concorrência, idempotência, transporte HTTP, coleta, parser, fixtures mínimas, enriquecimento, provenance, avaliação Amazon e fluxo ponta a ponta.
 
-## 13. O que ainda não foi implementado
+## 22. Higiene do repositório
 
-Para preservar a separação entre fases, permanecem para etapas posteriores:
+A consolidação da FASE 8.5 incluiu:
 
-- filtros configuráveis;
+- Maven Wrapper;
+- `.editorconfig`;
+- `.gitattributes`;
+- normalização de EOL;
+- remoção de `.idea/workspace.xml` do versionamento;
+- PostgreSQL fixado em `18.6`;
+- redução das fixtures HTML;
+- remoção de tokens internos `filecite`;
+- correção do encoding de `FASE_4_RESULTADO.md`;
+- separação entre suíte hermética e probe externa.
+
+## 23. Fonte Amazon
+
+A fonte funcional investigada permanece:
+
+```text
+https://www.amazon.com.br/deals
+```
+
+A estratégia de uso automatizado de páginas Amazon continua sendo um gate de produção.
+
+Interfaces oficiais devem ser priorizadas quando fornecerem o dado necessário.
+
+A arquitetura mantém a fonte externa isolada dos contratos de domínio para permitir substituição futura sem reescrita do núcleo.
+
+## 24. O que ainda não foi implementado
+
+Para preservar a separação entre fases, permanecem:
+
+- motor de filtros configuráveis;
 - score;
 - ranking;
 - momentum;
-- histórico;
-- orquestração;
-- processamento assíncrono;
+- histórico analítico correspondente às fases posteriores;
+- execução recorrente;
 - interface operacional;
 - `PublicationGenerator`;
 - geração efetiva de link de associado;
 - scheduler;
 - filas;
 - WhatsApp/Telegram;
-- observabilidade;
-- resiliência;
+- observabilidade completa;
+- resiliência de produção;
 - segurança e governança operacional;
 - Excel/CSV opcional;
-- mecanismos específicos de escalabilidade e evolução.
+- mecanismos de escala guiados por métricas reais.
 
-## 14. Fonte Amazon
-
-A investigação identificou a página funcional de promoções da Amazon Brasil:
+## 25. Roadmap
 
 ```text
-https://www.amazon.com.br/deals
+FASE 4   → Configuração e segredos                 [CONCLUÍDA]
+FASE 5   → Coleta                                  [CONCLUÍDA]
+FASE 6   → Parser, ASIN e normalização             [CONCLUÍDA]
+FASE 7   → Enriquecimento da página individual     [CONCLUÍDA]
+FASE 8   → Validação Amazon                        [CONCLUÍDA]
+FASE 8.5 → Consolidação do núcleo e auditabilidade [CONCLUÍDA LOCALMENTE]
+            └── CI remoto                           [AGUARDANDO PUSH]
+FASE 9   → Filtros configuráveis                   [PRÓXIMA APÓS CI]
+FASE 10  → Score
+FASE 11  → Histórico e momentum
+FASE 12  → Orquestração
+FASE 13  → Interface
+FASE 14  → Publicação
+FASE 15+ → qualidade integrada, observabilidade,
+            agendamento, canais, resiliência,
+            segurança, integrações opcionais e escala
 ```
 
-A coleta real da FASE 5 foi implementada e validada.
-
-A implementação utiliza:
-
-```text
-User-Agent: RaspingAmazon/1.0
-```
-
-Também foi observado tecnicamente um endpoint interno JSON. Ele não deve ser tratado automaticamente como interface autorizada de produção. A implementação futura deve priorizar interfaces oficiais aplicáveis e preservar a separação entre coleta e domínio.
-
-## 15. Roadmap
-
-```text
-FASE 4  → Configuração e segredos              [CONCLUÍDA]
-FASE 5  → Coleta                               [CONCLUÍDA]
-FASE 6  → Parser, ASIN e normalização          [CONCLUÍDA]
-FASE 7  → Enriquecimento da página individual  [CONCLUÍDA]
-FASE 8  → Validação Amazon                     [CONCLUÍDA]
-FASE 9  → Filtros configuráveis                [PRÓXIMA]
-FASE 10 → Score
-FASE 11 → Histórico e momentum
-FASE 12 → Orquestração
-FASE 13 → Interface
-FASE 14 → Publicação
-FASE 15+ → testes integrados, observabilidade,
-           agendamento, canais, resiliência,
-           segurança, Excel/CSV e escalabilidade
-```
-
-## 16. Documentação de fases
+## 26. Documentação de fases
 
 ```text
 docs/phases/
@@ -512,49 +625,38 @@ docs/phases/
 ├── FASE_5_RESULTADO.md
 ├── FASE_6_RESULTADO.md
 ├── FASE_7_RESULTADO.md
-└── FASE_8_RESULTADO.md
+├── FASE_8_RESULTADO.md
+└── FASE_8_5_RESULTADO.md
 ```
 
 A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.
 
-## 17. Estado atual
+## 27. Estado atual
 
 ```text
-FASE 8 — Validação Amazon
-STATUS: CONCLUÍDA
+FASE 8.5 — Consolidação do núcleo e preparação dos dados de decisão
 
-Política fail closed:
-OK
+STATUS LOCAL:
+CONCLUÍDA
 
-Seller:
-OK
+CI:
+CONFIGURADO
+AGUARDANDO PRIMEIRA VALIDAÇÃO REMOTA DESTE FECHAMENTO
 
-Delivery:
-OK
+Fluxo vertical: OK
+Provenance: OK
+Persistência: OK
+Transações: OK
+Idempotência: OK
+Concorrência: OK
+Maven Wrapper: OK
+Fixtures mínimas: OK
 
-Seller / Delivery independentes:
-OK
-
-Razões de rejeição:
-OK
-
-DealEvaluation:
-OK
-
-Persistência JDBC:
-OK
-
-Testes:
-190
-
-Falhas:
-0
-
-Erros:
-0
-
-Ignorados:
-0
+Suíte hermética:
+233 testes
+0 falhas
+0 erros
+0 ignorados
 
 Build:
 SUCCESS
@@ -565,9 +667,15 @@ PostgreSQL:
 Flyway:
 OK
 
-Schema:
-versão 2
+Migrations:
+6
 
-Próxima etapa:
+Schema:
+versão 6
+
+Próximo gate:
+push + CI verde
+
+Próxima fase:
 FASE 9 — Motor de filtros configuráveis
 ```
