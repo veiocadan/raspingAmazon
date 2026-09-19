@@ -1,5 +1,6 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.application.deal.PersistedOfferSnapshot;
 import com.raspingamazon.application.deal.port.OfferSnapshotPersistencePort;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
@@ -9,11 +10,7 @@ import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Adapter JDBC da persistência de OfferSnapshot.
- *
- * <p>O repository atual retorna apenas o id gerado. A porta da aplicação,
- * por outro lado, trabalha com a entidade persistida. O adapter faz essa
- * tradução reconstruindo o snapshot com o novo id.</p>
+ * Adapter JDBC da persistência idempotente de OfferSnapshot.
  */
 public final class OfferSnapshotJdbcPersistenceAdapter
         implements OfferSnapshotPersistencePort {
@@ -31,7 +28,7 @@ public final class OfferSnapshotJdbcPersistenceAdapter
     }
 
     @Override
-    public OfferSnapshot save(
+    public PersistedOfferSnapshot save(
             OfferSnapshot snapshot
     ) {
         Objects.requireNonNull(
@@ -46,14 +43,20 @@ public final class OfferSnapshotJdbcPersistenceAdapter
         }
 
         try {
-            long id =
-                    repository.insert(
+            OfferSnapshotRepository.InsertResult result =
+                    repository.insertIdempotent(
                             snapshot
                     );
 
-            return copyWithId(
-                    snapshot,
-                    id
+            OfferSnapshot persistedSnapshot =
+                    copyWithId(
+                            snapshot,
+                            result.id()
+                    );
+
+            return new PersistedOfferSnapshot(
+                    persistedSnapshot,
+                    result.created()
             );
 
         } catch (SQLException exception) {
@@ -68,10 +71,6 @@ public final class OfferSnapshotJdbcPersistenceAdapter
         }
     }
 
-    /**
-     * Como OfferSnapshot é imutável, criamos uma nova representação
-     * contendo o id retornado pelo banco.
-     */
     private OfferSnapshot copyWithId(
             OfferSnapshot snapshot,
             long id

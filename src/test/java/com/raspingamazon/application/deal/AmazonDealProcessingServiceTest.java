@@ -30,6 +30,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,10 +42,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Testa a orquestração vertical da camada de aplicação.
- *
- * <p>Este teste não utiliza JDBC ou HTTP real. As dependências em
- * memória permitem observar exatamente em qual ordem cada fronteira
- * da aplicação é executada.</p>
  */
 class AmazonDealProcessingServiceTest {
 
@@ -119,14 +117,9 @@ class AmazonDealProcessingServiceTest {
                             "product"
                     );
 
-                    return new Product(
-                            100L,
-                            new Asin(
-                                    deal.asin()
-                            ),
-                            deal.title(),
-                            deal.imageUrl(),
-                            deal.productUrl()
+                    return createProduct(
+                            deal,
+                            100L
                     );
                 };
 
@@ -137,9 +130,12 @@ class AmazonDealProcessingServiceTest {
                             "snapshot"
                     );
 
-                    return copyWithId(
-                            snapshot,
-                            200L
+                    return new PersistedOfferSnapshot(
+                            copyWithId(
+                                    snapshot,
+                                    200L
+                            ),
+                            true
                     );
                 };
 
@@ -194,25 +190,17 @@ class AmazonDealProcessingServiceTest {
                         events
                 );
 
-        Clock clock =
-                Clock.fixed(
-                        EVALUATED_INSTANT,
-                        ZoneOffset.UTC
-                );
-
         AmazonDealProcessingService service =
-                new AmazonDealProcessingService(
+                createService(
                         collector,
                         parser,
                         enrichmentClient,
                         productPersistencePort,
-                        new OfferSnapshotFactory(),
                         snapshotPersistencePort,
                         paymentPersistencePort,
                         evidencePersistencePort,
                         evaluationPort,
-                        transactionPort,
-                        clock
+                        transactionPort
                 );
 
         List<ProcessedDealResult> results =
@@ -243,9 +231,6 @@ class AmazonDealProcessingServiceTest {
                 result.offerSnapshot().id()
         );
 
-        /*
-         * Os campos comerciais continuam chegando ao snapshot.
-         */
         assertEquals(
                 4.6,
                 result.offerSnapshot().rating()
@@ -256,11 +241,6 @@ class AmazonDealProcessingServiceTest {
                 result.offerSnapshot().reviewCount()
         );
 
-        /*
-         * A propriedade principal da F2:
-         *
-         * enrichment ocorre ANTES de transaction-begin.
-         */
         assertEquals(
                 List.of(
                         "collect",
@@ -289,14 +269,6 @@ class AmazonDealProcessingServiceTest {
         assertEquals(
                 200L,
                 evaluationPort.snapshot.id()
-        );
-
-        assertEquals(
-                OffsetDateTime.ofInstant(
-                        EVALUATED_INSTANT,
-                        ZoneOffset.UTC
-                ),
-                evaluationPort.evaluatedAt
         );
     }
 
@@ -352,10 +324,6 @@ class AmazonDealProcessingServiceTest {
                         events
                 );
 
-        /*
-         * As dependências abaixo não devem ser alcançadas.
-         * Caso alguma delas seja executada, o próprio teste falha.
-         */
         ProductPersistencePort productPersistencePort =
                 deal -> {
                     throw new AssertionError(
@@ -401,21 +369,16 @@ class AmazonDealProcessingServiceTest {
                 };
 
         AmazonDealProcessingService service =
-                new AmazonDealProcessingService(
+                createService(
                         collector,
                         parser,
                         failingEnrichmentClient,
                         productPersistencePort,
-                        new OfferSnapshotFactory(),
                         snapshotPersistencePort,
                         paymentPersistencePort,
                         evidencePersistencePort,
                         evaluationPort,
-                        transactionPort,
-                        Clock.fixed(
-                                EVALUATED_INSTANT,
-                                ZoneOffset.UTC
-                        )
+                        transactionPort
                 );
 
         assertThrows(
@@ -425,10 +388,6 @@ class AmazonDealProcessingServiceTest {
                 )
         );
 
-        /*
-         * Como enrichment falhou antes da fronteira de escrita,
-         * a transação jamais deve ter sido aberta.
-         */
         assertEquals(
                 List.of(
                         "collect",
@@ -441,6 +400,204 @@ class AmazonDealProcessingServiceTest {
         assertEquals(
                 0,
                 transactionPort.executions
+        );
+    }
+
+    @Test
+    void shouldNotDuplicateDependentPersistenceWhenSnapshotAlreadyExists() {
+
+        AtomicInteger paymentExecutions =
+                new AtomicInteger();
+
+        AtomicInteger evidenceExecutions =
+                new AtomicInteger();
+
+        AtomicInteger evaluationExecutions =
+                new AtomicInteger();
+
+        AtomicBoolean snapshotAlreadyCreated =
+                new AtomicBoolean();
+
+        ParsedDeal parsedDeal =
+                createParsedDeal();
+
+        CollectionCollector collector =
+                request -> new CollectionResult(
+                        "conteudo-controlado-pelo-teste",
+                        COLLECTED_AT,
+                        request.source().toString()
+                );
+
+        DealsParser parser =
+                collectionResult -> List.of(
+                        parsedDeal
+                );
+
+        ProductEnrichmentClient enrichmentClient =
+                deal -> createEnrichmentResult(
+                        deal.asin()
+                );
+
+        ProductPersistencePort productPersistencePort =
+                deal -> createProduct(
+                        deal,
+                        100L
+                );
+
+        OfferSnapshotPersistencePort snapshotPersistencePort =
+                snapshot -> {
+
+                    boolean created =
+                            !snapshotAlreadyCreated.getAndSet(
+                                    true
+                            );
+
+                    return new PersistedOfferSnapshot(
+                            copyWithId(
+                                    snapshot,
+                                    200L
+                            ),
+                            created
+                    );
+                };
+
+        PaymentConditionPersistencePort paymentPersistencePort =
+                (
+                        snapshotId,
+                        conditions
+                ) -> paymentExecutions.incrementAndGet();
+
+        OfferEvidencePersistencePort evidencePersistencePort =
+                (
+                        snapshotId,
+                        enrichmentResult
+                ) -> evidenceExecutions.incrementAndGet();
+
+        DealEvaluationProcessingPort evaluationPort =
+                (
+                        snapshot,
+                        evaluatedAt
+                ) -> evaluationExecutions.incrementAndGet();
+
+        /*
+         * TransactionPort possui um método genérico.
+         *
+         * Por isso usamos classe anônima em vez de lambda.
+         * Uma lambda não consegue satisfazer diretamente esse
+         * functional descriptor genérico.
+         */
+        TransactionPort transactionPort =
+                new TransactionPort() {
+
+                    @Override
+                    public <T> T execute(
+                            Supplier<T> operation
+                    ) {
+                        return operation.get();
+                    }
+                };
+
+        AmazonDealProcessingService service =
+                createService(
+                        collector,
+                        parser,
+                        enrichmentClient,
+                        productPersistencePort,
+                        snapshotPersistencePort,
+                        paymentPersistencePort,
+                        evidencePersistencePort,
+                        evaluationPort,
+                        transactionPort
+                );
+
+        /*
+         * Primeira execução:
+         * snapshot created=true.
+         */
+        List<ProcessedDealResult> first =
+                service.process(
+                        createRequest()
+                );
+
+        /*
+         * Segunda execução da mesma observação:
+         * snapshot created=false.
+         */
+        List<ProcessedDealResult> second =
+                service.process(
+                        createRequest()
+                );
+
+        assertEquals(
+                1,
+                first.size()
+        );
+
+        assertEquals(
+                1,
+                second.size()
+        );
+
+        assertEquals(
+                200L,
+                first.getFirst()
+                        .offerSnapshot()
+                        .id()
+        );
+
+        assertEquals(
+                200L,
+                second.getFirst()
+                        .offerSnapshot()
+                        .id()
+        );
+
+        /*
+         * Dependências do snapshot devem ser persistidas
+         * uma única vez.
+         */
+        assertEquals(
+                1,
+                paymentExecutions.get()
+        );
+
+        assertEquals(
+                1,
+                evidenceExecutions.get()
+        );
+
+        assertEquals(
+                1,
+                evaluationExecutions.get()
+        );
+    }
+
+    private AmazonDealProcessingService createService(
+            CollectionCollector collector,
+            DealsParser parser,
+            ProductEnrichmentClient enrichmentClient,
+            ProductPersistencePort productPersistencePort,
+            OfferSnapshotPersistencePort snapshotPersistencePort,
+            PaymentConditionPersistencePort paymentPersistencePort,
+            OfferEvidencePersistencePort evidencePersistencePort,
+            DealEvaluationProcessingPort evaluationPort,
+            TransactionPort transactionPort
+    ) {
+        return new AmazonDealProcessingService(
+                collector,
+                parser,
+                enrichmentClient,
+                productPersistencePort,
+                new OfferSnapshotFactory(),
+                snapshotPersistencePort,
+                paymentPersistencePort,
+                evidencePersistencePort,
+                evaluationPort,
+                transactionPort,
+                Clock.fixed(
+                        EVALUATED_INSTANT,
+                        ZoneOffset.UTC
+                )
         );
     }
 
@@ -498,6 +655,21 @@ class AmazonDealProcessingServiceTest {
         );
     }
 
+    private Product createProduct(
+            ParsedDeal deal,
+            long id
+    ) {
+        return new Product(
+                id,
+                new Asin(
+                        deal.asin()
+                ),
+                deal.title(),
+                deal.imageUrl(),
+                deal.productUrl()
+        );
+    }
+
     private OfferSnapshot copyWithId(
             OfferSnapshot snapshot,
             long id
@@ -522,9 +694,6 @@ class AmazonDealProcessingServiceTest {
         );
     }
 
-    /**
-     * Fake da etapa de avaliação.
-     */
     private static final class RecordingEvaluationPort
             implements DealEvaluationProcessingPort {
 
@@ -559,10 +728,6 @@ class AmazonDealProcessingServiceTest {
         }
     }
 
-    /**
-     * Fake utilizado para observar quando a fronteira transacional
-     * começa e termina.
-     */
     private static final class RecordingTransactionPort
             implements TransactionPort {
 

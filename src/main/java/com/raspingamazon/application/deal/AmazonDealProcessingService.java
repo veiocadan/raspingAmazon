@@ -25,11 +25,11 @@ import java.util.Objects;
 /**
  * Orquestra o fluxo vertical síncrono de processamento das ofertas.
  *
- * <p>O pipeline é dividido em duas regiões:</p>
+ * <p>O pipeline possui duas regiões distintas:</p>
  *
  * <ol>
  *     <li>operações externas e sem persistência;</li>
- *     <li>unidade transacional de persistência.</li>
+ *     <li>operações persistentes executadas dentro de transação.</li>
  * </ol>
  *
  * <p>Fluxo:</p>
@@ -43,16 +43,18 @@ import java.util.Objects;
  *
  *     BEGIN
  *         upsert Product
- *         persist OfferSnapshot
- *         persist PaymentConditions
- *         persist Evidence
- *         persist DealEvaluation
+ *         insert/reuse OfferSnapshot
+ *
+ *         se snapshot foi criado:
+ *             persist PaymentConditions
+ *             persist Evidence
+ *             persist DealEvaluation
+ *
  *     COMMIT
  * </pre>
  *
- * <p>O enrichment deliberadamente acontece antes da transação.
- * Dessa forma uma chamada HTTP lenta ou indisponível não mantém
- * uma transação PostgreSQL aberta desnecessariamente.</p>
+ * <p>A identidade idempotente do snapshot permite que a mesma
+ * observação seja reprocessada sem duplicar histórico nem avaliação.</p>
  */
 public final class AmazonDealProcessingService {
 
@@ -163,11 +165,7 @@ public final class AmazonDealProcessingService {
     }
 
     /**
-     * Coleta a fonte e processa sequencialmente todas as ofertas
-     * reconhecidas pelo parser.
-     *
-     * @param request origem que será coletada
-     * @return ofertas que concluíram o pipeline
+     * Coleta a origem e processa sequencialmente as ofertas encontradas.
      */
     public List<ProcessedDealResult> process(
             CollectionRequest request
@@ -177,11 +175,6 @@ public final class AmazonDealProcessingService {
                 "request must not be null"
         );
 
-        /*
-         * ---------------------------------------------------------
-         * EXTERNAL / NON-PERSISTENT REGION
-         * ---------------------------------------------------------
-         */
         CollectionResult collectionResult =
                 collectionCollector.collect(
                         request
@@ -198,25 +191,14 @@ public final class AmazonDealProcessingService {
         for (ParsedDeal parsedDeal : parsedDeals) {
 
             /*
-             * O enrichment executa HTTP.
-             *
-             * Ele precisa terminar ANTES de iniciar a transação JDBC.
-             * Se falhar, nenhuma transação é aberta e nenhuma escrita
-             * desta oferta é iniciada.
+             * O enrichment executa I/O externo e permanece fora
+             * da transação JDBC.
              */
             ProductEnrichmentResult enrichmentResult =
                     enrichmentClient.enrich(
                             parsedDeal
                     );
 
-            /*
-             * -----------------------------------------------------
-             * TRANSACTIONAL REGION
-             * -----------------------------------------------------
-             *
-             * Somente operações que modificam o estado persistente
-             * ficam dentro desta unidade.
-             */
             ProcessedDealResult result =
                     transactionPort.execute(
                             () -> persistDeal(
@@ -238,23 +220,17 @@ public final class AmazonDealProcessingService {
     /**
      * Persiste uma oferta completamente enriquecida.
      *
-     * <p>Este método deve ser executado dentro de TransactionPort.</p>
+     * <p>Este método deve ser executado dentro da TransactionPort.</p>
      */
     private ProcessedDealResult persistDeal(
             ParsedDeal parsedDeal,
             ProductEnrichmentResult enrichmentResult
     ) {
-        /*
-         * Product representa identidade durável.
-         */
         Product product =
                 productPersistencePort.upsert(
                         parsedDeal
                 );
 
-        /*
-         * OfferSnapshot representa a observação temporal atual.
-         */
         OfferSnapshot transientSnapshot =
                 offerSnapshotFactory.create(
                         product,
@@ -262,10 +238,17 @@ public final class AmazonDealProcessingService {
                         enrichmentResult
                 );
 
-        OfferSnapshot persistedSnapshot =
+        /*
+         * A persistência agora informa explicitamente se esta
+         * observação foi criada ou se já existia.
+         */
+        PersistedOfferSnapshot persisted =
                 offerSnapshotPersistencePort.save(
                         transientSnapshot
                 );
+
+        OfferSnapshot persistedSnapshot =
+                persisted.snapshot();
 
         Long snapshotId =
                 persistedSnapshot.id();
@@ -277,30 +260,32 @@ public final class AmazonDealProcessingService {
         }
 
         /*
-         * Condições comerciais pertencentes ao snapshot.
+         * Se a mesma observação já foi processada anteriormente,
+         * nenhuma informação dependente deve ser duplicada.
+         *
+         * Como snapshot + dependências pertencem à mesma transação,
+         * a existência do snapshot implica que a execução anterior
+         * terminou com commit.
          */
-        paymentConditionPersistencePort.saveAll(
-                snapshotId,
-                persistedSnapshot.paymentConditions()
-        );
+        if (persisted.created()) {
 
-        /*
-         * Provenance de seller e delivery.
-         */
-        offerEvidencePersistencePort.save(
-                snapshotId,
-                enrichmentResult
-        );
+            paymentConditionPersistencePort.saveAll(
+                    snapshotId,
+                    persistedSnapshot.paymentConditions()
+            );
 
-        /*
-         * A avaliação também faz parte da mesma unidade atômica.
-         */
-        dealEvaluationProcessingPort.evaluateAndPersist(
-                persistedSnapshot,
-                OffsetDateTime.now(
-                        clock
-                )
-        );
+            offerEvidencePersistencePort.save(
+                    snapshotId,
+                    enrichmentResult
+            );
+
+            dealEvaluationProcessingPort.evaluateAndPersist(
+                    persistedSnapshot,
+                    OffsetDateTime.now(
+                            clock
+                    )
+            );
+        }
 
         return new ProcessedDealResult(
                 parsedDeal,

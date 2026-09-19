@@ -1,17 +1,29 @@
 package com.raspingamazon.application.deal.port;
 
+import com.raspingamazon.application.deal.PersistedOfferSnapshot;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 
 /**
- * Porta de persistência dos snapshots temporais de ofertas.
+ * Porta de persistência idempotente dos snapshots temporais.
  */
 public interface OfferSnapshotPersistencePort {
 
     /**
-     * Persiste um snapshot ainda sem id.
+     * Persiste uma observação quando ela ainda não existe.
      *
-     * @param snapshot snapshot construído pelo domínio/aplicação
-     * @return nova representação com id persistente
+     * <p>A identidade lógica da observação é definida pela
+     * infraestrutura persistente como:</p>
+     *
+     * <pre>
+     * product
+     * + collectedAt
+     * + source
+     * </pre>
+     *
+     * @param snapshot snapshot ainda sem identidade persistente
+     * @return snapshot persistido e indicação de criação/reutilização
      */
-    OfferSnapshot save(OfferSnapshot snapshot);
+    PersistedOfferSnapshot save(
+            OfferSnapshot snapshot
+    );
 }
