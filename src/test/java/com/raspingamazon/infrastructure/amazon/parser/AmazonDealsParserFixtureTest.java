@@ -10,315 +10,271 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Testes de integração do parser com o fixture real da página de ofertas.
+ * Testes de integração do parser utilizando uma fixture mínima
+ * representativa da estrutura Amazon Deals.
  *
- * <p>Este teste não acessa a Amazon. O objetivo é garantir que o parser
- * consiga interpretar um conteúdo bruto previamente capturado e armazenado
- * no classpath do projeto.</p>
+ * <p>A fixture não é uma captura integral da página real.
+ * Ela preserva somente a estrutura e os campos consumidos pelo parser.</p>
  *
- * <p>A utilização de um fixture local torna o teste reproduzível e evita
- * dependência de rede durante a execução da suíte automatizada.</p>
+ * <p>Com isso, o teste permanece hermético, legível e independente
+ * de conteúdo irrelevante da página da Amazon.</p>
  */
 class AmazonDealsParserFixtureTest {
 
     private static final String FIXTURE_PATH =
-            "amazon/deals-sample.html";
+        "amazon/fixtures/deals/basic-deal.html";
 
     private static final String SOURCE =
-            "https://www.amazon.com.br/deals";
+        "https://www.amazon.com.br/deals";
 
     private static final OffsetDateTime COLLECTED_AT =
-            OffsetDateTime.parse("2026-09-16T12:00:00Z");
-
-    private final AmazonDealsParser parser = new AmazonDealsParser();
-
-    /**
-     * Verifica que o parser consegue processar o conteúdo real capturado
-     * da página de ofertas e produzir pelo menos uma oferta válida.
-     */
-    @Test
-    void shouldParseRealAmazonDealsFixture() throws IOException {
-        String content = loadFixture();
-
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
+        OffsetDateTime.parse(
+            "2026-09-16T12:00:00Z"
         );
 
-        List<ParsedDeal> deals = parser.parse(collectionResult);
+    private final AmazonDealsParser parser =
+        new AmazonDealsParser();
+
+    @Test
+    void shouldParseMinimalAmazonDealsFixture()
+        throws IOException {
+
+        List<ParsedDeal> deals =
+            parseFixture();
 
         assertFalse(
-                deals.isEmpty(),
-                "O fixture real deveria produzir pelo menos uma oferta válida."
+            deals.isEmpty(),
+            "A fixture mínima deve produzir pelo menos uma oferta válida."
+        );
+
+        assertEquals(
+            1,
+            deals.size()
         );
     }
 
-    /**
-     * Verifica que as ofertas produzidas pelo fixture possuem ASIN válido.
-     *
-     * <p>O ASIN é o identificador externo utilizado pelo projeto para
-     * identificar o produto na fonte Amazon.</p>
-     */
     @Test
-    void shouldExtractValidAsinsFromRealAmazonDealsFixture()
-            throws IOException {
+    void shouldExtractValidAsinsFromFixture()
+        throws IOException {
 
-        String content = loadFixture();
-
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
-        );
-
-        List<ParsedDeal> deals = parser.parse(collectionResult);
+        List<ParsedDeal> deals =
+            parseFixture();
 
         assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas para validar os ASINs."
+            deals.isEmpty()
         );
 
         for (ParsedDeal deal : deals) {
-            assertNotNull(deal.asin());
 
-            assertTrue(
-                    deal.asin().matches("[A-Z0-9]{10}"),
-                    "ASIN inválido encontrado: " + deal.asin()
-            );
-        }
-    }
-
-    /**
-     * Verifica que as ofertas válidas possuem preço atual.
-     */
-    @Test
-    void shouldExtractCurrentPriceFromRealAmazonDealsFixture()
-            throws IOException {
-
-        String content = loadFixture();
-
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
-        );
-
-        List<ParsedDeal> deals = parser.parse(collectionResult);
-
-        assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas para validar preços."
-        );
-
-        for (ParsedDeal deal : deals) {
             assertNotNull(
-                    deal.currentPrice(),
-                    "Toda oferta válida do parser deve possuir preço atual."
+                deal.asin()
             );
 
             assertTrue(
-                    deal.currentPrice().signum() > 0,
-                    "O preço atual deve ser maior que zero."
+                deal.asin()
+                    .matches(
+                        "[A-Z0-9]{10}"
+                    ),
+                "ASIN inválido encontrado: "
+                    + deal.asin()
             );
         }
     }
 
-    /**
-     * Verifica que as ofertas válidas possuem título e URL de produto.
-     */
     @Test
-    void shouldExtractProductIdentityFromRealAmazonDealsFixture()
-            throws IOException {
+    void shouldExtractCurrentPriceFromFixture()
+        throws IOException {
 
-        String content = loadFixture();
+        ParsedDeal deal =
+            parseSingleDeal();
 
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
+        assertNotNull(
+            deal.currentPrice()
         );
-
-        List<ParsedDeal> deals = parser.parse(collectionResult);
-
-        assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas para validar identidade."
-        );
-
-        for (ParsedDeal deal : deals) {
-            assertNotNull(deal.title());
-            assertFalse(
-                    deal.title().isBlank(),
-                    "O título não deveria estar vazio."
-            );
-
-            assertNotNull(deal.productUrl());
-            assertTrue(
-                    deal.productUrl().startsWith("https://www.amazon.com.br/"),
-                    "A URL do produto deveria estar normalizada: "
-                            + deal.productUrl()
-            );
-        }
-    }
-
-    /**
-     * Verifica que o percentual vendido é extraído quando a fonte
-     * disponibiliza essa informação.
-     *
-     * <p>Não exigimos que todas as ofertas possuam o campo, pois a própria
-     * estrutura da fonte pode não disponibilizá-lo para todos os registros.
-     * Quando presente, entretanto, o valor deve estar dentro do intervalo
-     * percentual esperado.</p>
-     */
-    @Test
-    void shouldExtractSoldPercentageWhenAvailable()
-            throws IOException {
-
-        String content = loadFixture();
-
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
-        );
-
-        List<ParsedDeal> deals = parser.parse(collectionResult);
-
-        assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas para validar percentual vendido."
-        );
-
-        boolean foundSoldPercentage = false;
-
-        for (ParsedDeal deal : deals) {
-            if (deal.soldPercentage() != null) {
-                foundSoldPercentage = true;
-
-                assertTrue(
-                        deal.soldPercentage().signum() >= 0,
-                        "O percentual vendido não pode ser negativo."
-                );
-
-                assertTrue(
-                        deal.soldPercentage().doubleValue() <= 100.0,
-                        "O percentual vendido não pode ultrapassar 100."
-                );
-            }
-        }
 
         assertTrue(
-                foundSoldPercentage,
-                "O fixture real deveria conter pelo menos uma oferta "
-                        + "com percentual vendido disponível."
+            deal.currentPrice()
+                .signum() > 0
+        );
+
+        assertEquals(
+            "79.90",
+            deal.currentPrice()
+                .toPlainString()
         );
     }
 
-    /**
-     * Verifica que o parser não transforma automaticamente o preço de
-     * referência em previousPrice.
-     *
-     * <p>Essa separação é importante porque basisPrice e previousPrice
-     * representam conceitos diferentes no modelo do projeto.</p>
-     */
+    @Test
+    void shouldExtractBasisPriceFromFixture()
+        throws IOException {
+
+        ParsedDeal deal =
+            parseSingleDeal();
+
+        assertNotNull(
+            deal.basisPrice()
+        );
+
+        assertEquals(
+            "99.90",
+            deal.basisPrice()
+                .toPlainString()
+        );
+    }
+
+    @Test
+    void shouldExtractProductIdentityFromFixture()
+        throws IOException {
+
+        ParsedDeal deal =
+            parseSingleDeal();
+
+        assertEquals(
+            "B087WLJH8Y",
+            deal.asin()
+        );
+
+        assertEquals(
+            "Creatina Monohidratada 300g",
+            deal.title()
+        );
+
+        assertEquals(
+            "https://www.amazon.com.br/creatina-monohidratada/dp/B087WLJH8Y",
+            deal.productUrl()
+        );
+    }
+
+    @Test
+    void shouldExtractSoldPercentageFromFixture()
+        throws IOException {
+
+        ParsedDeal deal =
+            parseSingleDeal();
+
+        assertNotNull(
+            deal.soldPercentage()
+        );
+
+        assertEquals(
+            "37",
+            deal.soldPercentage()
+                .toPlainString()
+        );
+
+        assertTrue(
+            deal.soldPercentage()
+                .signum() >= 0
+        );
+
+        assertTrue(
+            deal.soldPercentage()
+                .doubleValue() <= 100.0
+        );
+    }
+
     @Test
     void shouldKeepPreviousPriceSeparateFromBasisPrice()
-            throws IOException {
+        throws IOException {
 
-        String content = loadFixture();
+        ParsedDeal deal =
+            parseSingleDeal();
 
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
+        assertNotNull(
+            deal.basisPrice()
         );
 
-        List<ParsedDeal> deals = parser.parse(collectionResult);
-
-        assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas para validar preços."
+        assertNull(
+            deal.previousPrice(),
+            "basisPrice não deve ser inferido como previousPrice."
         );
-
-        for (ParsedDeal deal : deals) {
-            /*
-             * O parser atual não possui uma fonte explícita de previousPrice
-             * no objeto da oferta da página de promoções.
-             *
-             * Portanto, basisPrice não deve ser copiado para previousPrice.
-             */
-            assertNull(
-                    deal.previousPrice(),
-                    "basisPrice não deve ser inferido como previousPrice."
-            );
-        }
     }
 
-    /**
-     * Verifica que os dados de coleta são preservados nos objetos produzidos.
-     */
     @Test
     void shouldPreserveCollectionMetadata()
-            throws IOException {
+        throws IOException {
 
-        String content = loadFixture();
+        ParsedDeal deal =
+            parseSingleDeal();
 
-        CollectionResult collectionResult = new CollectionResult(
-                content,
-                COLLECTED_AT,
-                SOURCE
+        assertEquals(
+            COLLECTED_AT,
+            deal.collectedAt()
         );
 
-        List<ParsedDeal> deals = parser.parse(collectionResult);
-
-        assertFalse(
-                deals.isEmpty(),
-                "O fixture deveria produzir ofertas."
+        assertEquals(
+            SOURCE,
+            deal.source()
         );
-
-        for (ParsedDeal deal : deals) {
-            assertNotNull(deal.collectedAt());
-            assertNotNull(deal.source());
-
-            assertTrue(
-                    COLLECTED_AT.equals(deal.collectedAt()),
-                    "A data de coleta deveria ser preservada."
-            );
-
-            assertTrue(
-                    SOURCE.equals(deal.source()),
-                    "A fonte deveria ser preservada."
-            );
-        }
     }
 
     /**
-     * Carrega o fixture real do classpath.
-     *
-     * @return conteúdo textual do fixture
-     * @throws IOException caso o recurso não possa ser lido
+     * Executa o parser sobre a fixture mínima.
      */
-    private String loadFixture() throws IOException {
-        ClassLoader classLoader = getClass().getClassLoader();
+    private List<ParsedDeal> parseFixture()
+        throws IOException {
+
+        CollectionResult collectionResult =
+            new CollectionResult(
+                loadFixture(),
+                COLLECTED_AT,
+                SOURCE
+            );
+
+        return parser.parse(
+            collectionResult
+        );
+    }
+
+    /**
+     * Obtém a única oferta válida presente na fixture.
+     */
+    private ParsedDeal parseSingleDeal()
+        throws IOException {
+
+        List<ParsedDeal> deals =
+            parseFixture();
+
+        assertEquals(
+            1,
+            deals.size(),
+            "A fixture deve possuir exatamente uma oferta válida."
+        );
+
+        return deals.getFirst();
+    }
+
+    /**
+     * Carrega a fixture mínima do classpath.
+     */
+    private String loadFixture()
+        throws IOException {
+
+        ClassLoader classLoader =
+            getClass()
+                .getClassLoader();
 
         try (InputStream inputStream =
-                     classLoader.getResourceAsStream(FIXTURE_PATH)) {
+                 classLoader.getResourceAsStream(
+                     FIXTURE_PATH
+                 )) {
 
             assertNotNull(
-                    inputStream,
-                    "Fixture não encontrado no classpath: " + FIXTURE_PATH
+                inputStream,
+                "Fixture não encontrada no classpath: "
+                    + FIXTURE_PATH
             );
 
             return new String(
-                    inputStream.readAllBytes(),
-                    StandardCharsets.UTF_8
+                inputStream.readAllBytes(),
+                StandardCharsets.UTF_8
             );
         }
     }
