@@ -2,6 +2,7 @@ package com.raspingamazon.infrastructure.amazon.enrichment;
 
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -12,113 +13,109 @@ import java.time.OffsetDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import com.sun.net.httpserver.HttpServer;
-
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Testes do client de enrichment da página individual do produto.
  *
- * <p>Este componente recebe um ParsedDeal produzido pela página de ofertas
- * e consulta a página individual do produto para obter evidências de seller
- * e delivery.</p>
+ * <p>O servidor HTTP utilizado é local, portanto estes testes continuam
+ * herméticos e não acessam a Amazon real.</p>
  *
- * <p>rating e reviewCount pertencem ao contrato do ParsedDeal, mas não são
- * relevantes para estes testes. Por isso permanecem null nas fixtures deste
- * arquivo.</p>
+ * <p>A resposta de sucesso utiliza uma fixture mínima contendo somente
+ * as estruturas realmente consumidas pelo AmazonProductPageParser.</p>
  */
 class AmazonProductPageEnrichmentClientTest {
 
     @Test
     void shouldEnrichParsedDealFromAmazonProductPage()
-            throws Exception {
+        throws Exception {
 
         String html =
-                loadFixture(
-                        "totalamazon.html"
-                );
+            loadFixture(
+                "amazon-amazon.html"
+            );
 
         try (TestHttpServer server =
-                     TestHttpServer.start(
-                             200,
-                             html
-                     )) {
+                 TestHttpServer.start(
+                     200,
+                     html
+                 )) {
 
             AmazonProductPageEnrichmentClient client =
-                    new AmazonProductPageEnrichmentClient(
-                            HttpClient.newHttpClient(),
-                            new AmazonProductPageParser()
-                    );
+                new AmazonProductPageEnrichmentClient(
+                    HttpClient.newHttpClient(),
+                    new AmazonProductPageParser()
+                );
 
             ParsedDeal parsedDeal =
-                    createParsedDeal(
-                            server.url()
-                    );
+                createParsedDeal(
+                    server.url()
+                );
 
             ProductEnrichmentResult result =
-                    client.enrich(
-                            parsedDeal
-                    );
+                client.enrich(
+                    parsedDeal
+                );
 
             assertNotNull(
-                    result
+                result
             );
         }
     }
 
     @Test
     void shouldRejectHttpError()
-            throws Exception {
+        throws Exception {
 
         try (TestHttpServer server =
-                     TestHttpServer.start(
-                             503,
-                             "Service unavailable"
-                     )) {
+                 TestHttpServer.start(
+                     503,
+                     "Service unavailable"
+                 )) {
 
             AmazonProductPageEnrichmentClient client =
-                    new AmazonProductPageEnrichmentClient(
-                            HttpClient.newHttpClient(),
-                            new AmazonProductPageParser()
-                    );
+                new AmazonProductPageEnrichmentClient(
+                    HttpClient.newHttpClient(),
+                    new AmazonProductPageParser()
+                );
 
             assertThrows(
-                    AmazonProductPageEnrichmentClient
-                            .ProductEnrichmentException.class,
-                    () -> client.enrich(
-                            createParsedDeal(
-                                    server.url()
-                            )
+                AmazonProductPageEnrichmentClient
+                    .ProductEnrichmentException.class,
+                () -> client.enrich(
+                    createParsedDeal(
+                        server.url()
                     )
+                )
             );
         }
     }
 
     @Test
     void shouldRejectEmptyResponse()
-            throws Exception {
+        throws Exception {
 
         try (TestHttpServer server =
-                     TestHttpServer.start(
-                             200,
-                             "   "
-                     )) {
+                 TestHttpServer.start(
+                     200,
+                     "   "
+                 )) {
 
             AmazonProductPageEnrichmentClient client =
-                    new AmazonProductPageEnrichmentClient(
-                            HttpClient.newHttpClient(),
-                            new AmazonProductPageParser()
-                    );
+                new AmazonProductPageEnrichmentClient(
+                    HttpClient.newHttpClient(),
+                    new AmazonProductPageParser()
+                );
 
             assertThrows(
-                    AmazonProductPageEnrichmentClient
-                            .ProductEnrichmentException.class,
-                    () -> client.enrich(
-                            createParsedDeal(
-                                    server.url()
-                            )
+                AmazonProductPageEnrichmentClient
+                    .ProductEnrichmentException.class,
+                () -> client.enrich(
+                    createParsedDeal(
+                        server.url()
                     )
+                )
             );
         }
     }
@@ -127,22 +124,22 @@ class AmazonProductPageEnrichmentClientTest {
     void shouldRejectMissingProductUrl() {
 
         ParsedDeal parsedDeal =
-                createParsedDeal(
-                        null
-                );
+            createParsedDeal(
+                null
+            );
 
         AmazonProductPageEnrichmentClient client =
-                new AmazonProductPageEnrichmentClient(
-                        HttpClient.newHttpClient(),
-                        new AmazonProductPageParser()
-                );
+            new AmazonProductPageEnrichmentClient(
+                HttpClient.newHttpClient(),
+                new AmazonProductPageParser()
+            );
 
         assertThrows(
-                AmazonProductPageEnrichmentClient
-                        .ProductEnrichmentException.class,
-                () -> client.enrich(
-                        parsedDeal
-                )
+            AmazonProductPageEnrichmentClient
+                .ProductEnrichmentException.class,
+            () -> client.enrich(
+                parsedDeal
+            )
         );
     }
 
@@ -150,22 +147,22 @@ class AmazonProductPageEnrichmentClientTest {
     void shouldWrapTransportFailure() {
 
         AmazonProductPageEnrichmentClient client =
-                new AmazonProductPageEnrichmentClient(
-                        HttpClient.newHttpClient(),
-                        new AmazonProductPageParser()
-                );
+            new AmazonProductPageEnrichmentClient(
+                HttpClient.newHttpClient(),
+                new AmazonProductPageParser()
+            );
 
         ParsedDeal parsedDeal =
-                createParsedDeal(
-                        "http://127.0.0.1:1/product"
-                );
+            createParsedDeal(
+                "http://127.0.0.1:1/product"
+            );
 
         assertThrows(
-                AmazonProductPageEnrichmentClient
-                        .ProductEnrichmentException.class,
-                () -> client.enrich(
-                        parsedDeal
-                )
+            AmazonProductPageEnrichmentClient
+                .ProductEnrichmentException.class,
+            () -> client.enrich(
+                parsedDeal
+            )
         );
     }
 
@@ -176,160 +173,167 @@ class AmazonProductPageEnrichmentClientTest {
      * testa somente a etapa posterior de seller/delivery.</p>
      */
     private ParsedDeal createParsedDeal(
-            String productUrl
+        String productUrl
     ) {
 
         return new ParsedDeal(
-                "B000000001",
-                productUrl,
-                "Produto de teste",
-                "https://example.com/image.jpg",
+            "B000000001",
+            productUrl,
+            "Produto de teste",
+            "https://example.com/image.jpg",
 
-                new BigDecimal(
-                        "100.00"
-                ),
+            new BigDecimal(
+                "100.00"
+            ),
 
-                new BigDecimal(
-                        "120.00"
-                ),
+            new BigDecimal(
+                "120.00"
+            ),
 
-                /*
-                 * previousPrice
-                 */
-                null,
+            /*
+             * previousPrice
+             */
+            null,
 
-                /*
-                 * soldPercentage
-                 */
-                null,
+            /*
+             * soldPercentage
+             */
+            null,
 
-                /*
-                 * rating
-                 */
-                null,
+            /*
+             * rating
+             */
+            null,
 
-                /*
-                 * reviewCount
-                 */
-                null,
+            /*
+             * reviewCount
+             */
+            null,
 
-                OffsetDateTime.now(),
+            OffsetDateTime.now(),
 
-                "AMAZON_DEALS"
+            "AMAZON_DEALS"
         );
     }
 
+    /**
+     * Carrega fixture mínima de página de produto.
+     */
     private String loadFixture(
-            String fileName
+        String fileName
     ) throws Exception {
 
+        String resourcePath =
+            "/amazon/fixtures/product/"
+                + fileName;
+
         try (var inputStream =
-                     getClass()
-                             .getResourceAsStream(
-                                     "/amazon/"
-                                             + fileName
-                             )) {
+                 getClass()
+                     .getResourceAsStream(
+                         resourcePath
+                     )) {
 
             if (inputStream == null) {
                 throw new IllegalStateException(
-                        "Fixture not found: "
-                                + fileName
+                    "Fixture not found: "
+                        + resourcePath
                 );
             }
 
             return new String(
-                    inputStream.readAllBytes(),
-                    StandardCharsets.UTF_8
+                inputStream.readAllBytes(),
+                StandardCharsets.UTF_8
             );
         }
     }
 
     /**
      * Servidor HTTP local usado para tornar o teste hermético.
-     *
-     * <p>Assim o teste controla completamente status HTTP e conteúdo,
-     * sem depender da Amazon real.</p>
      */
     private static final class TestHttpServer
-            implements AutoCloseable {
+        implements AutoCloseable {
 
         private final HttpServer server;
+
         private final ExecutorService executor;
 
         private TestHttpServer(
-                HttpServer server,
-                ExecutorService executor
+            HttpServer server,
+            ExecutorService executor
         ) {
-            this.server = server;
-            this.executor = executor;
+            this.server =
+                server;
+
+            this.executor =
+                executor;
         }
 
         static TestHttpServer start(
-                int statusCode,
-                String body
+            int statusCode,
+            String body
         ) throws Exception {
 
             HttpServer server =
-                    HttpServer.create(
-                            new InetSocketAddress(
-                                    "127.0.0.1",
-                                    0
-                            ),
-                            0
-                    );
+                HttpServer.create(
+                    new InetSocketAddress(
+                        "127.0.0.1",
+                        0
+                    ),
+                    0
+                );
 
             server.createContext(
-                    "/product",
-                    exchange -> {
+                "/product",
+                exchange -> {
 
-                        byte[] response =
-                                body.getBytes(
-                                        StandardCharsets.UTF_8
-                                );
-
-                        exchange.sendResponseHeaders(
-                                statusCode,
-                                response.length
+                    byte[] response =
+                        body.getBytes(
+                            StandardCharsets.UTF_8
                         );
 
-                        try (var output =
-                                     exchange.getResponseBody()) {
+                    exchange.sendResponseHeaders(
+                        statusCode,
+                        response.length
+                    );
 
-                            output.write(
-                                    response
-                            );
-                        }
+                    try (var output =
+                             exchange.getResponseBody()) {
+
+                        output.write(
+                            response
+                        );
                     }
+                }
             );
 
             ExecutorService executor =
-                    Executors.newCachedThreadPool();
+                Executors.newCachedThreadPool();
 
             server.setExecutor(
-                    executor
+                executor
             );
 
             server.start();
 
             return new TestHttpServer(
-                    server,
-                    executor
+                server,
+                executor
             );
         }
 
         String url() {
 
             return "http://127.0.0.1:"
-                    + server.getAddress()
-                    .getPort()
-                    + "/product";
+                + server.getAddress()
+                .getPort()
+                + "/product";
         }
 
         @Override
         public void close() {
 
             server.stop(
-                    0
+                0
             );
 
             executor.shutdownNow();
