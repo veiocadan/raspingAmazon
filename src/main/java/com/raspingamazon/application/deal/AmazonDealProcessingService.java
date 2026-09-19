@@ -23,31 +23,43 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Orquestra o fluxo vertical síncrono de processamento de ofertas.
+ * Orquestra o fluxo vertical síncrono de processamento das ofertas.
  *
- * <p>A coleta e o parsing acontecem antes da fronteira transacional,
- * pois não produzem estado persistente.</p>
- *
- * <p>Cada oferta identificada é então processada dentro de uma unidade
- * transacional própria:</p>
+ * <p>O pipeline é dividido em duas regiões:</p>
  *
  * <ol>
- *     <li>enrich;</li>
- *     <li>upsert Product;</li>
- *     <li>persistir OfferSnapshot;</li>
- *     <li>persistir condições comerciais;</li>
- *     <li>persistir evidências;</li>
- *     <li>avaliar e persistir DealEvaluation;</li>
- *     <li>commit.</li>
+ *     <li>operações externas e sem persistência;</li>
+ *     <li>unidade transacional de persistência.</li>
  * </ol>
  *
- * <p>Qualquer falha após o início dessa unidade deve provocar rollback
- * integral através de TransactionPort.</p>
+ * <p>Fluxo:</p>
+ *
+ * <pre>
+ * collect
+ * parse
+ *
+ * para cada oferta:
+ *     enrich
+ *
+ *     BEGIN
+ *         upsert Product
+ *         persist OfferSnapshot
+ *         persist PaymentConditions
+ *         persist Evidence
+ *         persist DealEvaluation
+ *     COMMIT
+ * </pre>
+ *
+ * <p>O enrichment deliberadamente acontece antes da transação.
+ * Dessa forma uma chamada HTTP lenta ou indisponível não mantém
+ * uma transação PostgreSQL aberta desnecessariamente.</p>
  */
 public final class AmazonDealProcessingService {
 
     private final CollectionCollector collectionCollector;
+
     private final DealsParser dealsParser;
+
     private final ProductEnrichmentClient enrichmentClient;
 
     private final ProductPersistencePort productPersistencePort;
@@ -151,7 +163,11 @@ public final class AmazonDealProcessingService {
     }
 
     /**
-     * Executa a coleta e processa sequencialmente todas as ofertas.
+     * Coleta a fonte e processa sequencialmente todas as ofertas
+     * reconhecidas pelo parser.
+     *
+     * @param request origem que será coletada
+     * @return ofertas que concluíram o pipeline
      */
     public List<ProcessedDealResult> process(
             CollectionRequest request
@@ -161,6 +177,11 @@ public final class AmazonDealProcessingService {
                 "request must not be null"
         );
 
+        /*
+         * ---------------------------------------------------------
+         * EXTERNAL / NON-PERSISTENT REGION
+         * ---------------------------------------------------------
+         */
         CollectionResult collectionResult =
                 collectionCollector.collect(
                         request
@@ -177,15 +198,30 @@ public final class AmazonDealProcessingService {
         for (ParsedDeal parsedDeal : parsedDeals) {
 
             /*
-             * Cada oferta representa uma unidade atômica.
+             * O enrichment executa HTTP.
              *
-             * Se qualquer etapa persistente falhar, nenhuma gravação
-             * parcial daquela oferta deve permanecer.
+             * Ele precisa terminar ANTES de iniciar a transação JDBC.
+             * Se falhar, nenhuma transação é aberta e nenhuma escrita
+             * desta oferta é iniciada.
+             */
+            ProductEnrichmentResult enrichmentResult =
+                    enrichmentClient.enrich(
+                            parsedDeal
+                    );
+
+            /*
+             * -----------------------------------------------------
+             * TRANSACTIONAL REGION
+             * -----------------------------------------------------
+             *
+             * Somente operações que modificam o estado persistente
+             * ficam dentro desta unidade.
              */
             ProcessedDealResult result =
                     transactionPort.execute(
-                            () -> processDeal(
-                                    parsedDeal
+                            () -> persistDeal(
+                                    parsedDeal,
+                                    enrichmentResult
                             )
                     );
 
@@ -200,23 +236,25 @@ public final class AmazonDealProcessingService {
     }
 
     /**
-     * Processa uma única oferta.
+     * Persiste uma oferta completamente enriquecida.
      *
-     * <p>Este método deve ser chamado dentro de TransactionPort.</p>
+     * <p>Este método deve ser executado dentro de TransactionPort.</p>
      */
-    private ProcessedDealResult processDeal(
-            ParsedDeal parsedDeal
+    private ProcessedDealResult persistDeal(
+            ParsedDeal parsedDeal,
+            ProductEnrichmentResult enrichmentResult
     ) {
-        ProductEnrichmentResult enrichmentResult =
-                enrichmentClient.enrich(
-                        parsedDeal
-                );
-
+        /*
+         * Product representa identidade durável.
+         */
         Product product =
                 productPersistencePort.upsert(
                         parsedDeal
                 );
 
+        /*
+         * OfferSnapshot representa a observação temporal atual.
+         */
         OfferSnapshot transientSnapshot =
                 offerSnapshotFactory.create(
                         product,
@@ -238,16 +276,25 @@ public final class AmazonDealProcessingService {
             );
         }
 
+        /*
+         * Condições comerciais pertencentes ao snapshot.
+         */
         paymentConditionPersistencePort.saveAll(
                 snapshotId,
                 persistedSnapshot.paymentConditions()
         );
 
+        /*
+         * Provenance de seller e delivery.
+         */
         offerEvidencePersistencePort.save(
                 snapshotId,
                 enrichmentResult
         );
 
+        /*
+         * A avaliação também faz parte da mesma unidade atômica.
+         */
         dealEvaluationProcessingPort.evaluateAndPersist(
                 persistedSnapshot,
                 OffsetDateTime.now(
