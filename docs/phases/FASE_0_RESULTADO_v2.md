@@ -59,7 +59,6 @@ A FASE 0 permanece subordinada aos princípios arquiteturais do projeto:
 
 A arquitetura geral determina que o parser descreva o que foi encontrado
 e que o domínio decida o que fazer com os dados.
-fileciteturn17file2L624-L641
 
 ------------------------------------------------------------------------
 
@@ -86,7 +85,6 @@ Foram observados:
 A coleta deve permanecer isolada em um adaptador de `amazon.collector`.
 
 Essas características já haviam sido documentadas na FASE 0 original.
-fileciteturn15file2L556-L581
 
 ------------------------------------------------------------------------
 
@@ -119,7 +117,7 @@ A fonte foi tecnicamente comprovada, mas:
 > **não deve ser considerada automaticamente autorizada para produção.**
 
 A arquitetura determina preferência por interfaces oficiais quando elas
-fornecerem o dado necessário. fileciteturn15file2L585-L612
+fornecerem o dado necessário.
 
 A implementação definitiva deve validar a permissibilidade da fonte
 antes de utilizá-la de forma automatizada em produção.
@@ -985,7 +983,6 @@ source
 ```
 
 Esse modelo foi criado antes da conclusão da investigação complementar.
-fileciteturn16file2L903-L930
 
 A investigação demonstra que o conceito de preço precisa ser
 enriquecido.
@@ -1006,7 +1003,6 @@ acompanhada de:
 -   impacto na publicação.
 
 Isso preserva a regra de desenvolvimento de trabalhar uma fase por vez.
-fileciteturn17file2L624-L641
 
 ------------------------------------------------------------------------
 
@@ -1033,7 +1029,7 @@ O schema atual deve ser preservado até que a evolução seja formalmente
 especificada.
 
 A FASE 2 já estabelece migrations versionadas por Flyway e preservação
-de snapshots históricos. fileciteturn16file1L507-L530
+de snapshots históricos.
 
 ## Regra
 
@@ -1074,7 +1070,7 @@ para descobrir o significado do preço.
 
 Artefatos brutos de diagnóstico podem ser armazenados somente quando
 necessários e conforme política de retenção definida. A FASE 0 original
-já registrou essa necessidade. fileciteturn16file0L265-L299
+já registrou essa necessidade.
 
 ------------------------------------------------------------------------
 
@@ -1102,7 +1098,6 @@ UNKNOWN
 devem ser rejeitadas.
 
 A ausência de evidência suficiente resulta em falha fechada.
-fileciteturn16file0L61-L79
 
 Essa regra não foi alterada pela investigação comercial.
 
@@ -1128,7 +1123,6 @@ dealDetails.percentClaimed
 ```
 
 O sistema não deve estimar `% vendidos`.
-fileciteturn15file2L663-L704
 
 ------------------------------------------------------------------------
 
@@ -1146,7 +1140,7 @@ API estruturada
 ```
 
 O sistema não deve adivinhar ASIN por título, imagem ou outras
-informações incompletas. fileciteturn15file2L637-L659
+informações incompletas.
 
 ------------------------------------------------------------------------
 
@@ -1247,7 +1241,7 @@ parcelamento sem evidência
 ```
 
 Essa política é consistente com a regra fail-closed já estabelecida no
-projeto. fileciteturn16file0L83-L126
+projeto.
 
 ------------------------------------------------------------------------
 
@@ -1401,7 +1395,7 @@ publicação
 ```
 
 Isso é compatível com o requisito arquitetural de auditabilidade das
-decisões e publicações. fileciteturn17file2L624-L641
+decisões e publicações.
 
 ------------------------------------------------------------------------
 
@@ -1422,7 +1416,6 @@ Permanecem as limitações da FASE 0 original:
 11. necessidade de validação da fonte antes da produção.
 
 Essas limitações já estavam registradas e permanecem válidas.
-fileciteturn16file0L229-L244
 
 A investigação complementar acrescenta:
 
@@ -1778,7 +1771,6 @@ Permanecem para fases posteriores:
 
 A ordem das fases deve ser preservada. O projeto estabelece uma
 sequência incremental e verificável, sem antecipar responsabilidades.
-fileciteturn17file2L658-L693
 
 ------------------------------------------------------------------------
 
@@ -1797,7 +1789,6 @@ Concluída com o fechamento da investigação comercial.
 
 Permanece concluída e não precisa ser alterada. Sua responsabilidade foi
 estabelecer a fundação Java e a estrutura arquitetural.
-fileciteturn15file3L723-L743
 
 ## FASE 2
 
@@ -1805,7 +1796,6 @@ Permanece concluída.
 
 O schema atual continua sendo o estado persistido existente. Qualquer
 evolução deverá ocorrer por migration versionada.
-fileciteturn16file1L615-L665
 
 ## FASE 3
 
@@ -1873,7 +1863,7 @@ FASE 15+ — testes, observabilidade,
 ```
 
 A ordem oficial do projeto preserva a evolução incremental e evita
-misturar coleta, domínio e publicação. fileciteturn17file2L658-L683
+misturar coleta, domínio e publicação.
 
 ------------------------------------------------------------------------
 

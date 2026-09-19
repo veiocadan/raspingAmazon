@@ -23,8 +23,14 @@ jobs:
           java-version: "25"
           cache: maven
 
+      - name: Make Maven Wrapper executable
+        run: chmod +x ./mvnw
+
+      - name: Show Maven Wrapper version
+        run: ./mvnw --version
+
       - name: Run external Amazon probe
-        run: mvn --batch-mode -Pexternal-probe test
+        run: ./mvnw --batch-mode -Pexternal-probe test
 
       - name: Upload diagnostic artifact
         if: always()
