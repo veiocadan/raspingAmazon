@@ -8,13 +8,13 @@ import com.raspingamazon.application.deal.port.OfferEvidencePersistencePort;
 import com.raspingamazon.application.deal.port.OfferSnapshotPersistencePort;
 import com.raspingamazon.application.deal.port.PaymentConditionPersistencePort;
 import com.raspingamazon.application.deal.port.ProductPersistencePort;
+import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.enrichment.contract.DeliveryEvidence;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
 import com.raspingamazon.application.enrichment.contract.SellerEvidence;
 import com.raspingamazon.application.parsing.contract.DealsParser;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
-import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -30,6 +30,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -39,9 +40,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Testa a orquestração completa da camada de aplicação.
  *
- * <p>As dependências são fakes em memória. O objetivo não é testar
- * PostgreSQL ou HTTP, mas provar a ordem e o transporte de dados
- * através do fluxo vertical.</p>
+ * <p>As dependências são fakes em memória. O objetivo deste teste
+ * não é validar JDBC, mas provar:</p>
+ *
+ * <ul>
+ *     <li>a ordem do pipeline;</li>
+ *     <li>o transporte dos dados;</li>
+ *     <li>a existência da fronteira transacional por oferta.</li>
+ * </ul>
  */
 class AmazonDealProcessingServiceTest {
 
@@ -64,7 +70,7 @@ class AmazonDealProcessingServiceTest {
             );
 
     @Test
-    void shouldExecuteCompleteSynchronousFlow() {
+    void shouldExecuteCompleteSynchronousFlowInsideTransaction() {
 
         List<String> events =
                 new ArrayList<>();
@@ -72,6 +78,11 @@ class AmazonDealProcessingServiceTest {
         ParsedDeal parsedDeal =
                 createParsedDeal();
 
+        /*
+         * ---------------------------------------------------------
+         * COLLECT
+         * ---------------------------------------------------------
+         */
         CollectionCollector collector =
                 request -> {
 
@@ -86,6 +97,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * PARSE
+         * ---------------------------------------------------------
+         */
         DealsParser parser =
                 collectionResult -> {
 
@@ -98,6 +114,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * ENRICH
+         * ---------------------------------------------------------
+         */
         ProductEnrichmentClient enrichmentClient =
                 deal -> {
 
@@ -110,6 +131,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * PRODUCT
+         * ---------------------------------------------------------
+         */
         ProductPersistencePort productPersistencePort =
                 deal -> {
 
@@ -128,6 +154,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * SNAPSHOT
+         * ---------------------------------------------------------
+         */
         OfferSnapshotPersistencePort snapshotPersistencePort =
                 snapshot -> {
 
@@ -141,6 +172,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * PAYMENT CONDITIONS
+         * ---------------------------------------------------------
+         */
         PaymentConditionPersistencePort paymentPersistencePort =
                 (
                         snapshotId,
@@ -161,6 +197,11 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * EVIDENCE
+         * ---------------------------------------------------------
+         */
         OfferEvidencePersistencePort evidencePersistencePort =
                 (
                         snapshotId,
@@ -182,8 +223,29 @@ class AmazonDealProcessingServiceTest {
                     );
                 };
 
+        /*
+         * ---------------------------------------------------------
+         * EVALUATION
+         * ---------------------------------------------------------
+         */
         RecordingEvaluationPort evaluationPort =
                 new RecordingEvaluationPort(
+                        events
+                );
+
+        /*
+         * ---------------------------------------------------------
+         * TRANSACTION
+         * ---------------------------------------------------------
+         *
+         * Este fake não implementa JDBC.
+         *
+         * Ele registra o início e o commit para provar que todas
+         * as operações persistentes da oferta ficaram contidas
+         * dentro da fronteira transacional.
+         */
+        RecordingTransactionPort transactionPort =
+                new RecordingTransactionPort(
                         events
                 );
 
@@ -204,6 +266,7 @@ class AmazonDealProcessingServiceTest {
                         paymentPersistencePort,
                         evidencePersistencePort,
                         evaluationPort,
+                        transactionPort,
                         clock
                 );
 
@@ -243,8 +306,8 @@ class AmazonDealProcessingServiceTest {
         );
 
         /*
-         * Prova que os campos comerciais fechados na D2/D3
-         * atravessaram todo o pipeline.
+         * Dados fechados durante D2/D3 continuam atravessando
+         * corretamente o fluxo.
          */
         assertEquals(
                 4.6,
@@ -256,18 +319,31 @@ class AmazonDealProcessingServiceTest {
                 result.offerSnapshot().reviewCount()
         );
 
+        /*
+         * collect e parse acontecem antes da transação porque não
+         * gravam estado persistente.
+         *
+         * A unidade transacional começa antes de enrich/product.
+         */
         assertEquals(
                 List.of(
                         "collect",
                         "parse",
+                        "transaction-begin",
                         "enrich",
                         "product",
                         "snapshot",
                         "payments",
                         "evidence",
-                        "evaluation"
+                        "evaluation",
+                        "transaction-commit"
                 ),
                 events
+        );
+
+        assertEquals(
+                1,
+                transactionPort.executions
         );
 
         assertNotNull(
@@ -334,8 +410,8 @@ class AmazonDealProcessingServiceTest {
     }
 
     /**
-     * Simula o comportamento esperado de um adapter de persistência:
-     * recebe snapshot sem id e devolve representação persistida com id.
+     * Simula o adapter de persistência devolvendo a entidade imutável
+     * com identidade persistente.
      */
     private OfferSnapshot copyWithId(
             OfferSnapshot snapshot,
@@ -362,7 +438,7 @@ class AmazonDealProcessingServiceTest {
     }
 
     /**
-     * Fake que apenas registra que a etapa de avaliação foi executada.
+     * Fake da porta de avaliação.
      */
     private static final class RecordingEvaluationPort
             implements DealEvaluationProcessingPort {
@@ -393,6 +469,49 @@ class AmazonDealProcessingServiceTest {
 
             this.evaluatedAt =
                     evaluatedAt;
+        }
+    }
+
+    /**
+     * Fake transacional utilizado apenas para verificar a fronteira
+     * da camada de aplicação.
+     *
+     * <p>Os testes JDBC de commit/rollback serão implementados
+     * separadamente no adapter concreto.</p>
+     */
+    private static final class RecordingTransactionPort
+            implements TransactionPort {
+
+        private final List<String> events;
+
+        private int executions;
+
+        private RecordingTransactionPort(
+                List<String> events
+        ) {
+            this.events =
+                    events;
+        }
+
+        @Override
+        public <T> T execute(
+                Supplier<T> operation
+        ) {
+
+            executions++;
+
+            events.add(
+                    "transaction-begin"
+            );
+
+            T result =
+                    operation.get();
+
+            events.add(
+                    "transaction-commit"
+            );
+
+            return result;
         }
     }
 }

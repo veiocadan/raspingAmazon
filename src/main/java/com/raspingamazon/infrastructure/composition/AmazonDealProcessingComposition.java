@@ -14,6 +14,7 @@ import com.raspingamazon.infrastructure.persistence.OfferEvidenceJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferPaymentConditionRepository;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
 import com.raspingamazon.infrastructure.persistence.ProductRepository;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcTransactionAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferEvidenceJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferSnapshotJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.PaymentConditionJdbcPersistenceAdapter;
@@ -28,15 +29,17 @@ import java.util.Objects;
 /**
  * Composition root do fluxo síncrono de processamento de ofertas Amazon.
  *
- * <p>Esta classe é responsável exclusivamente por montar o grafo de
- * dependências concreto da aplicação.</p>
+ * <p>Esta classe monta o grafo concreto de dependências utilizado pela
+ * aplicação.</p>
  *
- * <p>Ela não contém regras de negócio e não executa o processamento.
- * O comportamento continua pertencendo a AmazonDealProcessingService.</p>
+ * <p>A mesma Connection JDBC é compartilhada por todos os repositories
+ * e pelo JdbcTransactionAdapter. Essa característica é fundamental:
+ * somente assim Product, OfferSnapshot, PaymentConditions, Evidence e
+ * DealEvaluation podem participar da mesma transação.</p>
  *
- * <p>A Connection é recebida externamente de propósito. Isso prepara
- * o projeto para que a FASE 8.5-F defina a unidade transacional sem
- * esconder commit/rollback dentro dos repositories.</p>
+ * <p>A classe não possui regras de negócio e não executa o fluxo.
+ * Ela apenas conecta implementações concretas aos contratos da
+ * aplicação.</p>
  */
 public final class AmazonDealProcessingComposition {
 
@@ -49,10 +52,11 @@ public final class AmazonDealProcessingComposition {
     }
 
     /**
-     * Monta o serviço com dependências padrão de produção.
+     * Monta o serviço utilizando dependências padrão de produção.
      *
-     * @param connection conexão JDBC compartilhada pelos repositories
-     * @return serviço pronto para processar uma CollectionRequest
+     * @param connection conexão JDBC que será compartilhada por toda
+     *                   a unidade de trabalho
+     * @return serviço vertical pronto para execução
      */
     public static AmazonDealProcessingService create(
             Connection connection
@@ -65,11 +69,10 @@ public final class AmazonDealProcessingComposition {
     }
 
     /**
-     * Variante injetável usada para testes e futura composição
-     * transacional.
+     * Variante injetável da composição.
      *
-     * <p>Clock e HttpClient entram explicitamente para evitar que a
-     * construção do grafo fique presa a singletons ou estado global.</p>
+     * <p>Clock e HttpClient são argumentos para manter o composition
+     * root testável e evitar estado global.</p>
      */
     public static AmazonDealProcessingService create(
             Connection connection,
@@ -92,7 +95,9 @@ public final class AmazonDealProcessingComposition {
         );
 
         /*
-         * Coleta da página de ofertas.
+         * ---------------------------------------------------------
+         * COLETA
+         * ---------------------------------------------------------
          */
         JavaHttpTransport httpTransport =
                 new JavaHttpTransport(
@@ -107,13 +112,17 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Interpretação do conteúdo da página de ofertas.
+         * ---------------------------------------------------------
+         * PARSER
+         * ---------------------------------------------------------
          */
         AmazonDealsParser dealsParser =
                 new AmazonDealsParser();
 
         /*
-         * Enriquecimento pela página individual do produto.
+         * ---------------------------------------------------------
+         * ENRICHMENT
+         * ---------------------------------------------------------
          */
         AmazonProductPageEnrichmentClient enrichmentClient =
                 new AmazonProductPageEnrichmentClient(
@@ -122,7 +131,9 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Persistência de Product.
+         * ---------------------------------------------------------
+         * PRODUCT
+         * ---------------------------------------------------------
          */
         ProductRepository productRepository =
                 new ProductRepository(
@@ -135,7 +146,9 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Construção e persistência do OfferSnapshot.
+         * ---------------------------------------------------------
+         * OFFER SNAPSHOT
+         * ---------------------------------------------------------
          */
         OfferSnapshotFactory offerSnapshotFactory =
                 new OfferSnapshotFactory();
@@ -152,11 +165,9 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Condições comerciais.
-         *
-         * Atualmente o OfferSnapshotFactory pode produzir lista vazia.
-         * O ponto de persistência já está corretamente reservado para
-         * quando as condições comerciais forem transportadas pelo fluxo.
+         * ---------------------------------------------------------
+         * PAYMENT CONDITIONS
+         * ---------------------------------------------------------
          */
         OfferPaymentConditionRepository paymentRepository =
                 new OfferPaymentConditionRepository(
@@ -170,7 +181,9 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Evidências auditáveis de seller e delivery.
+         * ---------------------------------------------------------
+         * EVIDENCE
+         * ---------------------------------------------------------
          */
         OfferEvidenceJdbcRepository evidenceRepository =
                 new OfferEvidenceJdbcRepository(
@@ -184,22 +197,50 @@ public final class AmazonDealProcessingComposition {
                 );
 
         /*
-         * Avaliação estrutural Amazon.
+         * ---------------------------------------------------------
+         * DEAL EVALUATION
+         * ---------------------------------------------------------
          */
         DealEvaluationJdbcRepository evaluationRepository =
                 new DealEvaluationJdbcRepository(
                         connection
                 );
 
-        AmazonDealEvaluationApplicationService
-                evaluationService =
+        AmazonDealEvaluationApplicationService evaluationService =
                 new AmazonDealEvaluationApplicationService(
                         new AmazonEligibilityValidator(),
                         evaluationRepository
                 );
 
         /*
-         * Serviço vertical final.
+         * ---------------------------------------------------------
+         * TRANSACTION BOUNDARY
+         * ---------------------------------------------------------
+         *
+         * O ponto essencial da FASE 8.5-F:
+         *
+         * todos os repositories acima e o transaction adapter usam
+         * exatamente a mesma Connection.
+         *
+         * Assim:
+         *
+         * Product
+         * Snapshot
+         * PaymentConditions
+         * Evidence
+         * DealEvaluation
+         *
+         * podem participar da mesma unidade atômica.
+         */
+        JdbcTransactionAdapter transactionAdapter =
+                new JdbcTransactionAdapter(
+                        connection
+                );
+
+        /*
+         * ---------------------------------------------------------
+         * APPLICATION SERVICE
+         * ---------------------------------------------------------
          */
         return new AmazonDealProcessingService(
                 collectionCollector,
@@ -211,10 +252,14 @@ public final class AmazonDealProcessingComposition {
                 paymentConditionPersistenceAdapter,
                 evidencePersistenceAdapter,
                 evaluationService,
+                transactionAdapter,
                 clock
         );
     }
 
+    /**
+     * Cria o HttpClient compartilhado pelas chamadas HTTP do fluxo.
+     */
     private static HttpClient createHttpClient() {
 
         return HttpClient.newBuilder()

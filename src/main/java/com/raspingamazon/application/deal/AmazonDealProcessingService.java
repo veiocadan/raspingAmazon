@@ -8,6 +8,7 @@ import com.raspingamazon.application.deal.port.OfferEvidencePersistencePort;
 import com.raspingamazon.application.deal.port.OfferSnapshotPersistencePort;
 import com.raspingamazon.application.deal.port.PaymentConditionPersistencePort;
 import com.raspingamazon.application.deal.port.ProductPersistencePort;
+import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
 import com.raspingamazon.application.parsing.contract.DealsParser;
@@ -24,26 +25,24 @@ import java.util.Objects;
 /**
  * Orquestra o fluxo vertical síncrono de processamento de ofertas.
  *
- * <p>Ordem do pipeline:</p>
+ * <p>A coleta e o parsing acontecem antes da fronteira transacional,
+ * pois não produzem estado persistente.</p>
+ *
+ * <p>Cada oferta identificada é então processada dentro de uma unidade
+ * transacional própria:</p>
  *
  * <ol>
- *     <li>collect;</li>
- *     <li>parse;</li>
  *     <li>enrich;</li>
  *     <li>upsert Product;</li>
- *     <li>construir OfferSnapshot;</li>
  *     <li>persistir OfferSnapshot;</li>
  *     <li>persistir condições comerciais;</li>
  *     <li>persistir evidências;</li>
- *     <li>avaliar elegibilidade e persistir DealEvaluation.</li>
+ *     <li>avaliar e persistir DealEvaluation;</li>
+ *     <li>commit.</li>
  * </ol>
  *
- * <p>Este serviço deliberadamente não controla transação JDBC.
- * A fronteira transacional será introduzida na FASE 8.5-F.</p>
- *
- * <p>Também não existem scheduler, fila, UI ou execução paralela
- * nesta fase. O objetivo é primeiro possuir um caminho síncrono,
- * determinístico e testável.</p>
+ * <p>Qualquer falha após o início dessa unidade deve provocar rollback
+ * integral através de TransactionPort.</p>
  */
 public final class AmazonDealProcessingService {
 
@@ -67,6 +66,8 @@ public final class AmazonDealProcessingService {
     private final DealEvaluationProcessingPort
             dealEvaluationProcessingPort;
 
+    private final TransactionPort transactionPort;
+
     private final Clock clock;
 
     public AmazonDealProcessingService(
@@ -79,6 +80,7 @@ public final class AmazonDealProcessingService {
             PaymentConditionPersistencePort paymentConditionPersistencePort,
             OfferEvidencePersistencePort offerEvidencePersistencePort,
             DealEvaluationProcessingPort dealEvaluationProcessingPort,
+            TransactionPort transactionPort,
             Clock clock
     ) {
         this.collectionCollector =
@@ -135,6 +137,12 @@ public final class AmazonDealProcessingService {
                         "dealEvaluationProcessingPort must not be null"
                 );
 
+        this.transactionPort =
+                Objects.requireNonNull(
+                        transactionPort,
+                        "transactionPort must not be null"
+                );
+
         this.clock =
                 Objects.requireNonNull(
                         clock,
@@ -143,15 +151,7 @@ public final class AmazonDealProcessingService {
     }
 
     /**
-     * Executa uma coleta completa e processa sequencialmente
-     * todas as ofertas reconhecidas pelo parser.
-     *
-     * <p>Falhas não são silenciosamente ignoradas. Enquanto ainda
-     * não existe a unidade transacional da FASE 8.5-F, qualquer
-     * exceção interrompe o processamento e sobe para o chamador.</p>
-     *
-     * @param request origem da coleta
-     * @return ofertas que completaram o pipeline
+     * Executa a coleta e processa sequencialmente todas as ofertas.
      */
     public List<ProcessedDealResult> process(
             CollectionRequest request
@@ -176,9 +176,17 @@ public final class AmazonDealProcessingService {
 
         for (ParsedDeal parsedDeal : parsedDeals) {
 
+            /*
+             * Cada oferta representa uma unidade atômica.
+             *
+             * Se qualquer etapa persistente falhar, nenhuma gravação
+             * parcial daquela oferta deve permanecer.
+             */
             ProcessedDealResult result =
-                    processDeal(
-                            parsedDeal
+                    transactionPort.execute(
+                            () -> processDeal(
+                                    parsedDeal
+                            )
                     );
 
             results.add(
@@ -192,7 +200,9 @@ public final class AmazonDealProcessingService {
     }
 
     /**
-     * Processa uma única oferta já extraída pelo parser.
+     * Processa uma única oferta.
+     *
+     * <p>Este método deve ser chamado dentro de TransactionPort.</p>
      */
     private ProcessedDealResult processDeal(
             ParsedDeal parsedDeal
@@ -202,20 +212,11 @@ public final class AmazonDealProcessingService {
                         parsedDeal
                 );
 
-        /*
-         * Product representa identidade durável.
-         * Portanto a operação é upsert e não insert cego.
-         */
         Product product =
                 productPersistencePort.upsert(
                         parsedDeal
                 );
 
-        /*
-         * Nesta fase as condições comerciais disponíveis no
-         * OfferSnapshotFactory continuam sendo transportadas
-         * através do próprio snapshot.
-         */
         OfferSnapshot transientSnapshot =
                 offerSnapshotFactory.create(
                         product,
@@ -237,30 +238,16 @@ public final class AmazonDealProcessingService {
             );
         }
 
-        /*
-         * Mesmo quando a lista é vazia, chamamos a porta.
-         *
-         * Isso mantém o fluxo estruturalmente estável para quando
-         * condições Pix/parcelamento estiverem presentes.
-         */
         paymentConditionPersistencePort.saveAll(
                 snapshotId,
                 persistedSnapshot.paymentConditions()
         );
 
-        /*
-         * Seller/delivery e sua provenance são persistidos
-         * separadamente do snapshot.
-         */
         offerEvidencePersistencePort.save(
                 snapshotId,
                 enrichmentResult
         );
 
-        /*
-         * A avaliação acontece somente depois que o snapshot
-         * e suas evidências possuem identidade persistente.
-         */
         dealEvaluationProcessingPort.evaluateAndPersist(
                 persistedSnapshot,
                 OffsetDateTime.now(
