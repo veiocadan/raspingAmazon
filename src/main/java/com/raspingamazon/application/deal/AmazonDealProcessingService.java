@@ -53,6 +53,19 @@ import java.util.Objects;
  *     COMMIT
  * </pre>
  *
+ * <p>As condições comerciais observadas durante o enrichment
+ * atravessam explicitamente:</p>
+ *
+ * <pre>
+ * ProductEnrichmentResult
+ *     ↓
+ * OfferSnapshotFactory
+ *     ↓
+ * OfferSnapshot.paymentConditions
+ *     ↓
+ * persistência e avaliação
+ * </pre>
+ *
  * <p>A identidade idempotente do snapshot permite que a mesma
  * observação seja reprocessada sem duplicar histórico nem avaliação.</p>
  */
@@ -69,151 +82,154 @@ public final class AmazonDealProcessingService {
     private final OfferSnapshotFactory offerSnapshotFactory;
 
     private final OfferSnapshotPersistencePort
-            offerSnapshotPersistencePort;
+        offerSnapshotPersistencePort;
 
     private final PaymentConditionPersistencePort
-            paymentConditionPersistencePort;
+        paymentConditionPersistencePort;
 
     private final OfferEvidencePersistencePort
-            offerEvidencePersistencePort;
+        offerEvidencePersistencePort;
 
     private final DealEvaluationProcessingPort
-            dealEvaluationProcessingPort;
+        dealEvaluationProcessingPort;
 
     private final TransactionPort transactionPort;
 
     private final Clock clock;
 
     public AmazonDealProcessingService(
-            CollectionCollector collectionCollector,
-            DealsParser dealsParser,
-            ProductEnrichmentClient enrichmentClient,
-            ProductPersistencePort productPersistencePort,
-            OfferSnapshotFactory offerSnapshotFactory,
-            OfferSnapshotPersistencePort offerSnapshotPersistencePort,
-            PaymentConditionPersistencePort paymentConditionPersistencePort,
-            OfferEvidencePersistencePort offerEvidencePersistencePort,
-            DealEvaluationProcessingPort dealEvaluationProcessingPort,
-            TransactionPort transactionPort,
-            Clock clock
+        CollectionCollector collectionCollector,
+        DealsParser dealsParser,
+        ProductEnrichmentClient enrichmentClient,
+        ProductPersistencePort productPersistencePort,
+        OfferSnapshotFactory offerSnapshotFactory,
+        OfferSnapshotPersistencePort offerSnapshotPersistencePort,
+        PaymentConditionPersistencePort paymentConditionPersistencePort,
+        OfferEvidencePersistencePort offerEvidencePersistencePort,
+        DealEvaluationProcessingPort dealEvaluationProcessingPort,
+        TransactionPort transactionPort,
+        Clock clock
     ) {
         this.collectionCollector =
-                Objects.requireNonNull(
-                        collectionCollector,
-                        "collectionCollector must not be null"
-                );
+            Objects.requireNonNull(
+                collectionCollector,
+                "collectionCollector must not be null"
+            );
 
         this.dealsParser =
-                Objects.requireNonNull(
-                        dealsParser,
-                        "dealsParser must not be null"
-                );
+            Objects.requireNonNull(
+                dealsParser,
+                "dealsParser must not be null"
+            );
 
         this.enrichmentClient =
-                Objects.requireNonNull(
-                        enrichmentClient,
-                        "enrichmentClient must not be null"
-                );
+            Objects.requireNonNull(
+                enrichmentClient,
+                "enrichmentClient must not be null"
+            );
 
         this.productPersistencePort =
-                Objects.requireNonNull(
-                        productPersistencePort,
-                        "productPersistencePort must not be null"
-                );
+            Objects.requireNonNull(
+                productPersistencePort,
+                "productPersistencePort must not be null"
+            );
 
         this.offerSnapshotFactory =
-                Objects.requireNonNull(
-                        offerSnapshotFactory,
-                        "offerSnapshotFactory must not be null"
-                );
+            Objects.requireNonNull(
+                offerSnapshotFactory,
+                "offerSnapshotFactory must not be null"
+            );
 
         this.offerSnapshotPersistencePort =
-                Objects.requireNonNull(
-                        offerSnapshotPersistencePort,
-                        "offerSnapshotPersistencePort must not be null"
-                );
+            Objects.requireNonNull(
+                offerSnapshotPersistencePort,
+                "offerSnapshotPersistencePort must not be null"
+            );
 
         this.paymentConditionPersistencePort =
-                Objects.requireNonNull(
-                        paymentConditionPersistencePort,
-                        "paymentConditionPersistencePort must not be null"
-                );
+            Objects.requireNonNull(
+                paymentConditionPersistencePort,
+                "paymentConditionPersistencePort must not be null"
+            );
 
         this.offerEvidencePersistencePort =
-                Objects.requireNonNull(
-                        offerEvidencePersistencePort,
-                        "offerEvidencePersistencePort must not be null"
-                );
+            Objects.requireNonNull(
+                offerEvidencePersistencePort,
+                "offerEvidencePersistencePort must not be null"
+            );
 
         this.dealEvaluationProcessingPort =
-                Objects.requireNonNull(
-                        dealEvaluationProcessingPort,
-                        "dealEvaluationProcessingPort must not be null"
-                );
+            Objects.requireNonNull(
+                dealEvaluationProcessingPort,
+                "dealEvaluationProcessingPort must not be null"
+            );
 
         this.transactionPort =
-                Objects.requireNonNull(
-                        transactionPort,
-                        "transactionPort must not be null"
-                );
+            Objects.requireNonNull(
+                transactionPort,
+                "transactionPort must not be null"
+            );
 
         this.clock =
-                Objects.requireNonNull(
-                        clock,
-                        "clock must not be null"
-                );
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
+            );
     }
 
     /**
      * Coleta a origem e processa sequencialmente as ofertas encontradas.
      */
     public List<ProcessedDealResult> process(
-            CollectionRequest request
+        CollectionRequest request
     ) {
         Objects.requireNonNull(
-                request,
-                "request must not be null"
+            request,
+            "request must not be null"
         );
 
         CollectionResult collectionResult =
-                collectionCollector.collect(
-                        request
-                );
+            collectionCollector.collect(
+                request
+            );
 
         List<ParsedDeal> parsedDeals =
-                dealsParser.parse(
-                        collectionResult
-                );
+            dealsParser.parse(
+                collectionResult
+            );
 
         List<ProcessedDealResult> results =
-                new ArrayList<>();
+            new ArrayList<>();
 
         for (ParsedDeal parsedDeal : parsedDeals) {
 
             /*
              * O enrichment executa I/O externo e permanece fora
              * da transação JDBC.
+             *
+             * Além de seller/delivery, ele agora pode transportar
+             * condições comerciais observadas na página individual.
              */
             ProductEnrichmentResult enrichmentResult =
-                    enrichmentClient.enrich(
-                            parsedDeal
-                    );
+                enrichmentClient.enrich(
+                    parsedDeal
+                );
 
             ProcessedDealResult result =
-                    transactionPort.execute(
-                            () -> persistDeal(
-                                    parsedDeal,
-                                    enrichmentResult
-                            )
-                    );
+                transactionPort.execute(
+                    () -> persistDeal(
+                        parsedDeal,
+                        enrichmentResult
+                    )
+                );
 
             results.add(
-                    result
+                result
             );
         }
 
         return List.copyOf(
-                results
+            results
         );
     }
 
@@ -223,39 +239,50 @@ public final class AmazonDealProcessingService {
      * <p>Este método deve ser executado dentro da TransactionPort.</p>
      */
     private ProcessedDealResult persistDeal(
-            ParsedDeal parsedDeal,
-            ProductEnrichmentResult enrichmentResult
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult
     ) {
         Product product =
-                productPersistencePort.upsert(
-                        parsedDeal
-                );
-
-        OfferSnapshot transientSnapshot =
-                offerSnapshotFactory.create(
-                        product,
-                        parsedDeal,
-                        enrichmentResult
-                );
+            productPersistencePort.upsert(
+                parsedDeal
+            );
 
         /*
-         * A persistência agora informa explicitamente se esta
-         * observação foi criada ou se já existia.
+         * FASE 9-C1.5:
+         *
+         * Antes, o overload sem paymentConditions era usado aqui e
+         * toda oferta produzida pelo fluxo vertical chegava ao domínio
+         * com uma lista comercial vazia.
+         *
+         * Agora as condições explicitamente observadas durante o
+         * enrichment atravessam o pipeline sem serem reinterpretadas.
+         */
+        OfferSnapshot transientSnapshot =
+            offerSnapshotFactory.create(
+                product,
+                parsedDeal,
+                enrichmentResult,
+                enrichmentResult.paymentConditions()
+            );
+
+        /*
+         * A persistência informa explicitamente se esta observação
+         * foi criada ou se já existia.
          */
         PersistedOfferSnapshot persisted =
-                offerSnapshotPersistencePort.save(
-                        transientSnapshot
-                );
+            offerSnapshotPersistencePort.save(
+                transientSnapshot
+            );
 
         OfferSnapshot persistedSnapshot =
-                persisted.snapshot();
+            persisted.snapshot();
 
         Long snapshotId =
-                persistedSnapshot.id();
+            persistedSnapshot.id();
 
         if (snapshotId == null) {
             throw new IllegalStateException(
-                    "Persisted OfferSnapshot must have an id"
+                "Persisted OfferSnapshot must have an id"
             );
         }
 
@@ -270,28 +297,28 @@ public final class AmazonDealProcessingService {
         if (persisted.created()) {
 
             paymentConditionPersistencePort.saveAll(
-                    snapshotId,
-                    persistedSnapshot.paymentConditions()
+                snapshotId,
+                persistedSnapshot.paymentConditions()
             );
 
             offerEvidencePersistencePort.save(
-                    snapshotId,
-                    enrichmentResult
+                snapshotId,
+                enrichmentResult
             );
 
             dealEvaluationProcessingPort.evaluateAndPersist(
-                    persistedSnapshot,
-                    OffsetDateTime.now(
-                            clock
-                    )
+                persistedSnapshot,
+                OffsetDateTime.now(
+                    clock
+                )
             );
         }
 
         return new ProcessedDealResult(
-                parsedDeal,
-                enrichmentResult,
-                product,
-                persistedSnapshot
+            parsedDeal,
+            enrichmentResult,
+            product,
+            persistedSnapshot
         );
     }
 }
