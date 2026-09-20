@@ -3,7 +3,7 @@
 **Projeto:** Rasping Amazon
 **Fase:** 10 — Score, ranking e explicabilidade
 **Data:** 20/09/2026
-**Status:** CONCLUÍDA LOCALMENTE — validação local concluída com sucesso; CI remoto pendente
+**Status:** Status: CONCLUÍDA — validação local e CI remoto do Pull Request aprovados
 
 ---
 
