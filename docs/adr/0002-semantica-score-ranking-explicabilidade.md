@@ -1,70 +1,71 @@
 # ADR-0002 — Semântica do score, ranking e explicabilidade
 
-* **Status:** Proposta
-* **Data:** 2026-09-20
-* **Projeto:** Rasping Amazon
-* **Fase relacionada:** FASE 10
+**Status:** Aceito
+**Data:** 2026-09-20
+**Fase:** 10 — Score, ranking e explicabilidade
 
 ## Contexto
 
-A FASE 9 encerrou a elegibilidade estrutural e os filtros comerciais configuráveis.
+A FASE 10 introduz priorização entre ofertas que já passaram pelas etapas anteriores do pipeline.
 
-Uma oferta somente deve chegar ao score depois de passar por:
+O score não substitui:
 
-1. elegibilidade de vendedor e entrega pela Amazon;
-2. desconto mínimo à vista;
-3. rating mínimo;
-4. quantidade mínima de avaliações.
+* elegibilidade estrutural;
+* filtros comerciais;
+* validação dos dados coletados.
 
-O score não é um novo mecanismo de elegibilidade.
+O score somente deve ser calculado para ofertas que já tenham sido aprovadas por essas etapas.
 
-Sua responsabilidade é ordenar, por prioridade, ofertas que já foram consideradas elegíveis.
+O objetivo é produzir uma pontuação determinística, versionada, reproduzível e explicável.
 
-Os sinais atualmente disponíveis de forma estruturada são:
-
-* desconto à vista explícito;
-* rating;
-* quantidade de avaliações;
-* percentual vendido (`soldPercentage`).
-
-`soldPercentage` não é filtro eliminatório. Ele representa um possível sinal de popularidade, tração ou demanda observada.
+Além do valor final do score, o sistema deve preservar os fatores individuais que participaram do cálculo.
 
 ## Decisão
 
-### 1. Score somente para ofertas elegíveis
+### 1. Momento de cálculo
 
-Uma `DealEvaluation` inelegível não receberá score.
+O score somente será calculado quando a oferta:
 
-Nesse caso:
+1. for estruturalmente elegível; e
+2. passar por todos os filtros comerciais ativos.
+
+Quando a oferta não for elegível:
 
 ```text
 score = null
 scoreVersion = null
+scoreFactors = vazio
 ```
 
-Nenhum fator de score será persistido para essa avaliação.
+Não será produzido score parcial para ofertas rejeitadas.
 
-### 2. Versão inicial
+### 2. Primeira versão
 
-A primeira versão será identificada como:
+A primeira versão operacional será identificada como:
 
 ```text
 SCORE_V1
 ```
 
-Qualquer alteração futura de fórmula, peso, normalização, política de ausência ou arredondamento exigirá nova versão.
+A versão faz parte do histórico da avaliação.
 
-Exemplo:
+Alterações posteriores em:
 
-```text
-SCORE_V2
-```
+* pesos;
+* fatores;
+* normalizações;
+* parâmetros;
+* arredondamento;
+* política de ausência;
+* semântica do cálculo;
 
-Avaliações históricas nunca deverão ser reinterpretadas silenciosamente pela fórmula mais nova.
+não devem modificar retroativamente o significado de `SCORE_V1`.
 
-### 3. Fatores do SCORE_V1
+Uma alteração incompatível deverá gerar uma nova versão.
 
-O SCORE_V1 utilizará:
+### 3. Fatores ativos no SCORE_V1
+
+O `SCORE_V1` utilizará quatro fatores:
 
 ```text
 SOLD_PERCENTAGE
@@ -73,11 +74,19 @@ RATING
 REVIEW_COUNT
 ```
 
-A futura `PRICE_ATTRACTIVENESS` não participará do SCORE_V1 enquanto não existir definição independente, fonte confiável e normalização aprovada para esse conceito.
+O fator de atratividade de preço previsto conceitualmente no planejamento inicial não será utilizado no `SCORE_V1`.
 
-### 4. Pesos iniciais
+A razão é que o projeto ainda não possui uma definição independente e suficientemente confiável para esse fator.
 
-O SCORE_V1 utilizará:
+Utilizar apenas preço absoluto introduziria viés entre categorias.
+
+Utilizar a relação entre preço atual e preço-base reproduziria parcialmente o sinal já representado por desconto.
+
+O fator poderá ser introduzido em uma versão futura quando sua semântica e fonte estiverem formalizadas.
+
+### 4. Pesos do SCORE_V1
+
+Os pesos ativos serão:
 
 ```text
 SOLD_PERCENTAGE = 30
@@ -86,206 +95,337 @@ RATING          = 20
 REVIEW_COUNT    = 15
 ```
 
-Os 10 pontos conceitualmente reservados para atratividade de preço não serão redistribuídos silenciosamente.
-
-Assim, o SCORE_V1 possui pontuação máxima nominal de:
+A soma dos pesos ativos é:
 
 ```text
 90
 ```
 
-Essa característica pertence à versão e não constitui erro matemático.
+Os 10 pontos originalmente reservados à atratividade de preço não serão redistribuídos.
 
-Uma futura versão poderá introduzir o quinto fator e possuir escala diferente.
-
-### 5. Desconto à vista
-
-O fator utiliza somente o desconto explicitamente selecionado pela política comercial já existente.
-
-Não será inferido desconto por diferença matemática entre preços.
-
-Normalização:
+Consequentemente, o máximo nominal alcançável pelo `SCORE_V1` será:
 
 ```text
-0%   -> 0
-25%  -> 25
-100% -> 100
+90.0000
 ```
 
-Ou seja, o percentual observado já pertence à escala normalizada de 0 a 100.
+A ausência do quinto fator não deverá aumentar artificialmente a participação relativa dos fatores restantes.
 
-### 6. Rating
+### 5. Normalização de percentual vendido
 
-O rating válido possui intervalo de 0 a 5.
-
-Normalização:
+Quando `soldPercentage` estiver disponível:
 
 ```text
-normalizedRating = rating / 5 * 100
+normalizedSoldPercentage = soldPercentage
 ```
 
-Exemplos:
+O intervalo válido é:
 
 ```text
-4.0 -> 80
-4.5 -> 90
-5.0 -> 100
+0 <= soldPercentage <= 100
 ```
 
-### 7. Percentual vendido
-
-`soldPercentage` possui intervalo de 0 a 100 e será utilizado diretamente como valor normalizado.
-
-Ausência de `soldPercentage` continuará significando:
+Portanto:
 
 ```text
-UNAVAILABLE
+0   → 0 normalizado
+50  → 50 normalizado
+100 → 100 normalizado
 ```
 
-e não:
+### 6. Ausência de percentual vendido
+
+`soldPercentage` pode não estar disponível na fonte.
+
+Ausência não equivale a zero observado.
+
+Quando ausente, o fator será representado como:
 
 ```text
-soldPercentage = 0
+factorCode      = SOLD_PERCENTAGE
+status          = UNAVAILABLE
+rawValue        = null
+normalizedValue = null
+weight          = 30
+contribution    = 0
 ```
 
-No SCORE_V1, um fator indisponível produzirá contribuição zero, mas a ausência será registrada explicitamente para auditoria.
-
-Portanto, zero observado e dado ausente são estados distintos.
-
-### 8. Quantidade de avaliações
-
-`reviewCount` é uma variável sem limite superior natural.
-
-Ela não será usada diretamente no cálculo, pois isso permitiria que produtos com milhões de avaliações dominassem indevidamente o score.
-
-A normalização será limitada por um parâmetro versionado:
+Quando a fonte informar explicitamente zero:
 
 ```text
-reviewCountFullScoreThreshold
+factorCode      = SOLD_PERCENTAGE
+status          = AVAILABLE
+rawValue        = 0
+normalizedValue = 0
+weight          = 30
+contribution    = 0
 ```
 
-Fórmula:
+Os dois casos possuem a mesma contribuição matemática no `SCORE_V1`, mas evidências semanticamente diferentes.
+
+Essa diferença deverá ser preservada para auditoria.
+
+### 7. Normalização do desconto à vista
+
+Será utilizado somente desconto à vista explicitamente observado segundo as regras comerciais já existentes.
+
+Não será inferido desconto a partir de preços sem evidência comercial correspondente.
+
+Quando disponível:
 
 ```text
-normalizedReviewCount =
-    min(reviewCount, reviewCountFullScoreThreshold)
-    / reviewCountFullScoreThreshold
+normalizedCashDiscount = cashDiscountPercentage
+```
+
+O intervalo válido é:
+
+```text
+0 <= cashDiscountPercentage <= 100
+```
+
+### 8. Normalização da avaliação
+
+A avaliação possui escala de 0 a 5.
+
+Sua normalização será:
+
+```text
+normalizedRating =
+    rating
+    / 5
     * 100
 ```
 
-O valor inicial do threshold será armazenado no `ScoreProfile`, e não hardcoded no motor.
-
-### 9. Fórmula agregada
-
-Cada fator produzirá:
+Exemplo:
 
 ```text
+rating = 4.5
+
+4.5 / 5 * 100 = 90
+```
+
+Portanto:
+
+```text
+rawValue        = 4.5
+normalizedValue = 90
+```
+
+### 9. Normalização da quantidade de avaliações
+
+A quantidade de avaliações será normalizada linearmente até um limiar de saturação definido pelo `ScoreProfile`.
+
+A fórmula será:
+
+```text
+normalizedReviewCount =
+    min(reviewCount, fullScoreThreshold)
+    / fullScoreThreshold
+    * 100
+```
+
+No `SCORE_V1`, o limiar será:
+
+```text
+reviewCountFullScoreThreshold = 1000
+```
+
+Consequentemente:
+
+```text
+0 avaliações    →   0
+100 avaliações  →  10
+500 avaliações  →  50
+1000 avaliações → 100
+5000 avaliações → 100
+```
+
+O valor 1000 pertence à configuração versionada do `SCORE_V1`.
+
+Ele não deverá ser codificado diretamente dentro do algoritmo de normalização.
+
+Uma alteração futura desse limiar exigirá nova versão de score, preservando a reprodutibilidade histórica.
+
+### 10. Contribuição ponderada
+
+Cada fator disponível produzirá uma contribuição:
+
+```text
+contribution =
+    normalizedValue
+    / 100
+    * weight
+```
+
+Exemplo:
+
+```text
+rating = 4.5
+normalizedRating = 90
+ratingWeight = 20
+
+contribution =
+    90 / 100 * 20
+    = 18
+```
+
+### 11. Score final
+
+O score será a soma das contribuições individuais:
+
+```text
+score =
+    soldPercentageContribution
+    + cashDiscountContribution
+    + ratingContribution
+    + reviewCountContribution
+```
+
+No `SCORE_V1`:
+
+```text
+0 <= score <= 90
+```
+
+O domínio poderá aceitar tecnicamente perfis cuja soma seja de até 100 para permitir versões futuras.
+
+### 12. Precisão e arredondamento
+
+Os cálculos deverão utilizar:
+
+```text
+BigDecimal
+```
+
+O score final será armazenado com:
+
+```text
+scale = 4
+roundingMode = HALF_UP
+```
+
+Os valores normalizados e contribuições também utilizarão precisão determinística compatível com essa política.
+
+Não serão utilizados `double` ou `float` para o cálculo do score.
+
+### 13. Explicabilidade
+
+Cada avaliação pontuada deverá permitir reconstruir o score.
+
+Para cada fator deverão ser preservados, no mínimo:
+
+```text
+factorCode
+status
 rawValue
 normalizedValue
 weight
 contribution
-status
 ```
 
-A contribuição será:
+Exemplo:
 
 ```text
-contribution =
-    normalizedValue / 100 * weight
+factorCode      = RATING
+status          = AVAILABLE
+rawValue        = 4.5
+normalizedValue = 90
+weight          = 20
+contribution    = 18
 ```
 
-O score final será:
+Isso permitirá responder perguntas como:
 
 ```text
-score = soma das contribuições
+Por que esta oferta recebeu este score?
 ```
 
-Fatores indisponíveis preservam `rawValue` e `normalizedValue` como ausentes e contribuição igual a zero conforme a política explícita do SCORE_V1.
+sem recalcular o passado utilizando regras atuais.
 
-### 10. Precisão
+### 14. Reprodutibilidade
 
-Todos os cálculos utilizarão `BigDecimal`.
-
-Não será utilizado `double` como representação persistida do resultado.
-
-Os valores intermediários deverão usar precisão suficiente e o score final será arredondado de forma determinística.
-
-A política inicial será:
+Uma avaliação histórica deverá permanecer interpretável utilizando:
 
 ```text
-scale = 4
-rounding = HALF_UP
+scoreVersion
+score final
+fatores persistidos
+pesos persistidos
+valores normalizados
+contribuições
 ```
 
-### 11. Explicabilidade
+O sistema não deverá depender exclusivamente da configuração ativa atual para explicar avaliações históricas.
 
-O sistema deverá persistir cada fator individual do score.
+### 15. Ranking
 
-Uma avaliação deverá permitir responder:
+Somente avaliações elegíveis e pontuadas participarão do ranking.
 
-* qual versão do score foi utilizada;
-* qual fator participou;
-* qual era o valor observado;
-* qual era o valor normalizado;
-* qual peso foi aplicado;
-* qual contribuição foi produzida;
-* se o fator estava disponível.
-
-Não será suficiente persistir somente o número final.
-
-### 12. Ranking
-
-Somente avaliações elegíveis e com score calculado participarão do ranking.
-
-Ordem principal:
+A ordenação principal será:
 
 ```text
 score DESC
 ```
 
-Empates serão resolvidos inicialmente por:
+Em caso de empate:
 
 ```text
 ASIN ASC
 ```
 
-Esse desempate é técnico e determinístico. Ele não adiciona peso comercial oculto.
+O desempate por ASIN existe somente para garantir ordenação determinística.
 
-### 13. Relação com momentum
+Ele não representa preferência comercial adicional.
 
-O SCORE_V1 não utilizará:
+### 16. Momentum e histórico
 
-* histórico;
-* variação temporal;
-* velocidade de vendas;
-* variação de preço;
-* momentum.
+Momentum, velocidade de mudança, tendência temporal ou comparação entre snapshots não pertencem à FASE 10.
 
-Esses conceitos permanecem reservados para a FASE 11.
+Esses conceitos serão tratados na FASE 11.
+
+O `SCORE_V1` utilizará somente fatos disponíveis na avaliação corrente.
 
 ## Consequências
 
-O score permanece separado dos filtros.
+### Positivas
 
-Uma oferta não será rejeitada porque possui baixo `soldPercentage`.
+* score determinístico;
+* cálculo reproduzível;
+* pesos versionados;
+* normalização explícita;
+* ausência diferenciada de valor zero;
+* fatores individualmente auditáveis;
+* capacidade de explicação histórica;
+* possibilidade de evoluir para novas versões sem reinterpretar avaliações antigas.
 
-Alterações de pesos ou fórmula exigem nova versão.
+### Custos
 
-O resultado poderá ser reproduzido historicamente a partir do perfil e dos fatores persistidos.
+Será necessário persistir:
 
-A persistência precisará ser evoluída por nova migration Flyway, sem alterar migrations anteriores.
+* configuração do perfil;
+* versão do score;
+* score final;
+* fatores individuais;
+* valores brutos;
+* valores normalizados;
+* pesos;
+* contribuições;
+* status de disponibilidade.
 
-## Próximas implementações
+Também serão necessárias migrations adicionais e integração explícita com o pipeline de avaliação.
 
-A implementação deverá introduzir, em ordem:
+## Ordem de implementação
+
+A implementação deverá seguir esta sequência:
 
 1. domínio de scoring;
-2. `ScoreProfile`;
-3. configuração persistida e versionada;
-4. normalizadores;
-5. `ScoreEngine`;
+2. invariantes e testes unitários;
+3. normalizadores;
+4. motor determinístico;
+5. persistência do `ScoreProfile`;
 6. persistência dos fatores;
 7. integração com `DealEvaluation`;
-8. ranking;
-9. testes de reprodutibilidade;
-10. documentação de encerramento da FASE 10.
+8. integração com o pipeline;
+9. ranking determinístico;
+10. testes de integração e regressão;
+11. documentação de encerramento da FASE 10.
