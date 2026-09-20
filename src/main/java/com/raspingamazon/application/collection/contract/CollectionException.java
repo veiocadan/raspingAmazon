@@ -7,28 +7,64 @@ package com.raspingamazon.application.collection.contract;
  * concreta de Collector pode utilizar diferentes tecnologias de transporte
  * sem obrigar o restante da aplicação a conhecer essas tecnologias.</p>
  *
- * <p>Falhas como timeout, erro de conexão, resposta HTTP não aceita ou
- * resposta sem conteúdo devem ser convertidas para este contrato antes
- * de deixarem a fronteira da implementação de coleta.</p>
+ * <p>Quando a falha decorre de uma resposta HTTP não aceita, o status HTTP
+ * e um trecho diagnóstico do corpo podem ser preservados explicitamente.</p>
  */
 public class CollectionException extends RuntimeException {
 
-    /**
-     * Cria uma falha de coleta com uma mensagem descritiva.
-     *
-     * @param message descrição da falha ocorrida
-     */
-    public CollectionException(String message) {
+    private final Integer httpStatusCode;
+
+    private final String responseBodyExcerpt;
+
+    public CollectionException(
+        String message
+    ) {
         super(message);
+
+        this.httpStatusCode = null;
+        this.responseBodyExcerpt = null;
     }
 
-    /**
-     * Cria uma falha de coleta preservando a causa técnica original.
-     *
-     * @param message descrição da falha ocorrida
-     * @param cause causa original da falha
-     */
-    public CollectionException(String message, Throwable cause) {
-        super(message, cause);
+    public CollectionException(
+        String message,
+        Throwable cause
+    ) {
+        super(
+            message,
+            cause
+        );
+
+        this.httpStatusCode = null;
+        this.responseBodyExcerpt = null;
+    }
+
+    public CollectionException(
+        String message,
+        int httpStatusCode,
+        String responseBodyExcerpt
+    ) {
+        super(message);
+
+        if (httpStatusCode < 100
+            || httpStatusCode > 599) {
+
+            throw new IllegalArgumentException(
+                "HTTP status code must be between 100 and 599"
+            );
+        }
+
+        this.httpStatusCode =
+            httpStatusCode;
+
+        this.responseBodyExcerpt =
+            responseBodyExcerpt;
+    }
+
+    public Integer httpStatusCode() {
+        return httpStatusCode;
+    }
+
+    public String responseBodyExcerpt() {
+        return responseBodyExcerpt;
     }
 }

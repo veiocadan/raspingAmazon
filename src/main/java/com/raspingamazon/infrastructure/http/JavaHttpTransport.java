@@ -16,95 +16,116 @@ import java.time.Duration;
  * <p>A classe é responsável exclusivamente pelo transporte. Ela não conhece
  * Amazon, ofertas, produtos, HTML ou regras de negócio.</p>
  *
- * <p>O transporte utiliza um User-Agent estável para identificar de forma
- * explícita e reproduzível o cliente responsável pela coleta.</p>
+ * <p>A requisição utiliza uma identificação estável do projeto e declara
+ * explicitamente os formatos e idiomas aceitos.</p>
  */
-public final class JavaHttpTransport implements HttpTransport {
+public final class JavaHttpTransport
+    implements HttpTransport {
 
-    /**
-     * Identificação estável do cliente de coleta.
-     *
-     * <p>O valor não é aleatório porque a reprodutibilidade da coleta
-     * é um requisito importante da FASE 5.</p>
-     */
-    private static final String USER_AGENT = "RaspingAmazon/1.0";
+    private static final String USER_AGENT =
+        "RaspingAmazon/1.0";
+
+    private static final String ACCEPT =
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+    private static final String ACCEPT_LANGUAGE =
+        "pt-BR,pt;q=0.9,en-US;q=0.7,en;q=0.6";
 
     private final HttpClient httpClient;
+
     private final Duration requestTimeout;
 
-    /**
-     * Cria um transporte HTTP com o cliente e timeout fornecidos.
-     *
-     * @param httpClient cliente HTTP da plataforma Java
-     * @param requestTimeout tempo máximo permitido para a requisição
-     */
     public JavaHttpTransport(
-            HttpClient httpClient,
-            Duration requestTimeout
+        HttpClient httpClient,
+        Duration requestTimeout
     ) {
         if (httpClient == null) {
-            throw new NullPointerException("HTTP client must not be null");
+            throw new NullPointerException(
+                "HTTP client must not be null"
+            );
         }
 
         if (requestTimeout == null) {
             throw new NullPointerException(
-                    "Request timeout must not be null"
+                "Request timeout must not be null"
             );
         }
 
-        if (requestTimeout.isZero() || requestTimeout.isNegative()) {
+        if (requestTimeout.isZero()
+            || requestTimeout.isNegative()) {
+
             throw new IllegalArgumentException(
-                    "Request timeout must be positive"
+                "Request timeout must be positive"
             );
         }
 
-        this.httpClient = httpClient;
-        this.requestTimeout = requestTimeout;
+        this.httpClient =
+            httpClient;
+
+        this.requestTimeout =
+            requestTimeout;
     }
 
-    /**
-     * Executa uma requisição GET e converte a resposta para o contrato
-     * independente da implementação HTTP.
-     *
-     * @param uri URI absoluta do recurso
-     * @return status HTTP e corpo recebido
-     * @throws CollectionException em caso de falha de transporte
-     */
     @Override
-    public HttpTransportResponse get(URI uri) {
+    public HttpTransportResponse get(
+        URI uri
+    ) {
         if (uri == null) {
-            throw new NullPointerException("HTTP URI must not be null");
+            throw new NullPointerException(
+                "HTTP URI must not be null"
+            );
         }
 
-        var request = HttpRequest.newBuilder()
-                .uri(uri)
-                .timeout(requestTimeout)
-                .header("User-Agent", USER_AGENT)
+        HttpRequest request =
+            HttpRequest.newBuilder()
+                .uri(
+                    uri
+                )
+                .timeout(
+                    requestTimeout
+                )
+                .header(
+                    "User-Agent",
+                    USER_AGENT
+                )
+                .header(
+                    "Accept",
+                    ACCEPT
+                )
+                .header(
+                    "Accept-Language",
+                    ACCEPT_LANGUAGE
+                )
                 .GET()
                 .build();
 
         try {
-            var response = httpClient.send(
+            HttpResponse<String> response =
+                httpClient.send(
                     request,
                     HttpResponse.BodyHandlers.ofString()
-            );
+                );
 
             return new HttpTransportResponse(
-                    response.statusCode(),
-                    response.body()
+                response.statusCode(),
+                response.body()
             );
+
         } catch (InterruptedException exception) {
-            // Restauramos a flag de interrupção antes de propagar a falha.
-            Thread.currentThread().interrupt();
+
+            Thread.currentThread()
+                .interrupt();
 
             throw new CollectionException(
-                    "HTTP request was interrupted",
-                    exception
+                "HTTP request was interrupted",
+                exception
             );
+
         } catch (Exception exception) {
+
             throw new CollectionException(
-                    "HTTP request failed",
-                    exception
+                "HTTP request failed",
+                exception
             );
         }
     }

@@ -12,6 +12,8 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,11 +34,11 @@ jobs:
       - name: Run external Amazon probe
         run: ./mvnw --batch-mode -Pexternal-probe test
 
-      - name: Upload diagnostic artifact
+      - name: Upload diagnostic artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: amazon-source-diagnostic
-          path: target/diagnostics/amazon-deals-real.html
+          path: target/diagnostics/
           if-no-files-found: ignore
           retention-days: 3
