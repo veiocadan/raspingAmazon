@@ -3,8 +3,11 @@ package com.raspingamazon.infrastructure.composition;
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.application.deal.OfferSnapshotFactory;
 import com.raspingamazon.application.evaluation.AmazonDealEvaluationApplicationService;
+import com.raspingamazon.application.momentum.MomentumCalculationService;
 import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
+import com.raspingamazon.domain.history.SnapshotEvolutionCalculator;
+import com.raspingamazon.domain.momentum.MomentumEngine;
 import com.raspingamazon.domain.scoring.ScoreEngine;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageEnrichmentClient;
@@ -14,7 +17,9 @@ import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
 import com.raspingamazon.infrastructure.persistence.DealEvaluationJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.FilterProfileJdbcRepository;
+import com.raspingamazon.infrastructure.persistence.MomentumAuditJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferEvidenceJdbcRepository;
+import com.raspingamazon.infrastructure.persistence.OfferHistoryJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferPaymentConditionRepository;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
 import com.raspingamazon.infrastructure.persistence.ProductRepository;
@@ -40,8 +45,8 @@ import java.util.Objects;
  * <p>A mesma Connection JDBC é compartilhada por todos os repositories
  * e pelo JdbcTransactionAdapter. Essa característica é fundamental:
  * somente assim Product, OfferSnapshot, PaymentConditions, Evidence,
- * FilterProfile, ScoreProfile e DealEvaluation podem participar de uma
- * composição consistente.</p>
+ * FilterProfile, ScoreProfile, histórico, DealEvaluation e auditoria
+ * de momentum podem participar de uma composição consistente.</p>
  *
  * <p>A classe não possui regras de negócio e não executa o fluxo.
  * Ela apenas conecta implementações concretas aos contratos da
@@ -67,6 +72,7 @@ public final class AmazonDealProcessingComposition {
     public static AmazonDealProcessingService create(
         Connection connection
     ) {
+
         return create(
             connection,
             Clock.systemUTC(),
@@ -85,6 +91,7 @@ public final class AmazonDealProcessingComposition {
         Clock clock,
         HttpClient httpClient
     ) {
+
         Objects.requireNonNull(
             connection,
             "connection must not be null"
@@ -217,8 +224,8 @@ public final class AmazonDealProcessingComposition {
          * SCORE PROFILE
          * ---------------------------------------------------------
          *
-         * O perfil de score ativo também é lido da configuração
-         * persistida e versionada.
+         * O perfil de score ativo é lido da configuração persistida
+         * e versionada.
          */
         ScoreProfileJdbcRepository scoreProfileRepository =
             new ScoreProfileJdbcRepository(
@@ -237,8 +244,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * SCORE ENGINE
          * ---------------------------------------------------------
-         *
-         * O motor permanece puro e independente de infraestrutura.
          */
         ScoreEngine scoreEngine =
             new ScoreEngine();
@@ -249,11 +254,60 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          *
          * O mesmo conceito de melhor desconto à vista reconhecido
-         * pelos filtros comerciais é reutilizado na construção do
-         * ScoreInput.
+         * pelos filtros e score também é reutilizado no cálculo
+         * histórico da evolução do desconto.
          */
         BestCashDiscountSelector bestCashDiscountSelector =
             new BestCashDiscountSelector();
+
+        /*
+         * ---------------------------------------------------------
+         * HISTÓRICO
+         * ---------------------------------------------------------
+         *
+         * O repository de histórico é somente leitura.
+         *
+         * Ele usa a mesma Connection porque a avaliação precisa
+         * enxergar o snapshot recém-inserido e os dados históricos
+         * dentro da mesma unidade de trabalho.
+         */
+        OfferHistoryJdbcRepository offerHistoryRepository =
+            new OfferHistoryJdbcRepository(
+                connection
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * SNAPSHOT EVOLUTION
+         * ---------------------------------------------------------
+         *
+         * O cálculo é puro e reutiliza a mesma semântica de desconto
+         * à vista empregada pelo restante do domínio.
+         */
+        SnapshotEvolutionCalculator snapshotEvolutionCalculator =
+            new SnapshotEvolutionCalculator(
+                bestCashDiscountSelector
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * MOMENTUM ENGINE
+         * ---------------------------------------------------------
+         */
+        MomentumEngine momentumEngine =
+            new MomentumEngine();
+
+        /*
+         * ---------------------------------------------------------
+         * MOMENTUM CALCULATION SERVICE
+         * ---------------------------------------------------------
+         */
+        MomentumCalculationService momentumCalculationService =
+            new MomentumCalculationService(
+                offerHistoryRepository,
+                snapshotEvolutionCalculator,
+                momentumEngine
+            );
 
         /*
          * ---------------------------------------------------------
@@ -265,6 +319,16 @@ public final class AmazonDealProcessingComposition {
                 connection
             );
 
+        /*
+         * ---------------------------------------------------------
+         * MOMENTUM AUDIT
+         * ---------------------------------------------------------
+         */
+        MomentumAuditJdbcRepository momentumAuditRepository =
+            new MomentumAuditJdbcRepository(
+                connection
+            );
+
         AmazonDealEvaluationApplicationService evaluationService =
             new AmazonDealEvaluationApplicationService(
                 new AmazonEligibilityValidator(),
@@ -273,7 +337,9 @@ public final class AmazonDealProcessingComposition {
                 scoreProfileRepository,
                 scoreEngine,
                 bestCashDiscountSelector,
-                evaluationRepository
+                momentumCalculationService,
+                evaluationRepository,
+                momentumAuditRepository
             );
 
         /*
@@ -291,11 +357,12 @@ public final class AmazonDealProcessingComposition {
          * PaymentConditions
          * Evidence
          * DealEvaluation
+         * MomentumAudit
          *
          * pertencem à mesma unidade atômica de persistência.
          *
-         * FilterProfile e ScoreProfile são somente lidos durante
-         * a avaliação.
+         * FilterProfile, ScoreProfile e histórico são somente lidos
+         * durante a avaliação.
          */
         JdbcTransactionAdapter transactionAdapter =
             new JdbcTransactionAdapter(

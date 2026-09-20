@@ -2,6 +2,9 @@ package com.raspingamazon.application.evaluation;
 
 import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.filter.FilterProfileProvider;
+import com.raspingamazon.application.momentum.MomentumAuditRepository;
+import com.raspingamazon.application.momentum.MomentumCalculation;
+import com.raspingamazon.application.momentum.MomentumCalculationService;
 import com.raspingamazon.application.scoring.ScoreProfileProvider;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
@@ -30,12 +33,14 @@ import java.util.Objects;
  * Serviço de aplicação responsável por produzir a avaliação completa
  * de uma oferta.
  *
- * <p>A avaliação combina três etapas conceitualmente distintas:</p>
+ * <p>A avaliação combina quatro etapas conceitualmente distintas:</p>
  *
  * <ol>
  *     <li>elegibilidade estrutural Amazon;</li>
  *     <li>filtros comerciais configuráveis;</li>
- *     <li>score para ofertas aprovadas.</li>
+ *     <li>score para ofertas aprovadas;</li>
+ *     <li>momentum histórico, quando houver informação temporal
+ *         suficiente.</li>
  * </ol>
  *
  * <p>A separação entre essas etapas é preservada por:</p>
@@ -44,8 +49,10 @@ import java.util.Objects;
  *     <li>eligibilityPolicyVersion;</li>
  *     <li>filterProfileVersion;</li>
  *     <li>scoreVersion;</li>
+ *     <li>momentumVersion;</li>
  *     <li>códigos de regra distintos;</li>
- *     <li>fatores auditáveis do score.</li>
+ *     <li>fatores auditáveis do score;</li>
+ *     <li>trilha auditável de momentum.</li>
  * </ul>
  *
  * <p>A ordem das regras eliminatórias é deliberadamente estável:</p>
@@ -61,8 +68,12 @@ import java.util.Objects;
  * <p>Todas as regras eliminatórias são avaliadas. Não existe
  * short-circuit entre elas.</p>
  *
- * <p>O score, entretanto, somente é calculado depois que todas
- * essas regras tiverem sido aprovadas.</p>
+ * <p>O score somente é calculado quando todas as regras eliminatórias
+ * forem aprovadas.</p>
+ *
+ * <p>O momentum é independente dessa decisão. Ele representa evolução
+ * temporal e pode existir tanto para ofertas elegíveis quanto para
+ * ofertas inelegíveis.</p>
  */
 public final class AmazonDealEvaluationApplicationService
     implements DealEvaluationProcessingPort {
@@ -82,7 +93,11 @@ public final class AmazonDealEvaluationApplicationService
 
     private final BestCashDiscountSelector bestCashDiscountSelector;
 
+    private final MomentumCalculationService momentumCalculationService;
+
     private final DealEvaluationRepository evaluationRepository;
+
+    private final MomentumAuditRepository momentumAuditRepository;
 
     public AmazonDealEvaluationApplicationService(
         AmazonEligibilityValidator eligibilityValidator,
@@ -91,8 +106,11 @@ public final class AmazonDealEvaluationApplicationService
         ScoreProfileProvider scoreProfileProvider,
         ScoreEngine scoreEngine,
         BestCashDiscountSelector bestCashDiscountSelector,
-        DealEvaluationRepository evaluationRepository
+        MomentumCalculationService momentumCalculationService,
+        DealEvaluationRepository evaluationRepository,
+        MomentumAuditRepository momentumAuditRepository
     ) {
+
         this.eligibilityValidator =
             Objects.requireNonNull(
                 eligibilityValidator,
@@ -129,10 +147,22 @@ public final class AmazonDealEvaluationApplicationService
                 "bestCashDiscountSelector must not be null"
             );
 
+        this.momentumCalculationService =
+            Objects.requireNonNull(
+                momentumCalculationService,
+                "momentumCalculationService must not be null"
+            );
+
         this.evaluationRepository =
             Objects.requireNonNull(
                 evaluationRepository,
                 "evaluationRepository must not be null"
+            );
+
+        this.momentumAuditRepository =
+            Objects.requireNonNull(
+                momentumAuditRepository,
+                "momentumAuditRepository must not be null"
             );
     }
 
@@ -149,6 +179,7 @@ public final class AmazonDealEvaluationApplicationService
         DeliveryType deliveryType,
         OffsetDateTime evaluatedAt
     ) {
+
         Objects.requireNonNull(
             offerSnapshot,
             "offerSnapshot must not be null"
@@ -251,7 +282,26 @@ public final class AmazonDealEvaluationApplicationService
 
         /*
          * ---------------------------------------------------------
-         * 6. AVALIAÇÃO AGREGADA
+         * 6. MOMENTUM
+         * ---------------------------------------------------------
+         *
+         * Momentum não é filtro.
+         *
+         * Momentum não altera eligible.
+         *
+         * Momentum não altera SCORE_V1.
+         *
+         * A tentativa de cálculo acontece independentemente do
+         * resultado das regras eliminatórias.
+         */
+        MomentumCalculation momentumCalculation =
+            momentumCalculationService.calculate(
+                offerSnapshot
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * 7. AVALIAÇÃO AGREGADA
          * ---------------------------------------------------------
          */
         DealEvaluation evaluation;
@@ -269,8 +319,10 @@ public final class AmazonDealEvaluationApplicationService
                     ruleResults,
                     null,
                     null,
-                    null,
-                    null,
+                    momentumCalculation
+                        .dealEvaluationMomentum(),
+                    momentumCalculation
+                        .dealEvaluationMomentumVersion(),
                     evaluatedAt
                 );
 
@@ -288,15 +340,53 @@ public final class AmazonDealEvaluationApplicationService
                     scoreResult.score(),
                     scoreResult.version(),
                     scoreResult.factors(),
-                    null,
-                    null,
+                    momentumCalculation
+                        .dealEvaluationMomentum(),
+                    momentumCalculation
+                        .dealEvaluationMomentumVersion(),
                     evaluatedAt
                 );
         }
 
-        return evaluationRepository.save(
-            evaluation
+        /*
+         * ---------------------------------------------------------
+         * 8. PERSISTÊNCIA DA AVALIAÇÃO
+         * ---------------------------------------------------------
+         */
+        DealEvaluation persistedEvaluation =
+            evaluationRepository.save(
+                evaluation
+            );
+
+        Long evaluationId =
+            persistedEvaluation.id();
+
+        if (evaluationId == null
+            || evaluationId <= 0) {
+
+            throw new IllegalStateException(
+                "Persisted DealEvaluation must have a positive id before momentum audit"
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 9. AUDITORIA DO MOMENTUM
+         * ---------------------------------------------------------
+         *
+         * Esta operação deve ocorrer na mesma transação do fluxo
+         * vertical.
+         *
+         * Se a persistência da auditoria falhar, a unidade de
+         * trabalho completa deverá sofrer rollback.
+         */
+        momentumAuditRepository.save(
+            momentumCalculation.toAudit(
+                evaluationId
+            )
         );
+
+        return persistedEvaluation;
     }
 
     /**
@@ -376,6 +466,7 @@ public final class AmazonDealEvaluationApplicationService
         List<EvaluationRuleResult> eligibilityResults,
         List<EvaluationRuleResult> commercialResults
     ) {
+
         Objects.requireNonNull(
             eligibilityResults,
             "eligibilityResults must not be null"
@@ -412,6 +503,7 @@ public final class AmazonDealEvaluationApplicationService
     private RejectionReason firstFailureReason(
         List<EvaluationRuleResult> ruleResults
     ) {
+
         return ruleResults.stream()
             .filter(
                 result ->
@@ -436,6 +528,7 @@ public final class AmazonDealEvaluationApplicationService
         OfferSnapshot offerSnapshot,
         OffsetDateTime evaluatedAt
     ) {
+
         Objects.requireNonNull(
             offerSnapshot,
             "offerSnapshot must not be null"

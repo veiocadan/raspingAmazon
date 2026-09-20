@@ -2,6 +2,9 @@ package com.raspingamazon.application.evaluation;
 
 import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.filter.FilterProfileProvider;
+import com.raspingamazon.application.history.OfferHistoryQueryPort;
+import com.raspingamazon.application.momentum.MomentumAuditRepository;
+import com.raspingamazon.application.momentum.MomentumCalculationService;
 import com.raspingamazon.application.scoring.ScoreProfileProvider;
 import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.commercial.PaymentConditionType;
@@ -11,6 +14,11 @@ import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
 import com.raspingamazon.domain.filter.FilterProfile;
+import com.raspingamazon.domain.history.HistoricalOfferObservation;
+import com.raspingamazon.domain.history.SnapshotEvolutionCalculator;
+import com.raspingamazon.domain.momentum.MomentumAudit;
+import com.raspingamazon.domain.momentum.MomentumEngine;
+import com.raspingamazon.domain.momentum.MomentumUnavailableReason;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.scoring.ScoreEngine;
@@ -27,9 +35,11 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,13 +48,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Verifica que AmazonDealEvaluationApplicationService pode ser usado
  * diretamente como porta de avaliação pelo fluxo vertical.
  *
- * <p>A partir da FASE 10, a avaliação aplicada pela porta contém:</p>
+ * <p>A partir da FASE 11, a avaliação aplicada pela porta contém:</p>
  *
  * <ul>
  *     <li>elegibilidade estrutural Amazon;</li>
  *     <li>filtros comerciais configuráveis;</li>
  *     <li>score versionado para ofertas aprovadas;</li>
- *     <li>fatores auditáveis do score.</li>
+ *     <li>fatores auditáveis do score;</li>
+ *     <li>tentativa versionada de cálculo de momentum;</li>
+ *     <li>auditoria do cálculo histórico.</li>
  * </ul>
  */
 class AmazonDealEvaluationProcessingPortTest {
@@ -76,17 +88,82 @@ class AmazonDealEvaluationProcessingPortTest {
     @Test
     void shouldEvaluateSnapshotThroughProcessingPort() {
 
-        AtomicReference<DealEvaluation> persisted =
+        AtomicReference<DealEvaluation> persistedEvaluation =
             new AtomicReference<>();
 
-        DealEvaluationRepository repository =
+        AtomicReference<MomentumAudit> persistedMomentumAudit =
+            new AtomicReference<>();
+
+        /*
+         * A partir da FASE 11, o repository fake precisa reproduzir
+         * o comportamento fundamental da persistência real:
+         *
+         * depois de save(), DealEvaluation possui identidade.
+         *
+         * Essa identidade é necessária para que MomentumAudit possa
+         * referenciar a avaliação.
+         */
+        DealEvaluationRepository evaluationRepository =
             evaluation -> {
 
-                persisted.set(
-                    evaluation
+                DealEvaluation persisted =
+                    new DealEvaluation(
+                        1000L,
+                        evaluation.offerSnapshot(),
+                        evaluation.eligible(),
+                        evaluation.rejectionReason(),
+                        evaluation.eligibilityPolicyVersion(),
+                        evaluation.filterProfileVersion(),
+                        evaluation.ruleResults(),
+                        evaluation.score(),
+                        evaluation.scoreVersion(),
+                        evaluation.scoreFactors(),
+                        evaluation.momentum(),
+                        evaluation.momentumVersion(),
+                        evaluation.evaluatedAt()
+                    );
+
+                persistedEvaluation.set(
+                    persisted
                 );
 
-                return evaluation;
+                return persisted;
+            };
+
+        /*
+         * Este teste representa a primeira observação conhecida
+         * do ASIN.
+         *
+         * Portanto não existe snapshot anterior.
+         */
+        OfferHistoryQueryPort historyQueryPort =
+            new EmptyOfferHistoryQueryPort();
+
+        BestCashDiscountSelector bestCashDiscountSelector =
+            new BestCashDiscountSelector();
+
+        MomentumCalculationService momentumCalculationService =
+            new MomentumCalculationService(
+                historyQueryPort,
+                new SnapshotEvolutionCalculator(
+                    bestCashDiscountSelector
+                ),
+                new MomentumEngine()
+            );
+
+        MomentumAuditRepository momentumAuditRepository =
+            audit -> {
+
+                MomentumAudit persisted =
+                    audit.withId(
+                        3000L
+                    );
+
+                persistedMomentumAudit.set(
+                    persisted
+                );
+
+                return persisted;
             };
 
         AmazonDealEvaluationApplicationService service =
@@ -96,8 +173,10 @@ class AmazonDealEvaluationProcessingPortTest {
                 FILTER_PROFILE_PROVIDER,
                 SCORE_PROFILE_PROVIDER,
                 new ScoreEngine(),
-                new BestCashDiscountSelector(),
-                repository
+                bestCashDiscountSelector,
+                momentumCalculationService,
+                evaluationRepository,
+                momentumAuditRepository
             );
 
         /*
@@ -121,10 +200,19 @@ class AmazonDealEvaluationProcessingPortTest {
         );
 
         DealEvaluation evaluation =
-            persisted.get();
+            persistedEvaluation.get();
 
         assertNotNull(
             evaluation
+        );
+
+        /*
+         * A persistência fake precisa ter atribuído identidade,
+         * assim como o DealEvaluationJdbcRepository faz.
+         */
+        assertEquals(
+            1000L,
+            evaluation.id()
         );
 
         assertTrue(
@@ -156,7 +244,7 @@ class AmazonDealEvaluationProcessingPortTest {
         );
 
         /*
-         * A avaliação atual possui cinco regras eliminatórias:
+         * A avaliação possui cinco regras eliminatórias:
          *
          * 1. seller;
          * 2. delivery;
@@ -179,17 +267,17 @@ class AmazonDealEvaluationProcessingPortTest {
         );
 
         /*
-         * A oferta foi aprovada, portanto a FASE 10 deve produzir
-         * score e fatores explicativos.
+         * A oferta foi aprovada, portanto SCORE_V1 continua
+         * sendo calculado normalmente.
          *
          * soldPercentage = null
          * cashDiscount   = 25
          * rating         = 4.7
          * reviewCount    = 1500
          *
-         * SCORE:
+         * SCORE_V1:
          *
-         * soldPercentage = 0
+         * soldPercentage = indisponível -> 0
          * cashDiscount   = 6.25
          * rating         = 18.8
          * reviewCount    = 15
@@ -273,6 +361,77 @@ class AmazonDealEvaluationProcessingPortTest {
                 .get(3)
                 .contribution()
         );
+
+        /*
+         * ---------------------------------------------------------
+         * MOMENTUM
+         * ---------------------------------------------------------
+         *
+         * Esta é a primeira observação conhecida.
+         *
+         * Portanto DealEvaluation mantém:
+         *
+         * momentum = null
+         * momentumVersion = null
+         */
+        assertNull(
+            evaluation.momentum()
+        );
+
+        assertNull(
+            evaluation.momentumVersion()
+        );
+
+        /*
+         * Entretanto, a tentativa de cálculo deve ser auditada.
+         */
+        MomentumAudit audit =
+            persistedMomentumAudit.get();
+
+        assertNotNull(
+            audit
+        );
+
+        assertEquals(
+            3000L,
+            audit.id()
+        );
+
+        assertEquals(
+            evaluation.id().longValue(),
+            audit.dealEvaluationId()
+        );
+
+        assertEquals(
+            snapshot.id().longValue(),
+            audit.currentOfferSnapshotId()
+        );
+
+        assertFalse(
+            audit.isAvailable()
+        );
+
+        assertEquals(
+            "MOMENTUM_V1",
+            audit.calculationVersion()
+        );
+
+        assertEquals(
+            MomentumUnavailableReason.NO_PREVIOUS_SNAPSHOT,
+            audit.unavailableReason()
+        );
+
+        assertNull(
+            audit.previousOfferSnapshotId()
+        );
+
+        assertNull(
+            audit.elapsedSeconds()
+        );
+
+        assertNull(
+            audit.momentum()
+        );
     }
 
     private OfferSnapshot createAmazonSnapshot() {
@@ -336,13 +495,67 @@ class AmazonDealEvaluationProcessingPortTest {
         String expected,
         BigDecimal actual
     ) {
+
         assertNotNull(
             actual
         );
 
         assertEquals(
             0,
-            new BigDecimal(expected).compareTo(actual)
+            new BigDecimal(
+                expected
+            ).compareTo(
+                actual
+            )
         );
+    }
+
+    /**
+     * Histórico vazio utilizado para representar a primeira
+     * observação conhecida de um ASIN.
+     */
+    private static final class EmptyOfferHistoryQueryPort
+        implements OfferHistoryQueryPort {
+
+        @Override
+        public List<HistoricalOfferObservation> findHistoryByAsin(
+            Asin asin
+        ) {
+
+            return List.of();
+        }
+
+        @Override
+        public Optional<HistoricalOfferObservation> findFirstByAsin(
+            Asin asin
+        ) {
+
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<HistoricalOfferObservation> findLatestByAsin(
+            Asin asin
+        ) {
+
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<HistoricalOfferObservation> findPreviousByAsin(
+            Asin asin,
+            OffsetDateTime collectedAt
+        ) {
+
+            return Optional.empty();
+        }
+
+        @Override
+        public long countByAsin(
+            Asin asin
+        ) {
+
+            return 0L;
+        }
     }
 }
