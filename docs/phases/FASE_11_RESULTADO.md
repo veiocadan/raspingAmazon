@@ -1,17 +1,17 @@
 # FASE 11 — RESULTADO CONSOLIDADO
 
-**Projeto:** Rasping Amazon
-**Fase:** 11 — Histórico, evolução e momentum
-**Data:** 20/09/2026
-**Status:** CONCLUÍDA LOCALMENTE — validação local e CI remoto aprovados, merge ainda pendentes
+**Projeto:** Rasping Amazon  
+**Fase:** 11 — Histórico, evolução e momentum  
+**Data:** 20/09/2026  
+**Status:** CONCLUÍDA — validação local, CI remoto do Pull Request, merge em `main` e CI pós-merge aprovados
 
 ---
 
 ## 1. Objetivo
 
-A FASE 11 introduziu o histórico como parte obrigatória do processamento das ofertas.
+A FASE 11 tornou o histórico parte obrigatória do processamento das ofertas.
 
-A fase passou a responder perguntas temporais que o `SCORE_V1` deliberadamente não respondia.
+A fase passou a responder perguntas temporais que o `SCORE_V1` deliberadamente não responde.
 
 Separação preservada:
 
@@ -79,7 +79,7 @@ O ADR define:
 unidade histórica = OfferSnapshot
 ```
 
-Identidade persistente da observação:
+Identidade persistente:
 
 ```text
 product_id
@@ -96,31 +96,31 @@ collected_at ASC
 id ASC
 ```
 
-Para comparação temporal:
+Comparação temporal:
 
 ```text
 previous.collectedAt < current.collectedAt
 ```
 
-Ou seja, o snapshot atual nunca pode ser utilizado como seu próprio predecessor.
+O snapshot atual nunca é utilizado como seu próprio predecessor.
 
 ---
 
 ## 4. Consulta histórica por ASIN
 
-Foi criada a porta:
+Porta:
 
 ```text
 OfferHistoryQueryPort
 ```
 
-e a implementação:
+Implementação:
 
 ```text
 OfferHistoryJdbcRepository
 ```
 
-O histórico pode responder:
+Consultas:
 
 ```text
 findHistoryByAsin
@@ -132,29 +132,15 @@ countByAsin
 
 A aplicação não conhece SQL nem JDBC.
 
-Fluxo:
-
-```text
-application
-    ↓
-OfferHistoryQueryPort
-    ↓
-OfferHistoryJdbcRepository
-    ↓
-PostgreSQL
-```
-
 ---
 
-## 5. `HistoricalOfferObservation`
+## 5. Projeção histórica
 
-Foi criada a projeção histórica:
+Foi criada:
 
 ```text
 HistoricalOfferObservation
 ```
-
-Ela representa somente os dados necessários para comparação temporal.
 
 Campos principais:
 
@@ -168,31 +154,27 @@ source
 paymentConditions
 ```
 
-O histórico não reutiliza diretamente toda a entidade de persistência.
-
-Isso mantém o cálculo desacoplado da infraestrutura.
+Ela representa apenas os dados necessários para comparação temporal.
 
 ---
 
-## 6. Comparação entre snapshots
+## 6. Evolução entre snapshots
 
-Foi criado:
-
-```text
-SnapshotEvolutionCalculator
-```
-
-Entrada:
-
-```text
-HistoricalOfferObservation previous
-HistoricalOfferObservation current
-```
-
-Saída:
+Foram criados:
 
 ```text
 SnapshotEvolution
+SnapshotEvolutionCalculator
+```
+
+O cálculo produz:
+
+```text
+soldPercentageDelta
+currentPriceDelta
+currentPriceDeltaPercentage
+cashDiscountDelta
+elapsedSeconds
 ```
 
 O componente é puro:
@@ -204,8 +186,6 @@ não decide elegibilidade
 não publica
 não calcula momentum
 ```
-
-Ele produz somente fatos derivados da comparação.
 
 ---
 
@@ -233,27 +213,19 @@ Resultado:
 +6 pontos percentuais
 ```
 
-O delta pode ser:
-
-```text
-positivo
-zero
-negativo
-```
-
-Se alguma das observações não possuir percentual vendido:
+Se algum percentual estiver ausente:
 
 ```text
 soldPercentageDelta = null
 ```
 
-Ausência não é convertida em zero observado.
+Ausência não é zero observado.
 
 ---
 
-## 8. Variação absoluta de preço
+## 8. Variação de preço
 
-Fórmula:
+Variação absoluta:
 
 ```text
 currentPriceDelta
@@ -263,27 +235,7 @@ currentPrice
 previousPrice
 ```
 
-Exemplo:
-
-```text
-R$ 100,00 → R$ 90,00
-```
-
-Resultado:
-
-```text
--10,00
-```
-
-Valor negativo representa queda de preço.
-
-Valor positivo representa aumento.
-
----
-
-## 9. Variação percentual de preço
-
-Fórmula:
+Variação percentual:
 
 ```text
 currentPriceDeltaPercentage
@@ -295,23 +247,11 @@ previousPrice
 100
 ```
 
-Exemplo:
-
-```text
-100,00 → 90,00
-```
-
-Resultado:
-
-```text
--10.0000%
-```
-
-Regra matemática:
+Matemática:
 
 ```text
 scale = 4
-rounding = HALF_UP
+HALF_UP
 ```
 
 Quando o preço anterior é zero:
@@ -320,11 +260,9 @@ Quando o preço anterior é zero:
 currentPriceDeltaPercentage = null
 ```
 
-porque a divisão percentual não é definida.
-
 ---
 
-## 10. Variação do desconto à vista
+## 9. Variação de desconto à vista
 
 A FASE 11 reutiliza:
 
@@ -332,9 +270,7 @@ A FASE 11 reutiliza:
 BestCashDiscountSelector
 ```
 
-Portanto, a definição histórica de desconto é a mesma já utilizada pelos filtros comerciais e pelo score.
-
-São reconhecidas somente condições:
+São consideradas apenas condições:
 
 ```text
 PaymentConditionType.CASH
@@ -359,34 +295,21 @@ currentBestCashDiscount
 previousBestCashDiscount
 ```
 
-Se alguma observação não possuir desconto reconhecido:
-
-```text
-cashDiscountDelta = null
-```
-
-Nenhum desconto é inferido artificialmente por diferença entre preços.
+Ausência permanece `null`.
 
 ---
 
-## 11. Intervalo temporal
+## 10. Intervalo temporal
 
 `SnapshotEvolution` preserva:
 
 ```text
 previousCollectedAt
 currentCollectedAt
-```
-
-e calcula:
-
-```text
 elapsedSeconds
 ```
 
-O intervalo precisa ser positivo.
-
-A relação obrigatória é:
+Relação obrigatória:
 
 ```text
 currentCollectedAt > previousCollectedAt
@@ -394,7 +317,7 @@ currentCollectedAt > previousCollectedAt
 
 ---
 
-## 12. `MOMENTUM_V1`
+## 11. `MOMENTUM_V1`
 
 Foi criado:
 
@@ -402,156 +325,101 @@ Foi criado:
 MomentumEngine
 ```
 
-Versão atual:
+Versão:
 
 ```text
 MOMENTUM_V1
 ```
 
-O indicador mede:
-
-```text
-velocidade da variação do percentual vendido
-em pontos percentuais por hora
-```
-
-Fórmula conceitual:
+Fórmula:
 
 ```text
 momentum
 =
-soldPercentageDelta
-/
-elapsedHours
-```
-
-A implementação utiliza:
-
-```text
 soldPercentageDelta × 3600
---------------------------
+/
 elapsedSeconds
 ```
 
-para não perder precisão em intervalos que não sejam horas inteiras.
+Unidade:
+
+```text
+pontos percentuais por hora
+```
 
 Precisão:
 
 ```text
+BigDecimal
 scale = 4
-rounding = HALF_UP
-```
-
----
-
-## 13. Exemplo do `MOMENTUM_V1`
-
-Exemplo:
-
-```text
-10:00 → 62%
-13:00 → 68%
-```
-
-Delta:
-
-```text
-+6 p.p.
-```
-
-Intervalo:
-
-```text
-3 horas
-```
-
-Momentum:
-
-```text
-6 / 3
-=
-2.0000 p.p./hora
+HALF_UP
 ```
 
 Momentum negativo é permitido.
 
-Não existe clamp para zero.
+---
+
+## 12. Exemplo de momentum
+
+```text
+10:00 → 62%
+13:00 → 68%
+
+delta = +6 p.p.
+intervalo = 3 horas
+
+momentum = 2.0000 p.p./hora
+```
 
 ---
 
-## 14. Zero observado versus indisponibilidade
+## 13. Zero versus indisponibilidade
 
-A FASE 11 preserva a mesma distinção semântica usada anteriormente:
+Preservado:
 
 ```text
 ausência != zero observado
 ```
 
-Exemplo de momentum disponível:
+Exemplo disponível:
 
 ```text
 sold delta = 0
 momentum = 0.0000
 ```
 
-Isso significa que havia evidência suficiente e não ocorreu variação.
-
-Exemplo de indisponibilidade:
+Exemplo indisponível:
 
 ```text
 soldPercentage ausente
-```
-
-Nesse cenário:
-
-```text
 momentum = null
 ```
 
-Os casos não representam a mesma informação.
-
 ---
 
-## 15. `MomentumResult`
+## 14. `MomentumResult`
 
-Foi criado:
-
-```text
-MomentumResult
-```
-
-O resultado pode ser:
+Estados:
 
 ```text
 AVAILABLE
-```
-
-ou:
-
-```text
 UNAVAILABLE
 ```
 
-Motivos atualmente modelados:
+Motivos atuais:
 
 ```text
 NO_PREVIOUS_SNAPSHOT
 SOLD_PERCENTAGE_UNAVAILABLE
 ```
 
-O resultado preserva a versão do algoritmo mesmo quando o cálculo não produz valor.
+A versão do algoritmo permanece auditável mesmo quando o valor não pode ser calculado.
 
 ---
 
-## 16. Primeira observação
+## 15. Primeira observação
 
-Quando um ASIN ainda não possui snapshot anterior:
-
-```text
-SnapshotEvolution não existe
-```
-
-e:
+Quando não existe snapshot anterior:
 
 ```text
 MomentumResult
@@ -560,45 +428,20 @@ reason = NO_PREVIOUS_SNAPSHOT
 version = MOMENTUM_V1
 ```
 
-Em `DealEvaluation`, o contrato permanece:
+Em `DealEvaluation`:
 
 ```text
 momentum = null
 momentumVersion = null
 ```
 
-A tentativa versionada permanece preservada na auditoria específica de momentum.
+A tentativa versionada permanece na auditoria.
 
 ---
 
-## 17. Momentum com percentual indisponível
+## 16. Momentum não altera elegibilidade
 
-Quando há snapshot anterior, mas alguma observação não possui percentual vendido:
-
-```text
-SnapshotEvolution existe
-```
-
-mas:
-
-```text
-soldPercentageDelta = null
-```
-
-O resultado fica:
-
-```text
-status = UNAVAILABLE
-reason = SOLD_PERCENTAGE_UNAVAILABLE
-```
-
-Outros fatos históricos disponíveis, como preço e tempo, continuam preservados.
-
----
-
-## 18. Momentum não altera elegibilidade
-
-A FASE 11 mantém explicitamente:
+Regra:
 
 ```text
 momentum ≠ filtro
@@ -606,29 +449,19 @@ momentum ≠ filtro
 
 Uma oferta inelegível pode possuir momentum.
 
-Exemplo:
-
-```text
-seller terceiro
-→ eligible = false
-
-histórico suficiente
-→ momentum = 2.0000
-```
-
-O momentum não transforma a oferta em elegível.
+Momentum não transforma uma oferta em elegível.
 
 ---
 
-## 19. Momentum não altera `SCORE_V1`
+## 17. Momentum não altera `SCORE_V1`
 
-Também permanece:
+Regra:
 
 ```text
 momentum ≠ score
 ```
 
-O `SCORE_V1` continua utilizando somente:
+O `SCORE_V1` continua usando somente:
 
 ```text
 SOLD_PERCENTAGE
@@ -637,15 +470,11 @@ RATING
 REVIEW_COUNT
 ```
 
-com os mesmos pesos e regras definidos na FASE 10.
-
-O momentum não é incluído como quinto fator.
-
-Uma eventual combinação futura entre score e momentum exige novo contrato/versionamento.
+Momentum não é quinto fator.
 
 ---
 
-## 20. Orquestração do cálculo histórico
+## 18. Orquestração
 
 Foi criado:
 
@@ -673,17 +502,11 @@ MomentumResult
 MomentumCalculation
 ```
 
-O snapshot atual não é relido desnecessariamente do banco.
-
-Somente a observação anterior precisa ser consultada.
-
 ---
 
-## 21. Integração com `DealEvaluation`
+## 19. Integração com `DealEvaluation`
 
-`AmazonDealEvaluationApplicationService` passou a calcular momentum depois das regras e do score.
-
-Fluxo conceitual:
+Fluxo:
 
 ```text
 elegibilidade estrutural
@@ -699,7 +522,7 @@ MOMENTUM_V1
 DealEvaluation
 ```
 
-A tentativa de momentum ocorre independentemente de:
+O cálculo histórico ocorre independentemente de:
 
 ```text
 eligible = true
@@ -713,21 +536,21 @@ eligible = false
 
 ---
 
-## 22. Auditoria persistente de momentum
+## 20. Auditoria persistente
 
-A migration:
+Migration:
 
 ```text
 V9__momentum_audit.sql
 ```
 
-criou:
+Tabela:
 
 ```text
 deal_evaluation_momentum_audit
 ```
 
-A tabela preserva:
+Campos principais:
 
 ```text
 deal_evaluation_id
@@ -744,62 +567,11 @@ momentum
 created_at
 ```
 
-Assim é possível explicar como o indicador foi produzido.
-
 ---
 
-## 23. Separação entre resultado agregado e auditoria
+## 21. Ordem transacional
 
-`deal_evaluation` continua armazenando:
-
-```text
-momentum
-momentum_version
-```
-
-para acesso agregado.
-
-A tabela:
-
-```text
-deal_evaluation_momentum_audit
-```
-
-preserva a base histórica do cálculo.
-
-Exemplo disponível:
-
-```text
-deal_evaluation
-momentum = 2.0000
-momentum_version = MOMENTUM_V1
-
-audit
-status = AVAILABLE
-previous_offer_snapshot_id = ...
-elapsed_seconds = 10800
-sold_percentage_delta = 6
-momentum = 2.0000
-```
-
-Exemplo indisponível:
-
-```text
-deal_evaluation
-momentum = null
-momentum_version = null
-
-audit
-calculation_version = MOMENTUM_V1
-status = UNAVAILABLE
-unavailable_reason = NO_PREVIOUS_SNAPSHOT
-```
-
----
-
-## 24. Ordem transacional
-
-A persistência ocorre na seguinte ordem:
+Persistência:
 
 ```text
 calcular avaliação
@@ -808,20 +580,16 @@ persistir DealEvaluation
         ↓
 obter deal_evaluation.id
         ↓
-construir MomentumAudit
-        ↓
 persistir MomentumAudit
 ```
 
 Todos os repositories envolvidos utilizam a mesma `Connection`.
 
-Assim, a avaliação e sua auditoria pertencem à mesma unidade transacional.
-
-Uma falha na auditoria pode provocar rollback da operação completa.
+Falha na auditoria pode causar rollback da unidade completa.
 
 ---
 
-## 25. Recorrência
+## 22. Recorrência
 
 Foi criado:
 
@@ -829,67 +597,44 @@ Foi criado:
 OfferHistoryStatus
 ```
 
-Uma oferta é considerada recorrente quando:
+Uma oferta é recorrente quando:
 
 ```text
 snapshotCount > 1
 ```
 
-Não existe heurística subjetiva ou inferência por preço.
-
-Recorrência representa somente a existência de múltiplas observações históricas do mesmo ASIN.
+Não existe heurística subjetiva.
 
 ---
 
-## 26. Primeira detecção
+## 23. Primeira detecção e última atualização
 
-`OfferHistoryStatus` preserva:
+São preservados:
 
 ```text
 firstDetectedAt
-```
-
-obtido a partir de:
-
-```text
-MIN(offer_snapshot.collected_at)
-```
-
-Também permite calcular:
-
-```text
-timeSinceFirstDetection(referenceTime)
-```
-
-O instante de referência é explícito para manter determinismo e testabilidade.
-
----
-
-## 27. Última atualização
-
-O status histórico preserva:
-
-```text
 lastUpdatedAt
 ```
 
-obtido por:
+Obtidos por:
 
 ```text
+MIN(offer_snapshot.collected_at)
 MAX(offer_snapshot.collected_at)
 ```
 
-Também permite calcular:
+Também são calculáveis:
 
 ```text
+timeSinceFirstDetection(referenceTime)
 timeSinceLastUpdate(referenceTime)
 ```
 
 ---
 
-## 28. Detecção de oferta já publicada
+## 24. Oferta já publicada
 
-A FASE 11 definiu:
+Regra:
 
 ```text
 já publicada
@@ -899,33 +644,20 @@ do mesmo ASIN
 com status = PUBLISHED
 ```
 
-Estados:
-
-```text
-CREATED
-READY
-FAILED
-```
-
-não representam publicação concluída.
-
 Portanto:
 
 ```text
-READY != publishedBefore
-```
-
-e:
-
-```text
-PUBLISHED = publishedBefore
+CREATED != publicada
+READY != publicada
+FAILED != publicada
+PUBLISHED = publicada
 ```
 
 ---
 
-## 29. `OfferHistoryStatusQueryPort`
+## 25. Status histórico
 
-Foi criada a porta:
+Porta:
 
 ```text
 OfferHistoryStatusQueryPort
@@ -937,7 +669,7 @@ Implementação:
 OfferHistoryStatusJdbcRepository
 ```
 
-A consulta agrega em uma ida ao banco:
+A consulta agrega:
 
 ```text
 snapshotCount
@@ -946,21 +678,21 @@ lastUpdatedAt
 publishedBefore
 ```
 
-O read model não altera nenhuma entidade do domínio.
+em uma única ida ao banco.
 
 ---
 
-## 30. Prevenção de multiplicação de linhas
+## 26. Prevenção de multiplicação de linhas
 
-A consulta de publicação utiliza:
+A consulta utiliza:
 
 ```sql
 EXISTS (...)
 ```
 
-em vez de colocar `publication` no join principal da agregação histórica.
+para detectar publicação anterior.
 
-Isso evita que múltiplas publicações de uma mesma avaliação multipliquem artificialmente:
+Isso evita multiplicar artificialmente:
 
 ```text
 COUNT
@@ -972,68 +704,32 @@ dos snapshots.
 
 ---
 
-## 31. Índices históricos
+## 27. Índices históricos
 
-A migration:
+Migration:
 
 ```text
 V10__historical_read_indexes.sql
 ```
 
-adicionou índices específicos para os novos caminhos de leitura.
-
-Índice histórico:
+Índices:
 
 ```text
 idx_offer_snapshot_history
-
 (product_id, collected_at DESC, id DESC)
-```
 
-Atende:
-
-```text
-snapshot anterior
-primeiro snapshot
-último snapshot
-histórico ordenado
-```
-
----
-
-## 32. Índices de avaliação e publicação
-
-Também foram adicionados:
-
-```text
 idx_deal_evaluation_offer_snapshot
-```
+(offer_snapshot_id)
 
-sobre:
-
-```text
-deal_evaluation(offer_snapshot_id)
-```
-
-e:
-
-```text
 idx_publication_evaluation_status
+(deal_evaluation_id, status)
 ```
-
-sobre:
-
-```text
-publication(deal_evaluation_id, status)
-```
-
-Isso prepara os caminhos utilizados para detectar publicações históricas.
 
 ---
 
-## 33. Idempotência preservada
+## 28. Idempotência
 
-A identidade persistente do snapshot continua:
+Identidade:
 
 ```text
 product_id
@@ -1043,9 +739,7 @@ collected_at
 source
 ```
 
-Um reprocessamento da mesma observação não cria novo snapshot.
-
-Consequentemente, também não duplica:
+Reprocessar a mesma observação não duplica:
 
 ```text
 PaymentConditions
@@ -1056,11 +750,9 @@ ScoreFactors
 MomentumAudit
 ```
 
-O teste vertical da FASE 11 comprova esse comportamento.
-
 ---
 
-## 34. Teste vertical de momentum
+## 29. Teste vertical
 
 Foi criado:
 
@@ -1068,36 +760,33 @@ Foi criado:
 AmazonDealProcessingMomentumEndToEndTest
 ```
 
-O teste utiliza servidor HTTP local e o fluxo real de produção.
-
 Cenário:
 
 ```text
-10:00 → 62% vendidos
-13:00 → 68% vendidos
+primeira coleta → 62%
+segunda coleta → 68%
+intervalo → 3 horas
 ```
 
-Resultado esperado:
+Resultado:
 
 ```text
-delta = +6 p.p.
-elapsed = 3 horas
-momentum = 2.0000 p.p./hora
+soldPercentageDelta = 6
+elapsedSeconds = 10800
+momentum = 2.0000
+momentumVersion = MOMENTUM_V1
 ```
 
 ---
 
-## 35. Primeira coleta no teste vertical
-
-A primeira observação produz:
+## 30. Primeira avaliação vertical
 
 ```text
-DealEvaluation
 momentum = null
 momentumVersion = null
 ```
 
-e auditoria:
+Auditoria:
 
 ```text
 calculationVersion = MOMENTUM_V1
@@ -1107,13 +796,9 @@ unavailableReason = NO_PREVIOUS_SNAPSHOT
 
 ---
 
-## 36. Segunda coleta no teste vertical
-
-A segunda observação produz:
+## 31. Segunda avaliação vertical
 
 ```text
-soldPercentageDelta = 6
-elapsedSeconds = 10800
 momentum = 2.0000
 momentumVersion = MOMENTUM_V1
 ```
@@ -1124,56 +809,34 @@ Auditoria:
 status = AVAILABLE
 previousOfferSnapshotId = snapshot anterior
 soldPercentageDelta = 6
-momentum = 2.0000
+elapsedSeconds = 10800
 ```
 
 ---
 
-## 37. Score preservado no teste vertical
-
-O teste comprova simultaneamente que:
-
-```text
-SCORE_V1
-```
-
-continua funcionando normalmente.
+## 32. Score preservado
 
 Primeira observação:
 
 ```text
-soldPercentage = 62
 score = 58.2500
 ```
 
 Segunda observação:
 
 ```text
-soldPercentage = 68
 score = 60.0500
 ```
 
-A diferença decorre somente da alteração do fato atual:
+A mudança decorre da alteração do `soldPercentage` atual.
 
-```text
-soldPercentage
-```
-
-O momentum não entra na fórmula do score.
+Momentum não entra na fórmula do score.
 
 ---
 
-## 38. Reprocessamento no teste vertical
+## 33. Reprocessamento vertical
 
-A segunda observação é processada novamente com a mesma identidade:
-
-```text
-ASIN
-collectedAt
-source
-```
-
-Resultado final:
+Após reprocessar a segunda observação:
 
 ```text
 2 snapshots
@@ -1185,117 +848,48 @@ Nenhuma terceira observação é criada.
 
 ---
 
-## 39. Testes de domínio
+## 34. Testes adicionados
 
-A fase adicionou cobertura específica para:
+Cobertura específica para:
 
 ```text
 SnapshotEvolutionCalculator
 MomentumEngine
 MomentumCalculationService
 MomentumAudit
-```
-
-São validados, entre outros:
-
-```text
-delta positivo
-delta negativo
-delta zero
-percentual vendido ausente
-desconto ausente
-preço anterior zero
-intervalo fracionário
-arredondamento HALF_UP
-momentum positivo
-momentum negativo
-momentum zero
-primeira observação
-```
-
----
-
-## 40. Testes de persistência
-
-Foram adicionados testes JDBC para:
-
-```text
 OfferHistoryJdbcRepository
 MomentumAuditJdbcRepository
 OfferHistoryStatusJdbcRepository
-```
-
-São comprovados:
-
-```text
-histórico por ASIN
-snapshot anterior
-primeiro snapshot
-último snapshot
-contagem
-auditoria AVAILABLE
-auditoria NO_PREVIOUS_SNAPSHOT
-auditoria SOLD_PERCENTAGE_UNAVAILABLE
-recorrência
-primeira detecção
-última atualização
-Publication READY
-Publication PUBLISHED
-```
-
----
-
-## 41. Testes de migrations
-
-Foram adicionados:
-
-```text
 MomentumAuditMigrationTest
 HistoricalReadIndexesMigrationTest
-```
-
-Eles verificam os contratos estruturais das migrations:
-
-```text
-V9
-V10
-```
-
-incluindo:
-
-```text
-tabela
-colunas
-constraints
-índices
-versão Flyway aplicada
+AmazonDealProcessingMomentumEndToEndTest
 ```
 
 ---
 
-## 42. Estado das migrations
+## 35. Estado das migrations
 
-Ao final da FASE 11:
+Ao final:
 
 ```text
 Migrations: 10
 Schema: versão 10
 ```
 
-Migrations introduzidas:
+Novas migrations:
 
 ```text
 V9__momentum_audit.sql
 V10__historical_read_indexes.sql
 ```
 
-As migrations anteriores não foram modificadas retroativamente.
+Migrations anteriores permanecem imutáveis.
 
 ---
 
-## 43. Resultado da suíte local
+## 36. Gate local
 
-Gate final da FASE 11:
+Resultado:
 
 ```text
 Tests run: 422
@@ -1306,23 +900,16 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Também foi executado:
+Também validado:
 
 ```text
 git diff --check
-```
-
-sem erros.
-
-Estado final:
-
-```text
 working tree clean
 ```
 
 ---
 
-## 44. Crescimento da suíte
+## 37. Crescimento da suíte
 
 Baseline da FASE 10:
 
@@ -1330,37 +917,21 @@ Baseline da FASE 10:
 391 testes
 ```
 
-Gate final da FASE 11:
+FASE 11:
 
 ```text
 422 testes
 ```
 
-A FASE 11 adicionou:
+Crescimento líquido:
 
 ```text
-31 testes líquidos
-```
-
-mantendo:
-
-```text
-0 falhas
-0 erros
-0 ignorados
+31 testes
 ```
 
 ---
 
-## 45. Commits da branch
-
-Branch:
-
-```text
-fase-11-historico-momentum
-```
-
-Commits observados sobre `main`:
+## 38. Commits da branch
 
 ```text
 f1d8227 docs: define semantica de historico e momentum
@@ -1375,151 +946,149 @@ d259a71 feat: integra momentum na avaliacao de ofertas
 87e45d7 test: valida momentum no fluxo vertical
 356e431 feat: adiciona status historico de ofertas
 0fd47a9 perf: adiciona indices para consultas historicas
+0ac1908 docs: encerra localmente a fase 11
+cbfeb96 docs: atualiza readme apos fase 11
+9c7007f docs: registra ci remoto verde da fase 11
+7aa3319 docs: registra ci remoto verde da fase 11
 ```
 
-Os commits representam a evolução incremental da fase.
+Merge:
+
+```text
+46d7e4c
+Merge pull request #2 from veiocadan/fase-11-historico-momentum
+```
 
 ---
 
-## 46. Tamanho da alteração
+## 39. Pull Request
 
-Comparação:
+Pull Request:
 
 ```text
-main...fase-11-historico-momentum
+#2 — FASE 11 — Histórico, evolução e momentum
+```
+
+Base:
+
+```text
+main
+```
+
+Head:
+
+```text
+fase-11-historico-momentum
+```
+
+Estado final:
+
+```text
+MERGED
+```
+
+---
+
+## 40. CI remoto do Pull Request
+
+Execuções relevantes:
+
+```text
+run #18 → SUCCESS
+run #20 → SUCCESS
+```
+
+O head final antes do merge foi:
+
+```text
+7aa3319
+```
+
+O último check do PR ficou verde antes do merge.
+
+---
+
+## 41. Merge em `main`
+
+Merge commit:
+
+```text
+46d7e4c
+```
+
+Mensagem:
+
+```text
+Merge pull request #2 from veiocadan/fase-11-historico-momentum
+```
+
+Estado:
+
+```text
+SUCCESS
+```
+
+---
+
+## 42. CI pós-merge
+
+O merge disparou o workflow principal da `main`.
+
+Execução:
+
+```text
+GitHub Actions run #21
+```
+
+Head:
+
+```text
+46d7e4c
 ```
 
 Resultado:
 
 ```text
-32 files changed
-9795 insertions
-81 deletions
+status = completed
+conclusion = success
+Maven tests = success
 ```
 
-A maior parte do crescimento corresponde a:
-
-```text
-contratos históricos
-domínio temporal
-persistência
-migrations
-testes unitários
-testes JDBC
-teste vertical
-documentação semântica
-```
+O aviso do runner sobre futura migração de `ubuntu-latest` é somente informativo.
 
 ---
 
-## 47. Critérios de conclusão
-
-Critério:
+## 43. Critérios de conclusão
 
 ```text
 consultar histórico de um ASIN
-```
+→ ATENDIDO
 
-Resultado:
-
-```text
-ATENDIDO
-```
-
-Implementado por:
-
-```text
-OfferHistoryQueryPort
-OfferHistoryJdbcRepository
-```
-
----
-
-Critério:
-
-```text
 calcular variação entre dois snapshots
-```
+→ ATENDIDO
 
-Resultado:
-
-```text
-ATENDIDO
-```
-
-Implementado por:
-
-```text
-SnapshotEvolutionCalculator
-SnapshotEvolution
-```
-
-com:
-
-```text
-soldPercentageDelta
-currentPriceDelta
-currentPriceDeltaPercentage
-cashDiscountDelta
-elapsedSeconds
-```
-
----
-
-Critério:
-
-```text
 produzir indicador de momentum
 sem alterar a regra principal de elegibilidade
-```
+→ ATENDIDO
 
-Resultado:
-
-```text
-ATENDIDO
-```
-
-Implementado por:
-
-```text
-MOMENTUM_V1
-```
-
-e comprovado por testes em ofertas:
-
-```text
-elegíveis
-inelegíveis
-```
-
-sem modificar a decisão estrutural/comercial.
-
----
-
-## 48. Requisitos complementares da fase
-
-Também foram atendidos:
-
-```text
 tempo desde primeira detecção
+→ ATENDIDO
+
 tempo desde última atualização
+→ ATENDIDO
+
 detecção de recorrência
+→ ATENDIDO
+
 detecção de publicação anterior
-```
-
-por:
-
-```text
-OfferHistoryStatus
-OfferHistoryStatusQueryPort
-OfferHistoryStatusJdbcRepository
+→ ATENDIDO
 ```
 
 ---
 
-## 49. Separação arquitetural preservada
+## 44. Separação arquitetural
 
-A FASE 11 mantém:
+Preservado:
 
 ```text
 SQL
@@ -1535,22 +1104,13 @@ infraestrutura
 → persiste
 ```
 
-O domínio de momentum não conhece:
-
-```text
-JDBC
-PostgreSQL
-Flyway
-HTML
-HTTP
-Publication repository
-```
+O domínio de momentum não conhece JDBC, PostgreSQL, Flyway, HTML ou HTTP.
 
 ---
 
-## 50. O que deliberadamente não foi implementado
+## 45. Itens deliberadamente fora da FASE 11
 
-A FASE 11 não implementou:
+Não foram implementados:
 
 ```text
 combinação de momentum com SCORE_V1
@@ -1567,100 +1127,58 @@ controle de frequência por canal
 dashboard
 ```
 
-O histórico completo ainda pode ser consultado pelo repository.
+Também permanece fora do `SCORE_V1`:
 
-Paginação deverá ser introduzida quando o histórico for exposto pela interface operacional, evitando antecipar um contrato de apresentação sem consumidor definido.
+```text
+PRICE_ATTRACTIVENESS
+```
 
 ---
 
-## 51. Relação com fases futuras
-
-A FASE 12 deverá tratar:
+## 46. Estado final do CI
 
 ```text
-orquestração
-processamento assíncrono
-reprocessamento por etapa
-jobs
-fila quando necessária
-múltiplos workers
+validação local = SUCCESS
+CI remoto do Pull Request #2 = SUCCESS
+Pull Request #2 = MERGED
+merge em main = SUCCESS
+merge commit = 46d7e4c
+CI pós-merge = SUCCESS
+GitHub Actions run = #21
 ```
 
-A FASE 13 poderá utilizar as leituras históricas implementadas nesta fase para expor:
-
-```text
-histórico
-momentum
-recorrência
-tempos
-publicação anterior
-```
-
-na interface operacional.
+Todos os gates previstos foram concluídos.
 
 ---
 
-## 52. Estado do CI
-
-Neste momento:
-
-```text
-validação local = APROVADA
-```
-
-Ainda não devem ser registrados como concluídos:
-
-```text
-CI remoto da branch
-Pull Request
-merge em main
-CI pós-merge
-```
-
-Esses fatos somente deverão ser adicionados após ocorrerem de fato.
-
----
-
-## 53. Estado consolidado
+## 47. Estado consolidado
 
 ```text
 FASE 11 — Histórico, evolução e momentum
 
 STATUS:
-CONCLUÍDA LOCALMENTE
+CONCLUÍDA
 
 Histórico por ASIN:
 IMPLEMENTADO
 
-Snapshot anterior:
-IMPLEMENTADO
-
-Primeira observação:
-IMPLEMENTADA
-
-Última observação:
-IMPLEMENTADA
-
-Contagem de snapshots:
+Evolução entre snapshots:
 IMPLEMENTADA
 
 Variação de vendidos:
 IMPLEMENTADA
 
-Variação absoluta de preço:
-IMPLEMENTADA
-
-Variação percentual de preço:
+Variação de preço:
 IMPLEMENTADA
 
 Variação de desconto:
 IMPLEMENTADA
 
-Tempo desde primeira detecção:
-IMPLEMENTADO
+Primeira detecção:
+IMPLEMENTADA
 
-Tempo desde última atualização:
-IMPLEMENTADO
+Última atualização:
+IMPLEMENTADA
 
 Recorrência:
 IMPLEMENTADA
@@ -1685,9 +1203,6 @@ HALF_UP
 Momentum negativo:
 PERMITIDO
 
-Ausência:
-DIFERENTE DE ZERO OBSERVADO
-
 Elegibilidade:
 NÃO ALTERADA
 
@@ -1706,40 +1221,31 @@ V10
 Schema:
 versão 10
 
-Fluxo vertical:
-OK
-
-Idempotência:
-OK
-
-Transações:
-OK
-
-PostgreSQL:
-OK
-
 Suíte hermética:
 422 testes
 0 falhas
 0 erros
 0 ignorados
 
-Build:
+Build local:
 SUCCESS
 
-Working tree:
-CLEAN
-
 CI remoto:
-SUCESS
+SUCCESS
 
-PR:
-PENDENTE
+Pull Request:
+#2 — MERGED
 
 Merge em main:
-PENDENTE
+SUCCESS — 46d7e4c
 
-Gate local da FASE 11:
+CI pós-merge:
+SUCCESS — run #21
+
+Gate local:
+FECHADO
+
+Gate remoto:
 FECHADO
 
 Próxima fase:
@@ -1748,9 +1254,9 @@ FASE 12 — Orquestração e processamento assíncrono
 
 ---
 
-## 54. Encerramento local
+## 48. Encerramento da FASE 11
 
-A FASE 11 atingiu seus critérios técnicos locais.
+A FASE 11 atingiu seus critérios técnicos locais e remotos.
 
 O projeto passou de avaliações baseadas somente na observação atual para um modelo capaz de explicar também a evolução temporal da oferta.
 
@@ -1766,24 +1272,30 @@ MOMENTUM_V1
 velocidade histórica do percentual vendido
 ```
 
-Os dois conceitos permanecem independentes.
-
-A próxima fase somente deve ser iniciada após o fechamento do ciclo remoto da FASE 11:
+Ciclo concluído:
 
 ```text
-commit documental
+implementação
         ↓
-push da branch
+422 testes locais verdes
         ↓
-Pull Request
+Pull Request #2
         ↓
-CI verde
+CI remoto verde
         ↓
 merge em main
         ↓
-CI da main
+46d7e4c
         ↓
-registro final
+CI da main verde
         ↓
-FASE 12
+run #21
+        ↓
+FASE 11 CONCLUÍDA
+```
+
+A próxima etapa do projeto é:
+
+```text
+FASE 12 — Orquestração e processamento assíncrono
 ```

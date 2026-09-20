@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 11 concluída localmente. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, filtros comerciais versionados, score versionado e reproduzível, fatores explicáveis persistidos, ranking determinístico, histórico por ASIN, evolução entre snapshots, MOMENTUM_V1 auditável, recorrência e detecção de publicação anterior. A validação local está verde com 422 testes e schema PostgreSQL/Flyway na versão 10. O CI remoto, Pull Request e merge da FASE 11 ainda estão pendentes. A próxima fase planejada é a FASE 12 — Orquestração e processamento assíncrono.**
+> **Estado atual: FASE 11 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, filtros comerciais versionados, score versionado e reproduzível, fatores explicáveis persistidos, ranking determinístico, histórico por ASIN, evolução entre snapshots, MOMENTUM_V1 auditável, recorrência e detecção de publicação anterior. A validação local está verde com 422 testes. O Pull Request #2 foi integrado à `main` pelo merge commit `46d7e4c`, e o CI pós-merge da `main` (run #21) foi concluído com sucesso. O schema PostgreSQL/Flyway está na versão 10. A próxima fase planejada é a FASE 12 — Orquestração e processamento assíncrono.**
 
 ## 1. Objetivo
 
@@ -63,7 +63,7 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 | FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA           |
 | FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA           |
 | FASE 10   | Score, ranking e explicabilidade                         | CONCLUÍDA           |
-| FASE 11   | Histórico, evolução e momentum                           | CONCLUÍDA LOCALMENTE|
+| FASE 11   | Histórico, evolução e momentum                           | CONCLUÍDA           |
 | FASE 12   | Orquestração e processamento assíncrono                  | PRÓXIMA             |
 
 ---
@@ -2499,17 +2499,19 @@ push em main
 
 A FASE 10 permanece integrada à `main` com CI remoto aprovado.
 
-Estado da FASE 11:
+Estado final da FASE 11:
 
 ```text
 validação local = SUCCESS
-CI remoto da branch/PR = PENDENTE
-Pull Request = PENDENTE
-merge em main = PENDENTE
-CI pós-merge = PENDENTE
+CI remoto do Pull Request #2 = SUCCESS
+Pull Request #2 = MERGED
+merge em main = SUCCESS
+merge commit = 46d7e4c
+CI pós-merge da main = SUCCESS
+GitHub Actions run = #21
 ```
 
-Esses estados somente serão alterados depois que ocorrerem de fato.
+A FASE 11 está formalmente encerrada.
 
 ---
 
@@ -2798,6 +2800,34 @@ Fechamento documental local:
 docs: encerra localmente a fase 11
 ```
 
+Atualização do README na branch:
+
+```text
+cbfeb96
+docs: atualiza readme apos fase 11
+```
+
+Registro do primeiro CI remoto verde:
+
+```text
+9c7007f
+docs: registra ci remoto verde da fase 11
+```
+
+Registro documental final antes do merge:
+
+```text
+7aa3319
+docs: registra ci remoto verde da fase 11
+```
+
+Merge para `main`:
+
+```text
+46d7e4c
+Merge pull request #2 from veiocadan/fase-11-historico-momentum
+```
+
 ---
 
 ## 72. Critérios de conclusão da FASE 11
@@ -2954,7 +2984,7 @@ FASE 8   → Validação Amazon                        [CONCLUÍDA]
 FASE 8.5 → Consolidação do núcleo                  [CONCLUÍDA]
 FASE 9   → Filtros comerciais configuráveis        [CONCLUÍDA]
 FASE 10  → Score, ranking e explicabilidade        [CONCLUÍDA]
-FASE 11  → Histórico, evolução e momentum          [CONCLUÍDA LOCALMENTE]
+FASE 11  → Histórico, evolução e momentum          [CONCLUÍDA]
 FASE 12  → Orquestração e processamento assíncrono [PRÓXIMA]
 FASE 13  → Interface operacional
 FASE 14  → Publicação
@@ -2971,7 +3001,7 @@ FASE 15+ → qualidade integrada, observabilidade,
 FASE 11 — Histórico, evolução e momentum
 
 STATUS:
-CONCLUÍDA LOCALMENTE
+CONCLUÍDA
 
 Elegibilidade estrutural:
 AMAZON_SELLER_DELIVERY_V1
@@ -3142,18 +3172,21 @@ Schema:
 versão 10
 
 CI remoto da FASE 11:
-PENDENTE
+SUCCESS
 
 Pull Request:
-PENDENTE
+#2 — MERGED
 
 Merge em main:
-PENDENTE
+SUCCESS — 46d7e4c
 
 CI pós-merge:
-PENDENTE
+SUCCESS — run #21
 
 Gate local da FASE 11:
+FECHADO
+
+Gate remoto da FASE 11:
 FECHADO
 
 Próxima fase:
@@ -3162,9 +3195,9 @@ FASE 12 — Orquestração e processamento assíncrono
 
 ---
 
-## 77. Encerramento local
+## 77. Encerramento da FASE 11
 
-A FASE 11 atingiu seus critérios técnicos locais.
+A FASE 11 atingiu seus critérios técnicos locais e remotos.
 
 O projeto passou de avaliações baseadas apenas na observação atual para um modelo capaz de explicar também a evolução temporal da oferta.
 
@@ -3182,22 +3215,24 @@ velocidade histórica do percentual vendido
 
 Os dois conceitos permanecem independentes.
 
-O fechamento remoto deve seguir:
+O ciclo remoto foi concluído:
 
 ```text
-README / documentação local
+branch fase-11-historico-momentum
         ↓
-push da branch
+Pull Request #2
         ↓
-Pull Request
-        ↓
-CI verde
+CI do PR verde
         ↓
 merge em main
         ↓
-CI da main
+46d7e4c
         ↓
-registro documental final
+CI da main verde
         ↓
-FASE 12
+GitHub Actions run #21
+        ↓
+FASE 11 CONCLUÍDA
 ```
+
+Com esse fechamento, a FASE 12 está liberada para início.
