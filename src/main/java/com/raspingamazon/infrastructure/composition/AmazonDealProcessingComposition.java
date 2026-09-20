@@ -3,6 +3,7 @@ package com.raspingamazon.infrastructure.composition;
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.application.deal.OfferSnapshotFactory;
 import com.raspingamazon.application.evaluation.AmazonDealEvaluationApplicationService;
+import com.raspingamazon.domain.filter.CommercialFilterEngine;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageEnrichmentClient;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageParser;
@@ -10,6 +11,7 @@ import com.raspingamazon.infrastructure.amazon.parser.AmazonDealsParser;
 import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
 import com.raspingamazon.infrastructure.persistence.DealEvaluationJdbcRepository;
+import com.raspingamazon.infrastructure.persistence.FilterProfileJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferEvidenceJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferPaymentConditionRepository;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
@@ -34,8 +36,9 @@ import java.util.Objects;
  *
  * <p>A mesma Connection JDBC é compartilhada por todos os repositories
  * e pelo JdbcTransactionAdapter. Essa característica é fundamental:
- * somente assim Product, OfferSnapshot, PaymentConditions, Evidence e
- * DealEvaluation podem participar da mesma transação.</p>
+ * somente assim Product, OfferSnapshot, PaymentConditions, Evidence,
+ * FilterProfile e DealEvaluation podem participar de uma composição
+ * consistente.</p>
  *
  * <p>A classe não possui regras de negócio e não executa o fluxo.
  * Ela apenas conecta implementações concretas aos contratos da
@@ -44,9 +47,9 @@ import java.util.Objects;
 public final class AmazonDealProcessingComposition {
 
     private static final Duration HTTP_TIMEOUT =
-            Duration.ofSeconds(
-                    20
-            );
+        Duration.ofSeconds(
+            20
+        );
 
     private AmazonDealProcessingComposition() {
     }
@@ -59,12 +62,12 @@ public final class AmazonDealProcessingComposition {
      * @return serviço vertical pronto para execução
      */
     public static AmazonDealProcessingService create(
-            Connection connection
+        Connection connection
     ) {
         return create(
-                connection,
-                Clock.systemUTC(),
-                createHttpClient()
+            connection,
+            Clock.systemUTC(),
+            createHttpClient()
         );
     }
 
@@ -75,23 +78,23 @@ public final class AmazonDealProcessingComposition {
      * root testável e evitar estado global.</p>
      */
     public static AmazonDealProcessingService create(
-            Connection connection,
-            Clock clock,
-            HttpClient httpClient
+        Connection connection,
+        Clock clock,
+        HttpClient httpClient
     ) {
         Objects.requireNonNull(
-                connection,
-                "connection must not be null"
+            connection,
+            "connection must not be null"
         );
 
         Objects.requireNonNull(
-                clock,
-                "clock must not be null"
+            clock,
+            "clock must not be null"
         );
 
         Objects.requireNonNull(
-                httpClient,
-                "httpClient must not be null"
+            httpClient,
+            "httpClient must not be null"
         );
 
         /*
@@ -100,16 +103,16 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         JavaHttpTransport httpTransport =
-                new JavaHttpTransport(
-                        httpClient,
-                        HTTP_TIMEOUT
-                );
+            new JavaHttpTransport(
+                httpClient,
+                HTTP_TIMEOUT
+            );
 
         HttpCollectionCollector collectionCollector =
-                new HttpCollectionCollector(
-                        httpTransport,
-                        clock
-                );
+            new HttpCollectionCollector(
+                httpTransport,
+                clock
+            );
 
         /*
          * ---------------------------------------------------------
@@ -117,18 +120,21 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         AmazonDealsParser dealsParser =
-                new AmazonDealsParser();
+            new AmazonDealsParser();
 
         /*
          * ---------------------------------------------------------
          * ENRICHMENT
          * ---------------------------------------------------------
+         *
+         * O construtor utilizado aqui habilita também o parser de
+         * condições comerciais padrão introduzido na FASE 9-C1.5.
          */
         AmazonProductPageEnrichmentClient enrichmentClient =
-                new AmazonProductPageEnrichmentClient(
-                        httpClient,
-                        new AmazonProductPageParser()
-                );
+            new AmazonProductPageEnrichmentClient(
+                httpClient,
+                new AmazonProductPageParser()
+            );
 
         /*
          * ---------------------------------------------------------
@@ -136,14 +142,14 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         ProductRepository productRepository =
-                new ProductRepository(
-                        connection
-                );
+            new ProductRepository(
+                connection
+            );
 
         ProductJdbcPersistenceAdapter productPersistenceAdapter =
-                new ProductJdbcPersistenceAdapter(
-                        productRepository
-                );
+            new ProductJdbcPersistenceAdapter(
+                productRepository
+            );
 
         /*
          * ---------------------------------------------------------
@@ -151,18 +157,18 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         OfferSnapshotFactory offerSnapshotFactory =
-                new OfferSnapshotFactory();
+            new OfferSnapshotFactory();
 
         OfferSnapshotRepository offerSnapshotRepository =
-                new OfferSnapshotRepository(
-                        connection
-                );
+            new OfferSnapshotRepository(
+                connection
+            );
 
         OfferSnapshotJdbcPersistenceAdapter
-                offerSnapshotPersistenceAdapter =
-                new OfferSnapshotJdbcPersistenceAdapter(
-                        offerSnapshotRepository
-                );
+            offerSnapshotPersistenceAdapter =
+            new OfferSnapshotJdbcPersistenceAdapter(
+                offerSnapshotRepository
+            );
 
         /*
          * ---------------------------------------------------------
@@ -170,15 +176,15 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         OfferPaymentConditionRepository paymentRepository =
-                new OfferPaymentConditionRepository(
-                        connection
-                );
+            new OfferPaymentConditionRepository(
+                connection
+            );
 
         PaymentConditionJdbcPersistenceAdapter
-                paymentConditionPersistenceAdapter =
-                new PaymentConditionJdbcPersistenceAdapter(
-                        paymentRepository
-                );
+            paymentConditionPersistenceAdapter =
+            new PaymentConditionJdbcPersistenceAdapter(
+                paymentRepository
+            );
 
         /*
          * ---------------------------------------------------------
@@ -186,15 +192,40 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         OfferEvidenceJdbcRepository evidenceRepository =
-                new OfferEvidenceJdbcRepository(
-                        connection
-                );
+            new OfferEvidenceJdbcRepository(
+                connection
+            );
 
         OfferEvidenceJdbcPersistenceAdapter
-                evidencePersistenceAdapter =
-                new OfferEvidenceJdbcPersistenceAdapter(
-                        evidenceRepository
-                );
+            evidencePersistenceAdapter =
+            new OfferEvidenceJdbcPersistenceAdapter(
+                evidenceRepository
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * FILTER PROFILE
+         * ---------------------------------------------------------
+         *
+         * A configuração comercial ativa não é codificada aqui.
+         *
+         * O composition root conecta a porta FilterProfileProvider
+         * à implementação JDBC que lê a versão ativa persistida.
+         */
+        FilterProfileJdbcRepository filterProfileRepository =
+            new FilterProfileJdbcRepository(
+                connection
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * COMMERCIAL FILTER ENGINE
+         * ---------------------------------------------------------
+         *
+         * O motor permanece puro e independente da infraestrutura.
+         */
+        CommercialFilterEngine commercialFilterEngine =
+            new CommercialFilterEngine();
 
         /*
          * ---------------------------------------------------------
@@ -202,24 +233,24 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         DealEvaluationJdbcRepository evaluationRepository =
-                new DealEvaluationJdbcRepository(
-                        connection
-                );
+            new DealEvaluationJdbcRepository(
+                connection
+            );
 
         AmazonDealEvaluationApplicationService evaluationService =
-                new AmazonDealEvaluationApplicationService(
-                        new AmazonEligibilityValidator(),
-                        evaluationRepository
-                );
+            new AmazonDealEvaluationApplicationService(
+                new AmazonEligibilityValidator(),
+                commercialFilterEngine,
+                filterProfileRepository,
+                evaluationRepository
+            );
 
         /*
          * ---------------------------------------------------------
          * TRANSACTION BOUNDARY
          * ---------------------------------------------------------
          *
-         * O ponto essencial da FASE 8.5-F:
-         *
-         * todos os repositories acima e o transaction adapter usam
+         * Todos os repositories acima e o transaction adapter usam
          * exatamente a mesma Connection.
          *
          * Assim:
@@ -230,12 +261,14 @@ public final class AmazonDealProcessingComposition {
          * Evidence
          * DealEvaluation
          *
-         * podem participar da mesma unidade atômica.
+         * pertencem à mesma unidade atômica de persistência.
+         *
+         * O FilterProfile é somente lido durante a avaliação.
          */
         JdbcTransactionAdapter transactionAdapter =
-                new JdbcTransactionAdapter(
-                        connection
-                );
+            new JdbcTransactionAdapter(
+                connection
+            );
 
         /*
          * ---------------------------------------------------------
@@ -243,17 +276,17 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          */
         return new AmazonDealProcessingService(
-                collectionCollector,
-                dealsParser,
-                enrichmentClient,
-                productPersistenceAdapter,
-                offerSnapshotFactory,
-                offerSnapshotPersistenceAdapter,
-                paymentConditionPersistenceAdapter,
-                evidencePersistenceAdapter,
-                evaluationService,
-                transactionAdapter,
-                clock
+            collectionCollector,
+            dealsParser,
+            enrichmentClient,
+            productPersistenceAdapter,
+            offerSnapshotFactory,
+            offerSnapshotPersistenceAdapter,
+            paymentConditionPersistenceAdapter,
+            evidencePersistenceAdapter,
+            evaluationService,
+            transactionAdapter,
+            clock
         );
     }
 
@@ -263,12 +296,12 @@ public final class AmazonDealProcessingComposition {
     private static HttpClient createHttpClient() {
 
         return HttpClient.newBuilder()
-                .connectTimeout(
-                        HTTP_TIMEOUT
-                )
-                .followRedirects(
-                        HttpClient.Redirect.NORMAL
-                )
-                .build();
+            .connectTimeout(
+                HTTP_TIMEOUT
+            )
+            .followRedirects(
+                HttpClient.Redirect.NORMAL
+            )
+            .build();
     }
 }

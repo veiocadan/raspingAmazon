@@ -1,11 +1,18 @@
 package com.raspingamazon.application.evaluation;
 
+import com.raspingamazon.application.filter.FilterProfileProvider;
+import com.raspingamazon.domain.commercial.PaymentCondition;
+import com.raspingamazon.domain.commercial.PaymentConditionType;
+import com.raspingamazon.domain.commercial.PaymentMethod;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.evaluation.RejectionReason;
+import com.raspingamazon.domain.filter.CommercialFilterEngine;
+import com.raspingamazon.domain.filter.FilterProfile;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.domain.shared.Money;
+import com.raspingamazon.domain.shared.Percentage;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
@@ -24,170 +31,399 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AmazonDealEvaluationApplicationServiceTest {
 
+    private static final FilterProfile FILTER_PROFILE =
+        new FilterProfile(
+            "COMMERCIAL_FILTER_V1",
+            Percentage.of("20"),
+            new BigDecimal("4.3"),
+            100L
+        );
+
+    private static final FilterProfileProvider FILTER_PROFILE_PROVIDER =
+        () -> FILTER_PROFILE;
+
     @Test
-    void shouldEvaluateAndPersistRejectedDealWithAllRuleResults() {
+    void shouldEvaluateAndPersistRejectedStructuralDealWithAllRuleResults() {
 
         FakeDealEvaluationRepository repository =
-                new FakeDealEvaluationRepository();
+            new FakeDealEvaluationRepository();
 
         AmazonDealEvaluationApplicationService service =
-                createService(
-                        repository
-                );
+            createService(
+                repository
+            );
 
         DealEvaluation persisted =
-                service.evaluate(
-                        createOfferSnapshot(),
-                        SellerType.THIRD_PARTY,
-                        DeliveryType.THIRD_PARTY,
-                        OffsetDateTime.now()
-                );
+            service.evaluate(
+                createPassingCommercialSnapshot(
+                    SellerType.THIRD_PARTY,
+                    DeliveryType.THIRD_PARTY
+                ),
+                SellerType.THIRD_PARTY,
+                DeliveryType.THIRD_PARTY,
+                OffsetDateTime.now()
+            );
 
         assertSame(
-                persisted,
-                repository.savedEvaluation
+            persisted,
+            repository.savedEvaluation
         );
 
         assertFalse(
-                persisted.eligible()
+            persisted.eligible()
+        );
+
+        /*
+         * A falha estrutural permanece prioritária porque as regras
+         * de seller/delivery vêm antes das comerciais.
+         */
+        assertEquals(
+            RejectionReason.SELLER_THIRD_PARTY,
+            persisted.rejectionReason()
         );
 
         assertEquals(
-                RejectionReason.SELLER_THIRD_PARTY,
-                persisted.rejectionReason()
+            "AMAZON_SELLER_DELIVERY_V1",
+            persisted.eligibilityPolicyVersion()
         );
 
         assertEquals(
-                "AMAZON_SELLER_DELIVERY_V1",
-                persisted.eligibilityPolicyVersion()
-        );
-
-        assertNull(
-                persisted.filterProfileVersion()
+            "COMMERCIAL_FILTER_V1",
+            persisted.filterProfileVersion()
         );
 
         assertEquals(
-                2,
-                persisted.ruleResults().size()
+            5,
+            persisted.ruleResults().size()
         );
 
         assertFalse(
-                persisted.ruleResults()
-                        .get(0)
-                        .passed()
+            persisted.ruleResults()
+                .get(0)
+                .passed()
         );
 
         assertFalse(
-                persisted.ruleResults()
-                        .get(1)
-                        .passed()
+            persisted.ruleResults()
+                .get(1)
+                .passed()
+        );
+
+        /*
+         * Apesar da falha estrutural, as três regras comerciais
+         * continuam sendo avaliadas.
+         */
+        assertTrue(
+            persisted.ruleResults()
+                .get(2)
+                .passed()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(3)
+                .passed()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(4)
+                .passed()
         );
     }
 
     @Test
-    void shouldEvaluateAndPersistAcceptedDeal() {
+    void shouldEvaluateAndPersistAcceptedDealWhenAllRulesPass() {
 
         FakeDealEvaluationRepository repository =
-                new FakeDealEvaluationRepository();
+            new FakeDealEvaluationRepository();
 
         AmazonDealEvaluationApplicationService service =
-                createService(
-                        repository
-                );
+            createService(
+                repository
+            );
 
         DealEvaluation persisted =
-                service.evaluate(
-                        createOfferSnapshot(),
-                        SellerType.AMAZON,
-                        DeliveryType.AMAZON,
-                        OffsetDateTime.now()
-                );
+            service.evaluate(
+                createPassingCommercialSnapshot(
+                    SellerType.AMAZON,
+                    DeliveryType.AMAZON
+                ),
+                SellerType.AMAZON,
+                DeliveryType.AMAZON,
+                OffsetDateTime.now()
+            );
 
         assertTrue(
-                persisted.eligible()
+            persisted.eligible()
         );
 
         assertNull(
-                persisted.rejectionReason()
+            persisted.rejectionReason()
         );
 
         assertEquals(
-                2,
-                persisted.ruleResults().size()
+            "COMMERCIAL_FILTER_V1",
+            persisted.filterProfileVersion()
+        );
+
+        assertEquals(
+            5,
+            persisted.ruleResults().size()
         );
 
         assertTrue(
-                persisted.ruleResults()
-                        .stream()
-                        .allMatch(
-                                result -> result.passed()
-                        )
+            persisted.ruleResults()
+                .stream()
+                .allMatch(
+                    result ->
+                        result.passed()
+                )
         );
 
         assertEquals(
-                1,
-                repository.savedEvaluations.size()
+            1,
+            repository.savedEvaluations.size()
+        );
+    }
+
+    @Test
+    void shouldRejectAmazonDealWhenCommercialDiscountFails() {
+
+        FakeDealEvaluationRepository repository =
+            new FakeDealEvaluationRepository();
+
+        AmazonDealEvaluationApplicationService service =
+            createService(
+                repository
+            );
+
+        DealEvaluation persisted =
+            service.evaluate(
+                createSnapshot(
+                    SellerType.AMAZON,
+                    DeliveryType.AMAZON,
+                    "10",
+                    4.7,
+                    1500L
+                ),
+                SellerType.AMAZON,
+                DeliveryType.AMAZON,
+                OffsetDateTime.now()
+            );
+
+        assertFalse(
+            persisted.eligible()
+        );
+
+        assertEquals(
+            RejectionReason.CASH_DISCOUNT_BELOW_MINIMUM,
+            persisted.rejectionReason()
+        );
+
+        assertEquals(
+            5,
+            persisted.ruleResults().size()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(0)
+                .passed()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(1)
+                .passed()
+        );
+
+        assertFalse(
+            persisted.ruleResults()
+                .get(2)
+                .passed()
+        );
+
+        assertEquals(
+            RejectionReason.CASH_DISCOUNT_BELOW_MINIMUM,
+            persisted.ruleResults()
+                .get(2)
+                .reasonCode()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(3)
+                .passed()
+        );
+
+        assertTrue(
+            persisted.ruleResults()
+                .get(4)
+                .passed()
+        );
+    }
+
+    @Test
+    void shouldPreserveStableCombinedRuleOrder() {
+
+        FakeDealEvaluationRepository repository =
+            new FakeDealEvaluationRepository();
+
+        AmazonDealEvaluationApplicationService service =
+            createService(
+                repository
+            );
+
+        DealEvaluation evaluation =
+            service.evaluate(
+                createPassingCommercialSnapshot(
+                    SellerType.AMAZON,
+                    DeliveryType.AMAZON
+                ),
+                SellerType.AMAZON,
+                DeliveryType.AMAZON,
+                OffsetDateTime.now()
+            );
+
+        assertEquals(
+            "SELLER_IS_AMAZON",
+            evaluation.ruleResults()
+                .get(0)
+                .ruleCode()
+        );
+
+        assertEquals(
+            "DELIVERY_IS_AMAZON",
+            evaluation.ruleResults()
+                .get(1)
+                .ruleCode()
+        );
+
+        assertEquals(
+            "MIN_CASH_DISCOUNT",
+            evaluation.ruleResults()
+                .get(2)
+                .ruleCode()
+        );
+
+        assertEquals(
+            "MIN_RATING",
+            evaluation.ruleResults()
+                .get(3)
+                .ruleCode()
+        );
+
+        assertEquals(
+            "MIN_REVIEW_COUNT",
+            evaluation.ruleResults()
+                .get(4)
+                .ruleCode()
         );
     }
 
     private AmazonDealEvaluationApplicationService createService(
-            FakeDealEvaluationRepository repository
+        FakeDealEvaluationRepository repository
     ) {
         return new AmazonDealEvaluationApplicationService(
-                new AmazonEligibilityValidator(),
-                repository
+            new AmazonEligibilityValidator(),
+            new CommercialFilterEngine(),
+            FILTER_PROFILE_PROVIDER,
+            repository
         );
     }
 
-    private OfferSnapshot createOfferSnapshot() {
+    private OfferSnapshot createPassingCommercialSnapshot(
+        SellerType sellerType,
+        DeliveryType deliveryType
+    ) {
+        return createSnapshot(
+            sellerType,
+            deliveryType,
+            "25",
+            4.7,
+            1500L
+        );
+    }
+
+    private OfferSnapshot createSnapshot(
+        SellerType sellerType,
+        DeliveryType deliveryType,
+        String cashDiscount,
+        Double rating,
+        Long reviewCount
+    ) {
 
         Product product =
-                new Product(
-                        1L,
-                        new Asin("B000TEST86"),
-                        "Produto de teste",
-                        null,
-                        "https://example.invalid/produto"
-                );
-
-        return new OfferSnapshot(
+            new Product(
                 1L,
-                product,
-                OffsetDateTime.now(),
-                new Money(
-                        new BigDecimal("99.90")
+                new Asin(
+                    "B000TEST86"
+                ),
+                "Produto de teste",
+                null,
+                "https://example.invalid/produto"
+            );
+
+        PaymentCondition cash =
+            new PaymentCondition(
+                PaymentConditionType.CASH,
+                Money.of(
+                    "79.90"
+                ),
+                Percentage.of(
+                    cashDiscount
                 ),
                 null,
                 null,
                 null,
                 null,
-                null,
-                "Vendedor teste",
-                "Amazon",
-                SellerType.AMAZON,
-                DeliveryType.AMAZON,
-                "TEST",
-                List.of()
+                List.of(
+                    PaymentMethod.PIX,
+                    PaymentMethod.NUPAY_ADDITIONAL_LIMIT
+                )
+            );
+
+        return new OfferSnapshot(
+            1L,
+            product,
+            OffsetDateTime.now(),
+            Money.of(
+                "99.90"
+            ),
+            null,
+            null,
+            null,
+            rating,
+            reviewCount,
+            "Vendedor teste",
+            "Amazon",
+            sellerType,
+            deliveryType,
+            "TEST",
+            List.of(
+                cash
+            )
         );
     }
 
     private static final class FakeDealEvaluationRepository
-            implements DealEvaluationRepository {
+        implements DealEvaluationRepository {
 
         private final List<DealEvaluation> savedEvaluations =
-                new ArrayList<>();
+            new ArrayList<>();
 
         private DealEvaluation savedEvaluation;
 
         @Override
         public DealEvaluation save(
-                DealEvaluation evaluation
+            DealEvaluation evaluation
         ) {
             savedEvaluation =
-                    evaluation;
+                evaluation;
 
             savedEvaluations.add(
-                    evaluation
+                evaluation
             );
 
             return evaluation;

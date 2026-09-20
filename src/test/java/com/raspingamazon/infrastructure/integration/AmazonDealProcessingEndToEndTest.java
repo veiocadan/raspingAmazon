@@ -29,12 +29,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Teste vertical de saída da FASE 8.5.
+ * Teste vertical do pipeline de processamento.
  *
  * <p>Exercita, sem acesso externo à Amazon:</p>
  *
@@ -55,10 +55,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *     ↓
  * Evidence
  *     ↓
+ * elegibilidade estrutural
+ *     ↓
+ * filtros comerciais
+ *     ↓
  * DealEvaluation
  *     ↓
  * PostgreSQL
  * </pre>
+ *
+ * <p>A fixture individual utilizada por este teste contém seller e
+ * delivery Amazon, mas deliberadamente não contém condição comercial
+ * Pix/NuPay.</p>
+ *
+ * <p>Portanto, a partir da FASE 9, a oferta deve falhar de forma
+ * conservadora em MIN_CASH_DISCOUNT com CASH_DISCOUNT_UNAVAILABLE.</p>
  *
  * <p>O mesmo evento é processado duas vezes com o mesmo Clock fixo.
  * O teste comprova que a decisão permanece reproduzível sem duplicar
@@ -67,84 +78,88 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AmazonDealProcessingEndToEndTest {
 
     private static final String ASIN =
-            "B0E2E85001";
+        "B0E2E85001";
 
     private static final String DEALS_FIXTURE =
-            "amazon/fixtures/deals/end-to-end-deal.html";
+        "amazon/fixtures/deals/end-to-end-deal.html";
 
+    /*
+     * Esta fixture possui seller/delivery, mas não possui condições
+     * comerciais. Isso é deliberado para validar fail-closed.
+     */
     private static final String PRODUCT_FIXTURE =
-            "amazon/fixtures/product/amazon-amazon.html";
+        "amazon/fixtures/product/amazon-amazon.html";
 
     private static final Instant COLLECTION_INSTANT =
-            Instant.parse(
-                    "2026-09-19T03:00:00Z"
-            );
+        Instant.parse(
+            "2026-09-19T03:00:00Z"
+        );
 
     @Test
     void shouldProcessAuditAndReprocessSameObservationWithoutDuplication()
-            throws Exception {
+        throws Exception {
 
         ApplicationConfig config =
-                EnvironmentConfigProvider.load();
+            EnvironmentConfigProvider.load();
 
         DatabaseMigration.migrate(
-                config
+            config
         );
 
         String dealsHtml =
-                loadFixture(
-                        DEALS_FIXTURE
-                );
+            loadFixture(
+                DEALS_FIXTURE
+            );
 
         String productHtml =
-                loadFixture(
-                        PRODUCT_FIXTURE
-                );
+            loadFixture(
+                PRODUCT_FIXTURE
+            );
 
         Clock fixedClock =
-                Clock.fixed(
-                        COLLECTION_INSTANT,
-                        ZoneOffset.UTC
-                );
+            Clock.fixed(
+                COLLECTION_INSTANT,
+                ZoneOffset.UTC
+            );
 
         HttpClient httpClient =
-                HttpClient.newBuilder()
-                        .connectTimeout(
-                                Duration.ofSeconds(
-                                        5
-                                )
-                        )
-                        .build();
+            HttpClient.newBuilder()
+                .connectTimeout(
+                    Duration.ofSeconds(
+                        5
+                    )
+                )
+                .build();
 
         try (LocalAmazonServer server =
-                     LocalAmazonServer.start(
-                             dealsHtml,
-                             productHtml
-                     );
+                 LocalAmazonServer.start(
+                     dealsHtml,
+                     productHtml
+                 );
 
              Connection connection =
-                     DatabaseConnection.open(
-                             config
-                     )) {
+                 DatabaseConnection.open(
+                     config
+                 )) {
 
             cleanupByAsin(
-                    connection,
-                    ASIN
+                connection,
+                ASIN
             );
 
             AmazonDealProcessingService service =
-                    AmazonDealProcessingComposition.create(
-                            connection,
-                            fixedClock,
-                            httpClient
-                    );
+                AmazonDealProcessingComposition.create(
+                    connection,
+                    fixedClock,
+                    httpClient
+                );
 
             CollectionRequest request =
-                    new CollectionRequest(
-                            URI.create(
-                                    server.dealsUrl()
-                            )
-                    );
+                new CollectionRequest(
+                    URI.create(
+                        server.dealsUrl()
+                    )
+                );
 
             /*
              * ---------------------------------------------------------
@@ -152,76 +167,117 @@ class AmazonDealProcessingEndToEndTest {
              * ---------------------------------------------------------
              */
             var firstResult =
-                    service.process(
-                            request
-                    );
+                service.process(
+                    request
+                );
 
             assertEquals(
-                    1,
-                    firstResult.size()
+                1,
+                firstResult.size()
             );
 
             long productId =
-                    findProductId(
-                            connection,
-                            ASIN
-                    );
+                findProductId(
+                    connection,
+                    ASIN
+                );
 
             long snapshotId =
-                    findSingleSnapshotId(
-                            connection,
-                            productId
-                    );
+                findSingleSnapshotId(
+                    connection,
+                    productId
+                );
 
             DecisionState firstDecision =
-                    loadDecision(
-                            connection,
-                            snapshotId
-                    );
+                loadDecision(
+                    connection,
+                    snapshotId
+                );
 
-            assertTrue(
-                    firstDecision.eligible()
-            );
-
-            assertNull(
-                    firstDecision.rejectionReason()
-            );
-
-            assertEquals(
-                    1L,
-                    countProducts(
-                            connection,
-                            ASIN
-                    )
+            /*
+             * Seller e delivery passam.
+             *
+             * Rating e reviewCount também passam.
+             *
+             * Porém não existe PaymentCondition CASH explícita na
+             * fixture individual.
+             */
+            assertFalse(
+                firstDecision.eligible()
             );
 
             assertEquals(
-                    1L,
-                    countSnapshots(
-                            connection,
-                            productId
-                    )
+                "CASH_DISCOUNT_UNAVAILABLE",
+                firstDecision.rejectionReason()
             );
 
             assertEquals(
-                    2L,
-                    countEvidence(
-                            connection,
-                            snapshotId
-                    )
+                "AMAZON_SELLER_DELIVERY_V1",
+                firstDecision.eligibilityPolicyVersion()
             );
 
             assertEquals(
-                    1L,
-                    countEvaluations(
-                            connection,
-                            snapshotId
-                    )
+                "COMMERCIAL_FILTER_V1",
+                firstDecision.filterProfileVersion()
+            );
+
+            assertEquals(
+                1L,
+                countProducts(
+                    connection,
+                    ASIN
+                )
+            );
+
+            assertEquals(
+                1L,
+                countSnapshots(
+                    connection,
+                    productId
+                )
+            );
+
+            assertEquals(
+                2L,
+                countEvidence(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            assertEquals(
+                1L,
+                countEvaluations(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            /*
+             * A partir da FASE 9 temos:
+             *
+             * 1. SELLER_IS_AMAZON
+             * 2. DELIVERY_IS_AMAZON
+             * 3. MIN_CASH_DISCOUNT
+             * 4. MIN_RATING
+             * 5. MIN_REVIEW_COUNT
+             */
+            assertEquals(
+                5L,
+                countEvaluationRuleResults(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            assertCommercialRuleAudit(
+                connection,
+                snapshotId
             );
 
             assertSnapshotAuditData(
-                    connection,
-                    snapshotId
+                connection,
+                snapshotId
             );
 
             /*
@@ -237,88 +293,177 @@ class AmazonDealProcessingEndToEndTest {
              * product_id + collected_at + source
              */
             var secondResult =
-                    service.process(
-                            request
-                    );
+                service.process(
+                    request
+                );
 
             assertEquals(
-                    1,
-                    secondResult.size()
+                1,
+                secondResult.size()
             );
 
             long snapshotIdAfterReplay =
-                    findSingleSnapshotId(
-                            connection,
-                            productId
-                    );
+                findSingleSnapshotId(
+                    connection,
+                    productId
+                );
 
             DecisionState secondDecision =
-                    loadDecision(
-                            connection,
-                            snapshotIdAfterReplay
-                    );
+                loadDecision(
+                    connection,
+                    snapshotIdAfterReplay
+                );
 
             /*
              * A mesma observação deve apontar para o mesmo snapshot.
              */
             assertEquals(
-                    snapshotId,
-                    snapshotIdAfterReplay
+                snapshotId,
+                snapshotIdAfterReplay
             );
 
             /*
              * A decisão persistida precisa permanecer reproduzível.
              */
             assertEquals(
-                    firstDecision,
-                    secondDecision
+                firstDecision,
+                secondDecision
             );
 
             /*
              * Nenhum estado dependente pode ser duplicado.
              */
             assertEquals(
-                    1L,
-                    countProducts(
-                            connection,
-                            ASIN
-                    )
+                1L,
+                countProducts(
+                    connection,
+                    ASIN
+                )
             );
 
             assertEquals(
-                    1L,
-                    countSnapshots(
-                            connection,
-                            productId
-                    )
+                1L,
+                countSnapshots(
+                    connection,
+                    productId
+                )
             );
 
             assertEquals(
-                    2L,
-                    countEvidence(
-                            connection,
-                            snapshotId
-                    )
+                2L,
+                countEvidence(
+                    connection,
+                    snapshotId
+                )
             );
 
             assertEquals(
-                    1L,
-                    countEvaluations(
-                            connection,
-                            snapshotId
-                    )
+                1L,
+                countEvaluations(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            assertEquals(
+                5L,
+                countEvaluationRuleResults(
+                    connection,
+                    snapshotId
+                )
             );
 
         } finally {
 
             try (Connection cleanupConnection =
-                         DatabaseConnection.open(
-                                 config
-                         )) {
+                     DatabaseConnection.open(
+                         config
+                     )) {
 
                 cleanupByAsin(
-                        cleanupConnection,
-                        ASIN
+                    cleanupConnection,
+                    ASIN
+                );
+            }
+        }
+    }
+
+    /**
+     * Confirma o resultado comercial persistido para a fixture sem
+     * condição explícita Pix/NuPay.
+     */
+    private void assertCommercialRuleAudit(
+        Connection connection,
+        long snapshotId
+    ) throws Exception {
+
+        String sql = """
+            SELECT
+                derr.rule_code,
+                derr.passed,
+                derr.observed_value,
+                derr.threshold_value,
+                derr.reason_code
+            FROM deal_evaluation_rule_result derr
+            JOIN deal_evaluation de
+              ON de.id = derr.deal_evaluation_id
+            WHERE de.offer_snapshot_id = ?
+              AND derr.rule_code = 'MIN_CASH_DISCOUNT'
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                snapshotId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                assertTrue(
+                    resultSet.next()
+                );
+
+                assertEquals(
+                    "MIN_CASH_DISCOUNT",
+                    resultSet.getString(
+                        "rule_code"
+                    )
+                );
+
+                assertFalse(
+                    resultSet.getBoolean(
+                        "passed"
+                    )
+                );
+
+                assertEquals(
+                    "UNAVAILABLE",
+                    resultSet.getString(
+                        "observed_value"
+                    )
+                );
+
+                assertBigDecimalTextEquals(
+                    "20",
+                    resultSet.getString(
+                        "threshold_value"
+                    )
+                );
+
+                assertEquals(
+                    "CASH_DISCOUNT_UNAVAILABLE",
+                    resultSet.getString(
+                        "reason_code"
+                    )
+                );
+
+                assertFalse(
+                    resultSet.next()
                 );
             }
         }
@@ -326,18 +471,13 @@ class AmazonDealProcessingEndToEndTest {
 
     /**
      * Confirma que os dados materiais da observação foram persistidos.
-     *
-     * <p>Valores NUMERIC do PostgreSQL são comparados numericamente,
-     * sem exigir uma escala textual específica. Portanto, por exemplo,
-     * 37 e 37.00 representam corretamente o mesmo valor.</p>
      */
     private void assertSnapshotAuditData(
-            Connection connection,
-            long snapshotId
+        Connection connection,
+        long snapshotId
     ) throws Exception {
 
-        String sql =
-                """
+        String sql = """
                 SELECT
                     current_price,
                     basis_price,
@@ -351,69 +491,69 @@ class AmazonDealProcessingEndToEndTest {
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    snapshotId
+                1,
+                snapshotId
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next()
+                    resultSet.next()
                 );
 
                 assertBigDecimalEquals(
-                        "79.90",
-                        resultSet.getBigDecimal(
-                                "current_price"
-                        )
+                    "79.90",
+                    resultSet.getBigDecimal(
+                        "current_price"
+                    )
                 );
 
                 assertBigDecimalEquals(
-                        "99.90",
-                        resultSet.getBigDecimal(
-                                "basis_price"
-                        )
+                    "99.90",
+                    resultSet.getBigDecimal(
+                        "basis_price"
+                    )
                 );
 
                 assertBigDecimalEquals(
-                        "37",
-                        resultSet.getBigDecimal(
-                                "sold_percentage"
-                        )
+                    "37",
+                    resultSet.getBigDecimal(
+                        "sold_percentage"
+                    )
                 );
 
                 assertEquals(
-                        4.6,
-                        resultSet.getDouble(
-                                "rating"
-                        )
+                    4.6,
+                    resultSet.getDouble(
+                        "rating"
+                    )
                 );
 
                 assertEquals(
-                        58363L,
-                        resultSet.getLong(
-                                "review_count"
-                        )
+                    58363L,
+                    resultSet.getLong(
+                        "review_count"
+                    )
                 );
 
                 assertEquals(
-                        "Amazon.com.br",
-                        resultSet.getString(
-                                "seller_name"
-                        )
+                    "Amazon.com.br",
+                    resultSet.getString(
+                        "seller_name"
+                    )
                 );
 
                 assertEquals(
-                        "Amazon",
-                        resultSet.getString(
-                                "delivery_provider"
-                        )
+                    "Amazon",
+                    resultSet.getString(
+                        "delivery_provider"
+                    )
                 );
             }
         }
@@ -421,76 +561,99 @@ class AmazonDealProcessingEndToEndTest {
 
     /**
      * Compara BigDecimal por valor numérico, não por escala.
-     *
-     * <p>BigDecimal.equals() considera a escala. Por isso,
-     * 37 e 37.00 não são iguais segundo equals(), apesar de
-     * representarem o mesmo número.</p>
      */
     private void assertBigDecimalEquals(
-            String expected,
-            BigDecimal actual
+        String expected,
+        BigDecimal actual
     ) {
 
         assertNotNull(
-                actual
+            actual
         );
 
         BigDecimal expectedValue =
-                new BigDecimal(
-                        expected
-                );
+            new BigDecimal(
+                expected
+            );
 
         assertEquals(
-                0,
-                expectedValue.compareTo(
-                        actual
-                ),
-                "Expected numeric value "
-                        + expectedValue.toPlainString()
-                        + " but was "
-                        + actual.toPlainString()
+            0,
+            expectedValue.compareTo(
+                actual
+            ),
+            "Expected numeric value "
+                + expectedValue.toPlainString()
+                + " but was "
+                + actual.toPlainString()
         );
     }
 
     /**
-     * Obtém o produto criado pelo fluxo.
+     * Compara um número persistido como texto de auditoria sem depender
+     * de escala ou zeros finais.
      */
+    private void assertBigDecimalTextEquals(
+        String expected,
+        String actual
+    ) {
+
+        assertNotNull(
+            actual
+        );
+
+        BigDecimal expectedValue =
+            new BigDecimal(
+                expected
+            );
+
+        BigDecimal actualValue =
+            new BigDecimal(
+                actual
+            );
+
+        assertEquals(
+            0,
+            expectedValue.compareTo(
+                actualValue
+            )
+        );
+    }
+
     private long findProductId(
-            Connection connection,
-            String asin
+        Connection connection,
+        String asin
     ) throws Exception {
 
-        String sql =
-                """
+        String sql = """
                 SELECT id
                 FROM product
                 WHERE asin = ?
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setString(
-                    1,
-                    asin
+                1,
+                asin
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next()
+                    resultSet.next()
                 );
 
                 long id =
-                        resultSet.getLong(
-                                "id"
-                        );
+                    resultSet.getLong(
+                        "id"
+                    );
 
                 assertTrue(
-                        id > 0
+                    id > 0
                 );
 
                 return id;
@@ -498,16 +661,12 @@ class AmazonDealProcessingEndToEndTest {
         }
     }
 
-    /**
-     * Obtém o único snapshot associado ao produto do teste.
-     */
     private long findSingleSnapshotId(
-            Connection connection,
-            long productId
+        Connection connection,
+        long productId
     ) throws Exception {
 
-        String sql =
-                """
+        String sql = """
                 SELECT id
                 FROM offer_snapshot
                 WHERE product_id = ?
@@ -515,36 +674,33 @@ class AmazonDealProcessingEndToEndTest {
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    productId
+                1,
+                productId
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next()
+                    resultSet.next()
                 );
 
                 long snapshotId =
-                        resultSet.getLong(
-                                "id"
-                        );
+                    resultSet.getLong(
+                        "id"
+                    );
 
                 assertTrue(
-                        snapshotId > 0
+                    snapshotId > 0
                 );
 
-                /*
-                 * Não deve existir um segundo snapshot.
-                 */
-                assertTrue(
-                        !resultSet.next()
+                assertFalse(
+                    resultSet.next()
                 );
 
                 return snapshotId;
@@ -556,52 +712,56 @@ class AmazonDealProcessingEndToEndTest {
      * Carrega a decisão persistida para o snapshot.
      */
     private DecisionState loadDecision(
-            Connection connection,
-            long snapshotId
+        Connection connection,
+        long snapshotId
     ) throws Exception {
 
-        String sql =
-                """
+        String sql = """
                 SELECT
                     eligible,
-                    rejection_reason
+                    rejection_reason,
+                    eligibility_policy_version,
+                    filter_profile_version
                 FROM deal_evaluation
                 WHERE offer_snapshot_id = ?
                 ORDER BY id
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    snapshotId
+                1,
+                snapshotId
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next()
+                    resultSet.next()
                 );
 
                 DecisionState decision =
-                        new DecisionState(
-                                resultSet.getBoolean(
-                                        "eligible"
-                                ),
-                                resultSet.getString(
-                                        "rejection_reason"
-                                )
-                        );
+                    new DecisionState(
+                        resultSet.getBoolean(
+                            "eligible"
+                        ),
+                        resultSet.getString(
+                            "rejection_reason"
+                        ),
+                        resultSet.getString(
+                            "eligibility_policy_version"
+                        ),
+                        resultSet.getString(
+                            "filter_profile_version"
+                        )
+                    );
 
-                /*
-                 * A mesma observação deve possuir somente uma avaliação.
-                 */
-                assertTrue(
-                        !resultSet.next()
+                assertFalse(
+                    resultSet.next()
                 );
 
                 return decision;
@@ -610,112 +770,131 @@ class AmazonDealProcessingEndToEndTest {
     }
 
     private long countProducts(
-            Connection connection,
-            String asin
+        Connection connection,
+        String asin
     ) throws Exception {
 
         return count(
-                connection,
-                """
-                SELECT COUNT(*)
-                FROM product
-                WHERE asin = ?
-                """,
-                statement ->
-                        statement.setString(
-                                1,
-                                asin
-                        )
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM product
+            WHERE asin = ?
+            """,
+            statement ->
+                statement.setString(
+                    1,
+                    asin
+                )
         );
     }
 
     private long countSnapshots(
-            Connection connection,
-            long productId
+        Connection connection,
+        long productId
     ) throws Exception {
 
         return count(
-                connection,
-                """
-                SELECT COUNT(*)
-                FROM offer_snapshot
-                WHERE product_id = ?
-                """,
-                statement ->
-                        statement.setLong(
-                                1,
-                                productId
-                        )
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM offer_snapshot
+            WHERE product_id = ?
+            """,
+            statement ->
+                statement.setLong(
+                    1,
+                    productId
+                )
         );
     }
 
     private long countEvidence(
-            Connection connection,
-            long snapshotId
+        Connection connection,
+        long snapshotId
     ) throws Exception {
 
         return count(
-                connection,
-                """
-                SELECT COUNT(*)
-                FROM offer_evidence
-                WHERE offer_snapshot_id = ?
-                """,
-                statement ->
-                        statement.setLong(
-                                1,
-                                snapshotId
-                        )
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM offer_evidence
+            WHERE offer_snapshot_id = ?
+            """,
+            statement ->
+                statement.setLong(
+                    1,
+                    snapshotId
+                )
         );
     }
 
     private long countEvaluations(
-            Connection connection,
-            long snapshotId
+        Connection connection,
+        long snapshotId
     ) throws Exception {
 
         return count(
-                connection,
-                """
-                SELECT COUNT(*)
-                FROM deal_evaluation
-                WHERE offer_snapshot_id = ?
-                """,
-                statement ->
-                        statement.setLong(
-                                1,
-                                snapshotId
-                        )
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM deal_evaluation
+            WHERE offer_snapshot_id = ?
+            """,
+            statement ->
+                statement.setLong(
+                    1,
+                    snapshotId
+                )
         );
     }
 
-    /**
-     * Helper de COUNT para evitar duplicação de JDBC no teste.
-     */
+    private long countEvaluationRuleResults(
+        Connection connection,
+        long snapshotId
+    ) throws Exception {
+
+        return count(
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM deal_evaluation_rule_result derr
+            JOIN deal_evaluation de
+              ON de.id = derr.deal_evaluation_id
+            WHERE de.offer_snapshot_id = ?
+            """,
+            statement ->
+                statement.setLong(
+                    1,
+                    snapshotId
+                )
+        );
+    }
+
     private long count(
-            Connection connection,
-            String sql,
-            StatementBinder binder
+        Connection connection,
+        String sql,
+        StatementBinder binder
     ) throws Exception {
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             binder.bind(
-                    statement
+                statement
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next()
+                    resultSet.next()
                 );
 
                 return resultSet.getLong(
-                        1
+                    1
                 );
             }
         }
@@ -724,205 +903,201 @@ class AmazonDealProcessingEndToEndTest {
     /**
      * Remove somente os registros pertencentes ao ASIN exclusivo
      * deste teste.
-     *
-     * <p>A remoção é feita de filhos para pais para respeitar
-     * as foreign keys.</p>
      */
     private void cleanupByAsin(
-            Connection connection,
-            String asin
+        Connection connection,
+        String asin
     ) throws Exception {
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM deal_evaluation_rule_result
-                WHERE deal_evaluation_id IN (
-                    SELECT de.id
-                    FROM deal_evaluation de
-                    JOIN offer_snapshot os
-                      ON os.id = de.offer_snapshot_id
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM deal_evaluation_rule_result
+            WHERE deal_evaluation_id IN (
+                SELECT de.id
+                FROM deal_evaluation de
+                JOIN offer_snapshot os
+                  ON os.id = de.offer_snapshot_id
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM publication_attempt
-                WHERE publication_id IN (
-                    SELECT pub.id
-                    FROM publication pub
-                    JOIN deal_evaluation de
-                      ON de.id = pub.deal_evaluation_id
-                    JOIN offer_snapshot os
-                      ON os.id = de.offer_snapshot_id
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM publication_attempt
+            WHERE publication_id IN (
+                SELECT pub.id
+                FROM publication pub
+                JOIN deal_evaluation de
+                  ON de.id = pub.deal_evaluation_id
+                JOIN offer_snapshot os
+                  ON os.id = de.offer_snapshot_id
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM publication
-                WHERE deal_evaluation_id IN (
-                    SELECT de.id
-                    FROM deal_evaluation de
-                    JOIN offer_snapshot os
-                      ON os.id = de.offer_snapshot_id
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM publication
+            WHERE deal_evaluation_id IN (
+                SELECT de.id
+                FROM deal_evaluation de
+                JOIN offer_snapshot os
+                  ON os.id = de.offer_snapshot_id
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM deal_evaluation
-                WHERE offer_snapshot_id IN (
-                    SELECT os.id
-                    FROM offer_snapshot os
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM deal_evaluation
+            WHERE offer_snapshot_id IN (
+                SELECT os.id
+                FROM offer_snapshot os
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM offer_evidence
-                WHERE offer_snapshot_id IN (
-                    SELECT os.id
-                    FROM offer_snapshot os
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM offer_evidence
+            WHERE offer_snapshot_id IN (
+                SELECT os.id
+                FROM offer_snapshot os
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM offer_payment_condition_method
-                WHERE payment_condition_id IN (
-                    SELECT opc.id
-                    FROM offer_payment_condition opc
-                    JOIN offer_snapshot os
-                      ON os.id = opc.offer_snapshot_id
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM offer_payment_condition_method
+            WHERE payment_condition_id IN (
+                SELECT opc.id
+                FROM offer_payment_condition opc
+                JOIN offer_snapshot os
+                  ON os.id = opc.offer_snapshot_id
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM offer_payment_condition
-                WHERE offer_snapshot_id IN (
-                    SELECT os.id
-                    FROM offer_snapshot os
-                    JOIN product p
-                      ON p.id = os.product_id
-                    WHERE p.asin = ?
-                )
-                """,
-                asin
+            connection,
+            """
+            DELETE FROM offer_payment_condition
+            WHERE offer_snapshot_id IN (
+                SELECT os.id
+                FROM offer_snapshot os
+                JOIN product p
+                  ON p.id = os.product_id
+                WHERE p.asin = ?
+            )
+            """,
+            asin
         );
 
         executeDelete(
-                connection,
-                """
-                DELETE FROM offer_snapshot
-                WHERE product_id IN (
-                    SELECT id
-                    FROM product
-                    WHERE asin = ?
-                )
-                """,
-                asin
-        );
-
-        executeDelete(
-                connection,
-                """
-                DELETE FROM product
+            connection,
+            """
+            DELETE FROM offer_snapshot
+            WHERE product_id IN (
+                SELECT id
+                FROM product
                 WHERE asin = ?
-                """,
-                asin
+            )
+            """,
+            asin
+        );
+
+        executeDelete(
+            connection,
+            """
+            DELETE FROM product
+            WHERE asin = ?
+            """,
+            asin
         );
     }
 
     private void executeDelete(
-            Connection connection,
-            String sql,
-            String asin
+        Connection connection,
+        String sql,
+        String asin
     ) throws Exception {
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setString(
-                    1,
-                    asin
+                1,
+                asin
             );
 
             statement.executeUpdate();
         }
     }
 
-    /**
-     * Lê uma fixture textual do classpath.
-     */
     private String loadFixture(
-            String resourcePath
+        String resourcePath
     ) throws Exception {
 
         ClassLoader classLoader =
-                getClass()
-                        .getClassLoader();
+            getClass()
+                .getClassLoader();
 
         try (InputStream inputStream =
-                     classLoader.getResourceAsStream(
-                             resourcePath
-                     )) {
+                 classLoader.getResourceAsStream(
+                     resourcePath
+                 )) {
 
             assertNotNull(
-                    inputStream,
-                    "Fixture not found: "
-                            + resourcePath
+                inputStream,
+                "Fixture not found: "
+                    + resourcePath
             );
 
             return new String(
-                    inputStream.readAllBytes(),
-                    StandardCharsets.UTF_8
+                inputStream.readAllBytes(),
+                StandardCharsets.UTF_8
             );
         }
     }
 
     private record DecisionState(
-            boolean eligible,
-            String rejectionReason
+        boolean eligible,
+        String rejectionReason,
+        String eligibilityPolicyVersion,
+        String filterProfileVersion
     ) {
     }
 
@@ -930,113 +1105,110 @@ class AmazonDealProcessingEndToEndTest {
     private interface StatementBinder {
 
         void bind(
-                PreparedStatement statement
+            PreparedStatement statement
         ) throws Exception;
     }
 
     /**
-     * Servidor local que simula as duas fronteiras HTTP do fluxo:
-     *
-     * - página de Deals;
-     * - página individual do produto.
+     * Servidor local que simula as duas fronteiras HTTP do fluxo.
      */
     private static final class LocalAmazonServer
-            implements AutoCloseable {
+        implements AutoCloseable {
 
         private final HttpServer server;
 
         private final ExecutorService executor;
 
         private LocalAmazonServer(
-                HttpServer server,
-                ExecutorService executor
+            HttpServer server,
+            ExecutorService executor
         ) {
             this.server =
-                    server;
+                server;
 
             this.executor =
-                    executor;
+                executor;
         }
 
         static LocalAmazonServer start(
-                String dealsHtml,
-                String productHtml
+            String dealsHtml,
+            String productHtml
         ) throws IOException {
 
             HttpServer server =
-                    HttpServer.create(
-                            new InetSocketAddress(
-                                    "127.0.0.1",
-                                    0
-                            ),
-                            0
-                    );
+                HttpServer.create(
+                    new InetSocketAddress(
+                        "127.0.0.1",
+                        0
+                    ),
+                    0
+                );
 
             server.createContext(
-                    "/deals",
-                    exchange ->
-                            respond(
-                                    exchange,
-                                    200,
-                                    dealsHtml
-                            )
+                "/deals",
+                exchange ->
+                    respond(
+                        exchange,
+                        200,
+                        dealsHtml
+                    )
             );
 
             server.createContext(
-                    "/product/B0E2E85001",
-                    exchange ->
-                            respond(
-                                    exchange,
-                                    200,
-                                    productHtml
-                            )
+                "/product/B0E2E85001",
+                exchange ->
+                    respond(
+                        exchange,
+                        200,
+                        productHtml
+                    )
             );
 
             ExecutorService executor =
-                    Executors.newCachedThreadPool();
+                Executors.newCachedThreadPool();
 
             server.setExecutor(
-                    executor
+                executor
             );
 
             server.start();
 
             return new LocalAmazonServer(
-                    server,
-                    executor
+                server,
+                executor
             );
         }
 
         String dealsUrl() {
 
             return "http://127.0.0.1:"
-                    + server
-                    .getAddress()
-                    .getPort()
-                    + "/deals";
+                + server
+                .getAddress()
+                .getPort()
+                + "/deals";
         }
 
         private static void respond(
-                HttpExchange exchange,
-                int statusCode,
-                String body
+            HttpExchange exchange,
+            int statusCode,
+            String body
         ) throws IOException {
 
             byte[] response =
-                    body.getBytes(
-                            StandardCharsets.UTF_8
-                    );
+                body.getBytes(
+                    StandardCharsets.UTF_8
+                );
 
             exchange.sendResponseHeaders(
-                    statusCode,
-                    response.length
+                statusCode,
+                response.length
             );
 
             try (var output =
-                         exchange.getResponseBody()) {
+                     exchange.getResponseBody()) {
 
                 output.write(
-                        response
+                    response
                 );
             }
         }
@@ -1045,7 +1217,7 @@ class AmazonDealProcessingEndToEndTest {
         public void close() {
 
             server.stop(
-                    0
+                0
             );
 
             executor.shutdownNow();
