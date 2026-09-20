@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, histórico, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 9 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, perfil de filtros versionado e persistido, motor determinístico de filtros comerciais e avaliação auditável com cinco resultados de regra. A próxima fase é a FASE 10 — Score, após confirmação do CI remoto deste fechamento.**
+> **Estado atual: FASE 9 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, perfil de filtros versionado e persistido, motor determinístico de filtros comerciais e avaliação auditável com cinco resultados de regra. A FASE 9 está encerrada local e remotamente, com CI hermético e probe externa validados. A próxima fase é a FASE 10 — Score.**
 
 ## 1. Objetivo
 
@@ -40,23 +40,23 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ## 2. Estado atual
 
-| Fase      | Descrição                                                | Status                          |
-| --------- | -------------------------------------------------------- | ------------------------------- |
-| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA                       |
-| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA                       |
-| FASE 1    | Fundação Java                                            | CONCLUÍDA                       |
-| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA                       |
-| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA                       |
-| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA                       |
-| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA                       |
-| FASE 4    | Configuração e segredos                                  | CONCLUÍDA                       |
-| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA                       |
-| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA                       |
-| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA                       |
-| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA                       |
-| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA                       |
-| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA                       |
-| FASE 10   | Score                                                    | PRÓXIMA APÓS GATE DE FECHAMENTO |
+| Fase      | Descrição                                                | Status    |
+| --------- | -------------------------------------------------------- | --------- |
+| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA |
+| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA |
+| FASE 1    | Fundação Java                                            | CONCLUÍDA |
+| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA |
+| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA |
+| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA |
+| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA |
+| FASE 4    | Configuração e segredos                                  | CONCLUÍDA |
+| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA |
+| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA |
+| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA |
+| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA |
+| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA |
+| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA |
+| FASE 10   | Score                                                    | PRÓXIMA   |
 
 ---
 
@@ -86,10 +86,10 @@ src/
 
 Responsabilidades principais:
 
-* `domain`: conceitos, regras e invariantes de negócio, sem dependência de infraestrutura;
-* `application`: contratos e coordenação dos casos de uso;
-* `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e adapters tecnológicos;
-* `presentation`: interfaces de entrada e exposição operacional futura.
+- `domain`: conceitos, regras e invariantes de negócio, sem dependência de infraestrutura;
+- `application`: contratos e coordenação dos casos de uso;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e adapters tecnológicos;
+- `presentation`: interfaces de entrada e exposição operacional futura.
 
 O domínio não conhece HTML, HTTP, PostgreSQL, Flyway ou JDBC.
 
@@ -99,16 +99,16 @@ O projeto permanece em um único módulo Maven enquanto não houver pressão arq
 
 ## 4. Stack
 
-* Java 25
-* Maven Wrapper 3.3.4
-* Maven 3.9.16
-* JUnit 5
-* PostgreSQL 18.6
-* Flyway 11.14.1
-* PostgreSQL JDBC 42.7.8
-* Jackson Databind 2.20.0
-* Docker / Docker Compose
-* GitHub Actions
+- Java 25
+- Maven Wrapper 3.3.4
+- Maven 3.9.16
+- JUnit 5
+- PostgreSQL 18.6
+- Flyway 11.14.1
+- PostgreSQL JDBC 42.7.8
+- Jackson Databind 2.20.0
+- Docker / Docker Compose
+- GitHub Actions
 
 ---
 
@@ -537,11 +537,11 @@ created_at
 
 O banco garante:
 
-* versão única;
-* percentual entre 0 e 100;
-* rating entre 0 e 5;
-* `min_review_count >= 0`;
-* no máximo um perfil ativo.
+- versão única;
+- percentual entre 0 e 100;
+- rating entre 0 e 5;
+- `min_review_count >= 0`;
+- no máximo um perfil ativo.
 
 A versão utilizada em uma avaliação é preservada historicamente.
 
@@ -1138,7 +1138,33 @@ Workflow:
 .github/workflows/amazon-source-probe.yml
 ```
 
-A indisponibilidade da Amazon real não deve quebrar o CI hermético.
+A probe utiliza requisição real à Amazon e permanece fora da suíte hermética.
+
+Durante o fechamento da FASE 9, o transporte HTTP foi reforçado mantendo:
+
+```text
+User-Agent: RaspingAmazon/1.0
+```
+
+e adicionando:
+
+```text
+Accept
+Accept-Language
+```
+
+Também passou a preservar diagnóstico de falha HTTP e artifact em:
+
+```text
+target/diagnostics/
+```
+
+Estado validado:
+
+```text
+probe local: SUCCESS
+probe GitHub Actions: SUCCESS
+```
 
 ---
 
@@ -1165,16 +1191,24 @@ Comando:
 ./mvnw --batch-mode clean test
 ```
 
-A confirmação do workflow remoto do fechamento da FASE 9 é gate para a abertura formal da FASE 10.
+As GitHub Actions utilizadas pelos workflows foram atualizadas durante o fechamento da FASE 9.
+
+Estado remoto:
+
+```text
+CI: SUCCESS
+```
+
+O aviso restante sobre futura migração de `ubuntu-latest` para Ubuntu 26 é informativo e não bloqueia o projeto.
 
 ---
 
 ## 40. Testes
 
-Validação local mais recente:
+Validação final:
 
 ```text
-Tests run: 301
+Tests run: 303
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1188,6 +1222,17 @@ Flyway:
 Successfully validated 7 migrations
 Current version of schema "public": 7
 Schema "public" is up to date.
+```
+
+Probe externa:
+
+```text
+Tests run: 1
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
 ```
 
 ---
@@ -1240,23 +1285,23 @@ A documentação de cada fase registra o estado verificável antes da passagem p
 
 Para preservar a separação entre fases, permanecem:
 
-* score;
-* ranking;
-* momentum;
-* histórico analítico das fases posteriores;
-* execução recorrente;
-* interface operacional;
-* seleção final para publicação;
-* `PublicationGenerator`;
-* geração efetiva de link de associado;
-* scheduler;
-* filas;
-* WhatsApp/Telegram;
-* observabilidade completa;
-* resiliência de produção;
-* segurança e governança operacional;
-* Excel/CSV opcional;
-* mecanismos de escala guiados por métricas reais.
+- score;
+- ranking;
+- momentum;
+- histórico analítico das fases posteriores;
+- execução recorrente;
+- interface operacional;
+- seleção final para publicação;
+- `PublicationGenerator`;
+- geração efetiva de link de associado;
+- scheduler;
+- filas;
+- WhatsApp/Telegram;
+- observabilidade completa;
+- resiliência de produção;
+- segurança e governança operacional;
+- Excel/CSV opcional;
+- mecanismos de escala guiados por métricas reais.
 
 ---
 
@@ -1373,12 +1418,21 @@ Auditabilidade: OK
 Perfil versionado: OK
 
 Suíte hermética:
-301 testes
+303 testes
 0 falhas
 0 erros
 0 ignorados
 
 Build:
+SUCCESS
+
+CI remoto:
+SUCCESS
+
+Probe externa local:
+SUCCESS
+
+Probe externa remota:
 SUCCESS
 
 PostgreSQL:
@@ -1393,8 +1447,8 @@ Migrations:
 Schema:
 versão 7
 
-Próximo gate:
-README versionado + CI remoto verde
+Gate da FASE 9:
+FECHADO
 
 Próxima fase:
 FASE 10 — Score
