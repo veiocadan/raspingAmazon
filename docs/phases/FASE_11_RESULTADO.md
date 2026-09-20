@@ -1731,7 +1731,7 @@ Working tree:
 CLEAN
 
 CI remoto:
-PENDENTE
+SUCESS
 
 PR:
 PENDENTE
