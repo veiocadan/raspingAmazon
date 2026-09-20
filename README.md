@@ -1,12 +1,14 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, seleção, avaliação, histórico e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
+Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, histórico, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 8.5 concluída localmente. A consolidação do núcleo, provenance, versionamento da avaliação, fluxo transacional, idempotência, CI, Maven Wrapper, fixtures mínimas e higiene do repositório foram implementados. A abertura formal da FASE 9 depende apenas da validação do CI remoto após o próximo push.**
+> **Estado atual: FASE 9 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, perfil de filtros versionado e persistido, motor determinístico de filtros comerciais e avaliação auditável com cinco resultados de regra. A próxima fase é a FASE 10 — Score, após confirmação do CI remoto deste fechamento.**
 
 ## 1. Objetivo
 
-O projeto não é apenas um raspador de ofertas. O objetivo é construir um sistema em que **coleta, normalização, enriquecimento, validação, regras de negócio, persistência e publicação permaneçam desacopladas**.
+O projeto não é apenas um raspador de ofertas.
+
+O objetivo é construir um sistema em que **coleta, normalização, enriquecimento, validação, filtros comerciais, score, persistência e publicação permaneçam desacoplados**.
 
 Fluxo conceitual:
 
@@ -19,7 +21,7 @@ enriquecimento
   ↓
 validação estrutural Amazon
   ↓
-filtros configuráveis
+filtros comerciais configuráveis
   ↓
 score / seleção
   ↓
@@ -30,26 +32,33 @@ geração de publicação
 canais
 ```
 
-A ordem das fases deve ser preservada; responsabilidades futuras não devem ser antecipadas sem decisão explícita.
+A ordem das fases deve ser preservada.
+
+Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
+
+---
 
 ## 2. Estado atual
 
-| Fase | Descrição | Status |
-|---|---|---|
-| FASE 0 | Levantamento da fonte e regras | CONCLUÍDA |
-| FASE 0 v2 | Semântica comercial de preços e pagamento | CONCLUÍDA |
-| FASE 1 | Fundação Java | CONCLUÍDA |
-| FASE 2 | PostgreSQL, schema e migrations | CONCLUÍDA |
-| FASE 2 v2 | Evolução comercial da persistência | CONCLUÍDA |
-| FASE 3 | Domínio e contratos internos | CONCLUÍDA |
-| FASE 3 v2 | Revisão comercial e estrutural | CONCLUÍDA |
-| FASE 4 | Configuração e segredos | CONCLUÍDA |
-| FASE 5 | Coleta da página de promoções | CONCLUÍDA |
-| FASE 6 | Parser, ASIN e normalização | CONCLUÍDA |
-| FASE 7 | Enriquecimento da página individual | CONCLUÍDA |
-| FASE 8 | Validação Amazon | CONCLUÍDA |
-| FASE 8.5 | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA LOCALMENTE — CI REMOTO PENDENTE |
-| FASE 9 | Motor de filtros configuráveis | PRÓXIMA APÓS CI VERDE |
+| Fase      | Descrição                                                | Status                          |
+| --------- | -------------------------------------------------------- | ------------------------------- |
+| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA                       |
+| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA                       |
+| FASE 1    | Fundação Java                                            | CONCLUÍDA                       |
+| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA                       |
+| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA                       |
+| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA                       |
+| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA                       |
+| FASE 4    | Configuração e segredos                                  | CONCLUÍDA                       |
+| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA                       |
+| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA                       |
+| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA                       |
+| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA                       |
+| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA                       |
+| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA                       |
+| FASE 10   | Score                                                    | PRÓXIMA APÓS GATE DE FECHAMENTO |
+
+---
 
 ## 3. Arquitetura
 
@@ -77,27 +86,31 @@ src/
 
 Responsabilidades principais:
 
-- `domain`: conceitos e invariantes de negócio, sem dependência de infraestrutura;
-- `application`: contratos e coordenação dos casos de uso;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP e adapters tecnológicos;
-- `presentation`: interfaces de entrada e exposição operacional futura.
+* `domain`: conceitos, regras e invariantes de negócio, sem dependência de infraestrutura;
+* `application`: contratos e coordenação dos casos de uso;
+* `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e adapters tecnológicos;
+* `presentation`: interfaces de entrada e exposição operacional futura.
 
-O domínio não conhece HTML, JSON externo, HTTP, PostgreSQL, Flyway, JDBC, Excel ou canais de publicação.
+O domínio não conhece HTML, HTTP, PostgreSQL, Flyway ou JDBC.
 
 O projeto permanece em um único módulo Maven enquanto não houver pressão arquitetural real para decomposição.
 
+---
+
 ## 4. Stack
 
-- Java 25
-- Maven Wrapper 3.3.4
-- Maven 3.9.16
-- JUnit 5
-- PostgreSQL 18.6
-- Flyway 11.14.1
-- PostgreSQL JDBC 42.7.8
-- Jackson Databind 2.20.0
-- Docker / Docker Compose
-- GitHub Actions
+* Java 25
+* Maven Wrapper 3.3.4
+* Maven 3.9.16
+* JUnit 5
+* PostgreSQL 18.6
+* Flyway 11.14.1
+* PostgreSQL JDBC 42.7.8
+* Jackson Databind 2.20.0
+* Docker / Docker Compose
+* GitHub Actions
+
+---
 
 ## 5. Build
 
@@ -117,9 +130,11 @@ Linux/macOS/CI:
 
 A instalação global de Maven não é requisito do build versionado.
 
+---
+
 ## 6. Configuração e segredos
 
-A configuração da aplicação é centralizada em:
+A configuração da aplicação permanece centralizada em:
 
 ```text
 EnvironmentConfigProvider
@@ -127,7 +142,7 @@ EnvironmentConfigProvider
 ApplicationConfig
 ```
 
-Variáveis de configuração:
+Variáveis:
 
 ```text
 APP_ENV
@@ -145,18 +160,15 @@ DB_PASSWORD
 
 `DB_PASSWORD` é obrigatório e não possui valor padrão no código.
 
-O `.env` local não é versionado. O `.env.example` documenta as variáveis necessárias sem conter segredo real.
+O `.env` local não é versionado.
 
-No Docker Compose:
+O `.env.example` documenta as variáveis necessárias sem conter segredo real.
 
-```yaml
-image: postgres:18.6
-
-environment:
-  POSTGRES_PASSWORD: ${DB_PASSWORD}
-```
+---
 
 ## 7. Domínio atual
+
+Estruturas principais:
 
 ```text
 domain/
@@ -170,19 +182,31 @@ domain/
 │   ├── DealEvaluation
 │   ├── EvaluationRuleResult
 │   └── RejectionReason
+├── filter/
+│   ├── BestCashDiscountSelector
+│   ├── CashDiscountObservation
+│   ├── CommercialFilterEngine
+│   ├── CommercialFilterRuleCode
+│   ├── FilterProfile
+│   ├── MinCashDiscountRule
+│   ├── MinRatingRule
+│   └── MinReviewCountRule
 ├── product/
 │   ├── Asin
 │   └── Product
 ├── publication/
 ├── shared/
 └── validation/
+    ├── AmazonEligibilityValidator
     ├── DeliveryType
     └── SellerType
 ```
 
-### `OfferSnapshot`
+---
 
-Representa uma observação temporal de uma oferta.
+## 8. `OfferSnapshot`
+
+`OfferSnapshot` representa uma observação temporal de uma oferta.
 
 Campos relevantes:
 
@@ -203,19 +227,56 @@ source
 paymentConditions
 ```
 
-`basisPrice` continua semanticamente distinto de `previousPrice`.
+`basisPrice` permanece semanticamente distinto de `previousPrice`.
 
-### `DealEvaluation`
+Valores ausentes não são inventados.
 
-Registra a decisão de elegibilidade e os metadados necessários à sua reprodução e auditoria.
+`soldPercentage` é coletado e persistido, mas **não participa dos filtros eliminatórios da FASE 9**.
 
-A FASE 8.5 separou os conceitos de versionamento necessários para impedir que a futura versão dos filtros da FASE 9 seja confundida com a política estrutural Amazon.
+---
 
-Resultados de regras podem ser persistidos separadamente da decisão agregada.
+## 9. `DealEvaluation`
 
-## 8. Coleta da Amazon
+`DealEvaluation` registra:
 
-A FASE 5 implementou a coleta da página funcional de promoções:
+```text
+eligible
+rejectionReason
+eligibilityPolicyVersion
+filterProfileVersion
+ruleResults
+score
+scoreVersion
+momentum
+momentumVersion
+evaluatedAt
+```
+
+Na FASE 9:
+
+```text
+eligibilityPolicyVersion
+= AMAZON_SELLER_DELIVERY_V1
+```
+
+```text
+filterProfileVersion
+= COMMERCIAL_FILTER_V1
+```
+
+Score e momentum ainda permanecem:
+
+```text
+null
+```
+
+porque pertencem às fases posteriores.
+
+---
+
+## 10. Coleta da Amazon
+
+A fonte funcional investigada permanece:
 
 ```text
 https://www.amazon.com.br/deals
@@ -237,7 +298,9 @@ O conteúdo coletado permanece bruto na fronteira de coleta.
 
 O acesso real à Amazon não participa da suíte hermética padrão.
 
-## 9. Parser, ASIN e normalização
+---
+
+## 11. Parser de Deals
 
 Fluxo:
 
@@ -257,116 +320,563 @@ O ASIN é normalizado e validado como:
 
 Links relativos são normalizados usando a origem da coleta.
 
-O parser preserva a distinção entre:
+O parser preserva:
 
 ```text
 currentPrice
 basisPrice
 previousPrice
+soldPercentage
+rating
+reviewCount
 ```
 
-Nenhum `pixPrice` é inferido.
+Nenhum preço Pix é inferido.
 
 Registros sem dados mínimos confiáveis são descartados.
 
-A deduplicação considera o contexto da oferta, incluindo ASIN, URL, `currentPrice` e `basisPrice`.
+---
 
-## 10. Fixtures mínimas
+## 12. Enriquecimento da página individual
 
-As capturas HTML completas deixaram de ser dependência normal dos testes.
-
-Fixtures versionadas:
-
-```text
-src/test/resources/amazon/fixtures/
-├── deals/
-│   ├── basic-deal.html
-│   ├── duplicate-deal.html
-│   ├── end-to-end-deal.html
-│   └── invalid-deal.html
-└── product/
-    ├── amazon-amazon.html
-    ├── amazon-global.html
-    ├── thirdparty-amazon.html
-    └── thirdparty-thirdparty.html
-```
-
-Capturas completas de diagnóstico devem permanecer fora do fluxo normal, por exemplo em `target/diagnostics/`.
-
-## 11. Enriquecimento da página individual
-
-Fluxo:
+Fluxo atual:
 
 ```text
 ParsedDeal
     ↓
-ProductEnrichmentClient
-    ↓
 AmazonProductPageEnrichmentClient
-    ↓
-AmazonProductPageParser
-    ↓
-ProductEnrichmentResult
+    ├── AmazonProductPageParser
+    │      ├── seller
+    │      └── delivery
+    │
+    └── AmazonPaymentConditionParser
+           └── paymentConditions
+                   ↓
+          ProductEnrichmentResult
 ```
 
-Seller e delivery são conceitos independentes.
+Seller e delivery permanecem conceitos independentes.
 
-A FASE 8.5 consolidou os contratos de enriquecimento e a provenance necessária para auditabilidade.
+Condições comerciais passaram a fazer parte do enriquecimento real da oferta.
 
-A implementação atual utiliza a página individual do produto como fonte de enriquecimento. Isso não significa que uma API oficial da Amazon já esteja integrada.
+---
 
-## 12. Validação Amazon
+## 13. Condições comerciais
 
-A política estrutural permanece fail closed:
+O domínio suporta:
 
 ```text
-seller == Amazon
-AND
-deliveryProvider == Amazon
-    ↓
-eligible = true
-
-qualquer outra combinação
-    ↓
-eligible = false
+PaymentConditionType.CASH
+PaymentConditionType.CREDIT_INSTALLMENT
 ```
 
-As razões de rejeição permanecem controladas e seller é validado antes de delivery.
-
-Essa política é estrutural e não substitui os filtros configuráveis da FASE 9.
-
-## 13. Provenance
-
-Seller e delivery possuem evidência auditável persistida.
-
-Campos relevantes incluem:
+Métodos atualmente conhecidos:
 
 ```text
-evidence_type
-raw_value
-normalized_value
-source_adapter
-source_component
-observed_at
+PIX
+NUPAY_ADDITIONAL_LIMIT
+CREDIT_CARD
 ```
 
-A decisão pode ser examinada posteriormente sem depender de nova coleta da página externa.
-
-## 14. Persistência
-
-PostgreSQL é a persistência operacional principal.
-
-O schema evolui exclusivamente por migrations Flyway versionadas.
-
-Estado atual:
+Uma condição pode registrar, conforme aplicável:
 
 ```text
-PostgreSQL: 18.6
-Migrations: 6
-Schema: versão 6
+price
+discountPercentage
+installmentCount
+installmentAmount
+installmentTotal
+interest
+paymentMethods
 ```
 
-Estruturas relevantes:
+Dados não explicitamente observados não são calculados ou inventados.
+
+---
+
+## 14. Parsing comercial
+
+A extração de pagamento à vista utiliza regiões da página individual identificadas durante a FASE 0 v2.
+
+Fonte principal:
+
+```text
+promotionMessageInsideBuyBox_feature_div
+```
+
+Fallback:
+
+```text
+oneTimePaymentPrice_feature_div
+```
+
+Dentro desse contexto podem ser reconhecidos:
+
+```text
+desconto percentual explícito
+à vista
+Pix
+NuPay Limite Adicional
+```
+
+O parser não busca percentuais indiscriminadamente por toda a página.
+
+Isso evita misturar a condição principal com outras promoções independentes.
+
+---
+
+## 15. Parcelamento
+
+Condições de cartão são interpretadas separadamente.
+
+Estrutura observada:
+
+```text
+InstallmentCalculatorTableCredit
+```
+
+Quando a fonte fornece evidência suficiente podem ser registrados:
+
+```text
+installmentCount
+installmentAmount
+installmentTotal
+interest
+paymentMethod = CREDIT_CARD
+```
+
+O cartão não participa do filtro de desconto à vista.
+
+---
+
+## 16. Validação estrutural Amazon
+
+Seller e delivery continuam sendo política estrutural.
+
+Fluxo:
+
+```text
+SELLER_IS_AMAZON
+DELIVERY_IS_AMAZON
+```
+
+A política é fail closed.
+
+Exemplos de rejeição estrutural:
+
+```text
+SELLER_UNKNOWN
+SELLER_THIRD_PARTY
+DELIVERY_UNKNOWN
+DELIVERY_THIRD_PARTY
+```
+
+Essa política é deliberadamente separada dos filtros comerciais configuráveis.
+
+---
+
+## 17. Perfil de filtros
+
+A FASE 9 introduziu:
+
+```text
+FilterProfile
+```
+
+Campos atuais:
+
+```text
+version
+minCashDiscountPercentage
+minRating
+minReviewCount
+```
+
+Perfil inicial:
+
+```text
+COMMERCIAL_FILTER_V1
+```
+
+Limites:
+
+```text
+minCashDiscountPercentage = 20
+minRating = 4.3
+minReviewCount = 100
+```
+
+Os valores não ficam hardcoded no composition root.
+
+---
+
+## 18. Persistência do perfil
+
+A migration:
+
+```text
+V7__commercial_filter_profile.sql
+```
+
+criou:
+
+```text
+filter_profile
+```
+
+com:
+
+```text
+version
+min_cash_discount_percentage
+min_rating
+min_review_count
+active
+created_at
+```
+
+O banco garante:
+
+* versão única;
+* percentual entre 0 e 100;
+* rating entre 0 e 5;
+* `min_review_count >= 0`;
+* no máximo um perfil ativo.
+
+A versão utilizada em uma avaliação é preservada historicamente.
+
+---
+
+## 19. `FilterProfileProvider`
+
+A aplicação depende da porta:
+
+```text
+FilterProfileProvider
+```
+
+Implementação atual:
+
+```text
+FilterProfileJdbcRepository
+```
+
+Fluxo:
+
+```text
+PostgreSQL
+    ↓
+filter_profile
+    ↓
+FilterProfileJdbcRepository
+    ↓
+FilterProfileProvider
+    ↓
+FilterProfile
+```
+
+Assim a camada de aplicação não conhece JDBC nem PostgreSQL.
+
+---
+
+## 20. Filtros comerciais
+
+A FASE 9 implementou:
+
+```text
+MIN_CASH_DISCOUNT
+MIN_RATING
+MIN_REVIEW_COUNT
+```
+
+Cada filtro retorna:
+
+```text
+EvaluationRuleResult
+```
+
+contendo:
+
+```text
+ruleCode
+passed
+observedValue
+threshold
+reasonCode
+```
+
+---
+
+## 21. Ausência e valor insuficiente
+
+A FASE 9 diferencia explicitamente:
+
+```text
+dado indisponível
+```
+
+de:
+
+```text
+dado presente abaixo do limite
+```
+
+Desconto:
+
+```text
+CASH_DISCOUNT_UNAVAILABLE
+CASH_DISCOUNT_BELOW_MINIMUM
+```
+
+Rating:
+
+```text
+RATING_UNAVAILABLE
+RATING_BELOW_MINIMUM
+```
+
+Avaliações:
+
+```text
+REVIEW_COUNT_UNAVAILABLE
+REVIEW_COUNT_BELOW_MINIMUM
+```
+
+Ausência não é convertida em zero.
+
+---
+
+## 22. Desconto à vista
+
+O filtro de desconto utiliza somente condições:
+
+```text
+PaymentConditionType.CASH
+```
+
+associadas a:
+
+```text
+PIX
+```
+
+ou:
+
+```text
+NUPAY_ADDITIONAL_LIMIT
+```
+
+e exige:
+
+```text
+discountPercentage explícito
+```
+
+Não são utilizados:
+
+```text
+desconto inferido por diferença de preços
+parcelamento
+CREDIT_CARD
+promoções sem contexto reconhecido
+```
+
+---
+
+## 23. `BestCashDiscountSelector`
+
+O fluxo de seleção é:
+
+```text
+PaymentCondition[]
+        ↓
+somente CASH
+        ↓
+somente PIX / NUPAY_ADDITIONAL_LIMIT
+        ↓
+somente desconto explícito
+        ↓
+maior percentual
+        ↓
+CashDiscountObservation
+```
+
+Exemplo:
+
+```text
+Pix = 20%
+NuPay = 25%
+```
+
+Resultado:
+
+```text
+25%
+```
+
+Não existe soma de descontos.
+
+Em empate, os métodos observados são preservados deterministicamente.
+
+---
+
+## 24. Rating mínimo
+
+`MinRatingRule` considera válido o intervalo:
+
+```text
+0..5
+```
+
+Comportamento:
+
+```text
+ausente/inválido
+→ RATING_UNAVAILABLE
+
+abaixo do mínimo
+→ RATING_BELOW_MINIMUM
+
+igual/acima
+→ passa
+```
+
+---
+
+## 25. Quantidade mínima de avaliações
+
+`MinReviewCountRule` possui comportamento:
+
+```text
+ausente/inválido
+→ REVIEW_COUNT_UNAVAILABLE
+
+abaixo do mínimo
+→ REVIEW_COUNT_BELOW_MINIMUM
+
+igual/acima
+→ passa
+```
+
+Valores negativos são tratados como indisponíveis.
+
+---
+
+## 26. `soldPercentage`
+
+`soldPercentage` foi deliberadamente excluído do motor de filtros.
+
+Estado:
+
+```text
+coletado
+normalizado
+persistido
+auditável
+```
+
+mas:
+
+```text
+não elimina ofertas
+```
+
+Ele fica reservado para a FASE 10 como possível sinal de:
+
+```text
+popularidade
+tração
+demanda
+```
+
+Ausência não equivale a zero.
+
+---
+
+## 27. Motor comercial
+
+Foi criado:
+
+```text
+CommercialFilterEngine
+```
+
+Ordem fixa:
+
+```text
+1. MIN_CASH_DISCOUNT
+2. MIN_RATING
+3. MIN_REVIEW_COUNT
+```
+
+Não existe short-circuit.
+
+Todas as três regras são avaliadas para produzir auditoria completa.
+
+---
+
+## 28. Avaliação agregada
+
+`AmazonDealEvaluationApplicationService` executa:
+
+```text
+AmazonEligibilityValidator
+        +
+CommercialFilterEngine
+```
+
+A ordem agregada é:
+
+```text
+1. SELLER_IS_AMAZON
+2. DELIVERY_IS_AMAZON
+3. MIN_CASH_DISCOUNT
+4. MIN_RATING
+5. MIN_REVIEW_COUNT
+```
+
+A ordem é determinística.
+
+A primeira falha determina:
+
+```text
+DealEvaluation.rejectionReason
+```
+
+mas todos os cinco resultados permanecem persistidos.
+
+---
+
+## 29. Sem short-circuit estrutural/comercial
+
+Mesmo quando seller ou delivery falham, as regras comerciais também são avaliadas.
+
+Exemplo:
+
+```text
+SELLER_IS_AMAZON
+→ falha
+
+DELIVERY_IS_AMAZON
+→ falha
+
+MIN_CASH_DISCOUNT
+→ passa
+
+MIN_RATING
+→ passa
+
+MIN_REVIEW_COUNT
+→ passa
+```
+
+O resultado agregado continua estruturalmente rejeitado, mas a auditoria comercial permanece disponível.
+
+---
+
+## 30. Persistência
+
+Estado principal:
 
 ```text
 product
@@ -383,45 +893,103 @@ offer_snapshot
       deal_evaluation_rule_result
 ```
 
-## 15. Fluxo vertical
-
-A FASE 8.5 implementou o processamento vertical:
+Configuração comercial:
 
 ```text
+filter_profile
+```
+
+---
+
+## 31. Resultados individuais das regras
+
+Cada avaliação persiste cinco linhas em:
+
+```text
+deal_evaluation_rule_result
+```
+
+Campos:
+
+```text
+rule_order
+rule_code
+passed
+observed_value
+threshold_value
+reason_code
+```
+
+Isso permite reconstruir historicamente:
+
+```text
+qual regra foi executada
+qual valor foi observado
+qual limite foi exigido
+se passou
+se falhou
+por qual motivo
+```
+
+---
+
+## 32. Fluxo vertical atual
+
+```text
+CollectionRequest
+        ↓
 coleta
-  ↓
-parser
-  ↓
-enriquecimento
-  ↓
+        ↓
+AmazonDealsParser
+        ↓
+ParsedDeal
+        ↓
+AmazonProductPageEnrichmentClient
+        ├── seller
+        ├── delivery
+        └── paymentConditions
+        ↓
 Product
-  ↓
+        ↓
 OfferSnapshot
-  ↓
+        ↓
 PaymentConditions
-  ↓
+        ↓
 Evidence
-  ↓
+        ↓
+AmazonEligibilityValidator
+        ↓
+FilterProfileProvider
+        ↓
+CommercialFilterEngine
+        ↓
 DealEvaluation
-  ↓
+        ↓
 PostgreSQL
 ```
 
-A composição usa uma mesma `Connection` para os adapters JDBC envolvidos na unidade de trabalho.
+---
 
-## 16. Transações
+## 33. Transações
 
-`JdbcTransactionAdapter` diferencia propriedade da transação.
+`JdbcTransactionAdapter` continua protegendo a unidade de trabalho.
 
-Quando recebe `autoCommit=true`, o adapter controla begin, commit, rollback e restauração de `autoCommit`.
+Quando recebe `autoCommit=true`, controla:
 
-Quando recebe `autoCommit=false`, a transação pertence ao chamador. O adapter cria um Savepoint, não executa commit externo e, em falha, faz rollback apenas até o Savepoint.
+```text
+begin
+commit
+rollback
+restauração de autoCommit
+```
 
-## 17. Idempotência
+Quando recebe `autoCommit=false`, utiliza Savepoint e não interfere indevidamente na transação externa.
 
-`Product` utiliza upsert atômico no PostgreSQL.
+---
 
-A identidade da observação de `OfferSnapshot` é:
+## 34. Idempotência
+
+A identidade da observação de `OfferSnapshot` permanece:
 
 ```text
 product_id
@@ -431,47 +999,134 @@ collected_at
 source
 ```
 
-O banco protege essa identidade com restrição única.
+O PostgreSQL protege essa identidade.
 
-Quando a mesma observação é reprocessada, o sistema reutiliza o snapshot já persistido e não duplica indevidamente evidências, condições comerciais ou avaliação.
+Quando uma observação já existe, o sistema não duplica indevidamente:
 
-Há testes específicos de idempotência, concorrência e processamento ponta a ponta.
+```text
+PaymentConditions
+Evidence
+DealEvaluation
+```
 
-## 18. Teste ponta a ponta
+---
 
-O teste `AmazonDealProcessingEndToEndTest` exercita:
+## 35. Testes ponta a ponta
+
+### `AmazonDealProcessingEndToEndTest`
+
+Comprova o cenário fail-closed comercial:
+
+```text
+seller Amazon
+delivery Amazon
+rating suficiente
+reviewCount suficiente
+sem desconto explícito Pix/NuPay
+```
+
+Resultado:
+
+```text
+eligible = false
+rejectionReason = CASH_DISCOUNT_UNAVAILABLE
+```
+
+A avaliação persiste cinco resultados de regra.
+
+O reprocessamento continua idempotente.
+
+### `AmazonDealPaymentConditionsEndToEndTest`
+
+Comprova:
 
 ```text
 fixture Deals
         ↓
-HTTP local
+produto comercial
         ↓
-coleta
+Pix/NuPay
         ↓
-parser
+cartão
         ↓
-fixture de produto
-        ↓
-enrichment
-        ↓
-persistência
-        ↓
-avaliação
+OfferSnapshot
         ↓
 PostgreSQL
 ```
 
-O mesmo evento é processado duas vezes para comprovar estabilidade da decisão e ausência de duplicação imprópria.
+Exemplo persistido:
 
-## 19. Testes externos
+```text
+CASH
+├── price = 79.90
+├── discount = 25
+├── PIX
+└── NUPAY_ADDITIONAL_LIMIT
 
-A suíte padrão é hermética:
+CREDIT_INSTALLMENT
+├── installmentCount = 10
+├── installmentAmount = 9.99
+├── installmentTotal = 99.90
+├── interest = 0
+└── CREDIT_CARD
+```
+
+---
+
+## 36. Fixtures
+
+Estrutura relevante atual:
+
+```text
+src/test/resources/amazon/fixtures/
+├── deals/
+│   ├── basic-deal.html
+│   ├── duplicate-deal.html
+│   ├── end-to-end-deal.html
+│   ├── invalid-deal.html
+│   └── payment-conditions-end-to-end-deal.html
+└── product/
+    ├── amazon-amazon.html
+    ├── amazon-commercial.html
+    ├── amazon-global.html
+    ├── thirdparty-amazon.html
+    └── thirdparty-thirdparty.html
+```
+
+Capturas completas não fazem parte da dependência normal da suíte.
+
+---
+
+## 37. Schema
+
+Estado atual:
+
+```text
+PostgreSQL: 18.6
+Flyway: OK
+Migrations: 7
+Schema: versão 7
+```
+
+A migration mais recente é:
+
+```text
+V7__commercial_filter_profile.sql
+```
+
+Migrations aplicadas permanecem imutáveis.
+
+---
+
+## 38. Testes externos
+
+A suíte padrão permanece hermética:
 
 ```text
 ./mvnw clean test
 ```
 
-A probe externa é separada:
+A probe externa permanece separada:
 
 ```text
 ./mvnw --batch-mode -Pexternal-probe test
@@ -483,15 +1138,13 @@ Workflow:
 .github/workflows/amazon-source-probe.yml
 ```
 
-Artefato diagnóstico:
+A indisponibilidade da Amazon real não deve quebrar o CI hermético.
 
-```text
-target/diagnostics/amazon-deals-real.html
-```
+---
 
-## 20. CI
+## 39. CI
 
-Workflow hermético:
+Workflow:
 
 ```text
 .github/workflows/ci.yml
@@ -512,14 +1165,16 @@ Comando:
 ./mvnw --batch-mode clean test
 ```
 
-A configuração está versionada. A primeira validação remota deste fechamento ainda depende do próximo `push`.
+A confirmação do workflow remoto do fechamento da FASE 9 é gate para a abertura formal da FASE 10.
 
-## 21. Testes
+---
 
-Validação local mais recente em 19/09/2026:
+## 40. Testes
+
+Validação local mais recente:
 
 ```text
-Tests run: 233
+Tests run: 301
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -527,89 +1182,36 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-O Flyway confirmou:
+Flyway:
 
 ```text
-Successfully validated 6 migrations
-Current version of schema "public": 6
+Successfully validated 7 migrations
+Current version of schema "public": 7
 Schema "public" is up to date.
 ```
 
-Os testes abrangem domínio, contratos, persistência, transações, concorrência, idempotência, transporte HTTP, coleta, parser, fixtures mínimas, enriquecimento, provenance, avaliação Amazon e fluxo ponta a ponta.
+---
 
-## 22. Higiene do repositório
+## 41. ADR comercial
 
-A consolidação da FASE 8.5 incluiu:
-
-- Maven Wrapper;
-- `.editorconfig`;
-- `.gitattributes`;
-- normalização de EOL;
-- remoção de `.idea/workspace.xml` do versionamento;
-- PostgreSQL fixado em `18.6`;
-- redução das fixtures HTML;
-- remoção de tokens internos `filecite`;
-- correção do encoding de `FASE_4_RESULTADO.md`;
-- separação entre suíte hermética e probe externa.
-
-## 23. Fonte Amazon
-
-A fonte funcional investigada permanece:
+A semântica da FASE 9 e de partes das fases adjacentes está registrada em:
 
 ```text
-https://www.amazon.com.br/deals
+docs/adr/0001-semantica-filtros-comerciais-e-apresentacao-pagamentos.md
 ```
 
-A estratégia de uso automatizado de páginas Amazon continua sendo um gate de produção.
-
-Interfaces oficiais devem ser priorizadas quando fornecerem o dado necessário.
-
-A arquitetura mantém a fonte externa isolada dos contratos de domínio para permitir substituição futura sem reescrita do núcleo.
-
-## 24. O que ainda não foi implementado
-
-Para preservar a separação entre fases, permanecem:
-
-- motor de filtros configuráveis;
-- score;
-- ranking;
-- momentum;
-- histórico analítico correspondente às fases posteriores;
-- execução recorrente;
-- interface operacional;
-- `PublicationGenerator`;
-- geração efetiva de link de associado;
-- scheduler;
-- filas;
-- WhatsApp/Telegram;
-- observabilidade completa;
-- resiliência de produção;
-- segurança e governança operacional;
-- Excel/CSV opcional;
-- mecanismos de escala guiados por métricas reais.
-
-## 25. Roadmap
+O ADR separa explicitamente:
 
 ```text
-FASE 4   → Configuração e segredos                 [CONCLUÍDA]
-FASE 5   → Coleta                                  [CONCLUÍDA]
-FASE 6   → Parser, ASIN e normalização             [CONCLUÍDA]
-FASE 7   → Enriquecimento da página individual     [CONCLUÍDA]
-FASE 8   → Validação Amazon                        [CONCLUÍDA]
-FASE 8.5 → Consolidação do núcleo e auditabilidade [CONCLUÍDA LOCALMENTE]
-            └── CI remoto                           [AGUARDANDO PUSH]
-FASE 9   → Filtros configuráveis                   [PRÓXIMA APÓS CI]
-FASE 10  → Score
-FASE 11  → Histórico e momentum
-FASE 12  → Orquestração
-FASE 13  → Interface
-FASE 14  → Publicação
-FASE 15+ → qualidade integrada, observabilidade,
-            agendamento, canais, resiliência,
-            segurança, integrações opcionais e escala
+elegibilidade estrutural
+filtros comerciais
+score
+decisão de apresentação/publicação
 ```
 
-## 26. Documentação de fases
+---
+
+## 42. Documentação de fases
 
 ```text
 docs/phases/
@@ -626,34 +1228,152 @@ docs/phases/
 ├── FASE_6_RESULTADO.md
 ├── FASE_7_RESULTADO.md
 ├── FASE_8_RESULTADO.md
-└── FASE_8_5_RESULTADO.md
+├── FASE_8_5_RESULTADO.md
+└── FASE_9_RESULTADO.md
 ```
 
-A documentação de cada fase deve registrar o estado verificável antes da passagem para a seguinte.
+A documentação de cada fase registra o estado verificável antes da passagem para a seguinte.
 
-## 27. Estado atual
+---
+
+## 43. O que ainda não foi implementado
+
+Para preservar a separação entre fases, permanecem:
+
+* score;
+* ranking;
+* momentum;
+* histórico analítico das fases posteriores;
+* execução recorrente;
+* interface operacional;
+* seleção final para publicação;
+* `PublicationGenerator`;
+* geração efetiva de link de associado;
+* scheduler;
+* filas;
+* WhatsApp/Telegram;
+* observabilidade completa;
+* resiliência de produção;
+* segurança e governança operacional;
+* Excel/CSV opcional;
+* mecanismos de escala guiados por métricas reais.
+
+---
+
+## 44. FASE 10
+
+A próxima fase é:
 
 ```text
-FASE 8.5 — Consolidação do núcleo e preparação dos dados de decisão
+FASE 10 — Score
+```
 
-STATUS LOCAL:
+A FASE 10 não deve adicionar novos filtros implicitamente.
+
+Ela deve responder:
+
+```text
+Entre as ofertas que já passaram pela elegibilidade
+estrutural e pelos filtros comerciais,
+quais merecem maior prioridade?
+```
+
+Sinais disponíveis:
+
+```text
+discountPercentage
+rating
+reviewCount
+soldPercentage
+```
+
+Antes de implementar deverão ser definidos:
+
+```text
+scoreVersion
+normalização
+pesos
+faixas
+tratamento de null
+arredondamento
+ordem de desempate
+auditabilidade
+```
+
+`soldPercentage` poderá entrar como sinal de popularidade/tração, não como requisito eliminatório.
+
+---
+
+## 45. Roadmap
+
+```text
+FASE 4   → Configuração e segredos                 [CONCLUÍDA]
+FASE 5   → Coleta                                  [CONCLUÍDA]
+FASE 6   → Parser, ASIN e normalização             [CONCLUÍDA]
+FASE 7   → Enriquecimento da página individual     [CONCLUÍDA]
+FASE 8   → Validação Amazon                        [CONCLUÍDA]
+FASE 8.5 → Consolidação do núcleo                  [CONCLUÍDA]
+FASE 9   → Filtros comerciais configuráveis        [CONCLUÍDA]
+FASE 10  → Score                                   [PRÓXIMA]
+FASE 11  → Histórico e momentum
+FASE 12  → Orquestração
+FASE 13  → Interface
+FASE 14  → Publicação
+FASE 15+ → qualidade integrada, observabilidade,
+            agendamento, canais, resiliência,
+            segurança, integrações opcionais e escala
+```
+
+---
+
+## 46. Estado atual
+
+```text
+FASE 9 — Motor de filtros comerciais configuráveis
+
+STATUS:
 CONCLUÍDA
 
-CI:
-CONFIGURADO
-AGUARDANDO PRIMEIRA VALIDAÇÃO REMOTA DESTE FECHAMENTO
+Perfil:
+COMMERCIAL_FILTER_V1
+
+Filtros:
+MIN_CASH_DISCOUNT
+MIN_RATING
+MIN_REVIEW_COUNT
+
+Elegibilidade estrutural:
+SELLER_IS_AMAZON
+DELIVERY_IS_AMAZON
+
+Ordem total:
+1 SELLER_IS_AMAZON
+2 DELIVERY_IS_AMAZON
+3 MIN_CASH_DISCOUNT
+4 MIN_RATING
+5 MIN_REVIEW_COUNT
+
+Limites comerciais:
+cash discount >= 20%
+rating >= 4.3
+reviewCount >= 100
+
+soldPercentage:
+COLETADO
+PERSISTIDO
+NÃO É FILTRO
+RESERVADO PARA SCORE
 
 Fluxo vertical: OK
-Provenance: OK
+Condições comerciais: OK
 Persistência: OK
 Transações: OK
 Idempotência: OK
-Concorrência: OK
-Maven Wrapper: OK
-Fixtures mínimas: OK
+Auditabilidade: OK
+Perfil versionado: OK
 
 Suíte hermética:
-233 testes
+301 testes
 0 falhas
 0 erros
 0 ignorados
@@ -668,14 +1388,14 @@ Flyway:
 OK
 
 Migrations:
-6
+7
 
 Schema:
-versão 6
+versão 7
 
 Próximo gate:
-push + CI verde
+README versionado + CI remoto verde
 
 Próxima fase:
-FASE 9 — Motor de filtros configuráveis
+FASE 10 — Score
 ```
