@@ -1,14 +1,14 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
+Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 10 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, filtros comerciais versionados, score versionado e reproduzível, fatores explicáveis persistidos e ranking determinístico. A validação local e o CI remoto da `main` estão verdes. A próxima fase é a FASE 11 — Histórico e momentum.**
+> **Estado atual: FASE 11 concluída localmente. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, filtros comerciais versionados, score versionado e reproduzível, fatores explicáveis persistidos, ranking determinístico, histórico por ASIN, evolução entre snapshots, MOMENTUM_V1 auditável, recorrência e detecção de publicação anterior. A validação local está verde com 422 testes e schema PostgreSQL/Flyway na versão 10. O CI remoto, Pull Request e merge da FASE 11 ainda estão pendentes. A próxima fase planejada é a FASE 12 — Orquestração e processamento assíncrono.**
 
 ## 1. Objetivo
 
 O projeto não é apenas um raspador de ofertas.
 
-O objetivo é construir um sistema em que **coleta, normalização, enriquecimento, validação, filtros comerciais, score, ranking, persistência e publicação permaneçam desacoplados**.
+O objetivo é construir um sistema em que **coleta, normalização, enriquecimento, validação, filtros comerciais, score, ranking, histórico, momentum, persistência e publicação permaneçam desacoplados**.
 
 Fluxo conceitual:
 
@@ -29,7 +29,11 @@ ranking determinístico
   ↓
 PostgreSQL / histórico
   ↓
-geração de publicação
+evolução temporal
+  ↓
+momentum versionado
+  ↓
+seleção / publicação futura
   ↓
 canais
 ```
@@ -42,24 +46,25 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ## 2. Estado atual
 
-| Fase      | Descrição                                                | Status    |
-|-----------|----------------------------------------------------------|-----------|
-| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA |
-| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA |
-| FASE 1    | Fundação Java                                            | CONCLUÍDA |
-| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA |
-| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA |
-| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA |
-| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA |
-| FASE 4    | Configuração e segredos                                  | CONCLUÍDA |
-| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA |
-| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA |
-| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA |
-| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA |
-| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA |
-| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA |
-| FASE 10   | Score, ranking e explicabilidade                         | CONCLUÍDA |
-| FASE 11   | Histórico e momentum                                     | PRÓXIMA   |
+| Fase      | Descrição                                                | Status              |
+|-----------|----------------------------------------------------------|---------------------|
+| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA           |
+| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA           |
+| FASE 1    | Fundação Java                                            | CONCLUÍDA           |
+| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA           |
+| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA           |
+| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA           |
+| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA           |
+| FASE 4    | Configuração e segredos                                  | CONCLUÍDA           |
+| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA           |
+| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA           |
+| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA           |
+| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA           |
+| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA           |
+| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA           |
+| FASE 10   | Score, ranking e explicabilidade                         | CONCLUÍDA           |
+| FASE 11   | Histórico, evolução e momentum                           | CONCLUÍDA LOCALMENTE|
+| FASE 12   | Orquestração e processamento assíncrono                  | PRÓXIMA             |
 
 ---
 
@@ -89,7 +94,7 @@ src/
 
 Responsabilidades principais:
 
-- `domain`: conceitos, regras, normalização, score, ranking e invariantes de negócio, sem dependência de infraestrutura;
+- `domain`: conceitos, regras, normalização, evolução histórica, momentum, score, ranking e invariantes de negócio, sem dependência de infraestrutura;
 - `application`: contratos e coordenação dos casos de uso;
 - `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e adapters tecnológicos;
 - `presentation`: interfaces de entrada e exposição operacional futura.
@@ -132,6 +137,17 @@ Linux/macOS/CI:
 ```
 
 A instalação global de Maven não é requisito do build versionado.
+
+Gate local final da FASE 11:
+
+```text
+Tests run: 422
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
 
 ---
 
@@ -194,6 +210,15 @@ domain/
 │   ├── MinCashDiscountRule
 │   ├── MinRatingRule
 │   └── MinReviewCountRule
+├── history/
+│   ├── HistoricalOfferObservation
+│   ├── SnapshotEvolution
+│   └── SnapshotEvolutionCalculator
+├── momentum/
+│   ├── MomentumAudit
+│   ├── MomentumEngine
+│   ├── MomentumResult
+│   └── MomentumUnavailableReason
 ├── product/
 │   ├── Asin
 │   └── Product
@@ -213,6 +238,16 @@ domain/
     ├── AmazonEligibilityValidator
     ├── DeliveryType
     └── SellerType
+```
+
+A FASE 11 adicionou dois conceitos deliberadamente separados do score:
+
+```text
+history
+→ comparação temporal entre snapshots
+
+momentum
+→ interpretação versionada da evolução histórica
 ```
 
 ---
@@ -250,6 +285,18 @@ Na FASE 9 ele não participava dos filtros eliminatórios.
 
 Na FASE 10 ele passou a participar do score como sinal de popularidade/tração, sem se tornar filtro eliminatório.
 
+Na FASE 11 ele também passou a ser utilizado como sinal temporal para `MOMENTUM_V1`.
+
+A identidade persistente da observação permanece:
+
+```text
+product_id
++
+collected_at
++
+source
+```
+
 ---
 
 ## 9. `DealEvaluation`
@@ -276,22 +323,42 @@ Versões atuais:
 eligibilityPolicyVersion = AMAZON_SELLER_DELIVERY_V1
 filterProfileVersion     = COMMERCIAL_FILTER_V1
 scoreVersion             = SCORE_V1
+momentumVersion          = MOMENTUM_V1, quando disponível
 ```
 
-Momentum permanece:
+Contrato de momentum:
 
 ```text
-null
+disponível
+→ momentum != null
+→ momentumVersion = MOMENTUM_V1
+
+indisponível
+→ momentum = null
+→ momentumVersion = null
 ```
 
-porque pertence à FASE 11.
+A razão de indisponibilidade não é perdida. Ela permanece na auditoria específica:
 
-Uma avaliação rejeitada permanece:
+```text
+deal_evaluation_momentum_audit
+```
+
+Uma avaliação rejeitada permanece sem score:
 
 ```text
 score = null
 scoreVersion = null
 scoreFactors = []
+```
+
+mas pode possuir momentum histórico.
+
+Portanto:
+
+```text
+momentum não altera elegibilidade
+momentum não altera SCORE_V1
 ```
 
 Uma avaliação pontuada possui:
@@ -503,7 +570,7 @@ DELIVERY_UNKNOWN
 DELIVERY_THIRD_PARTY
 ```
 
-Essa política é deliberadamente separada dos filtros comerciais e do score.
+Essa política permanece deliberadamente separada dos filtros comerciais, score e momentum.
 
 ---
 
@@ -676,13 +743,13 @@ REVIEW_COUNT_BELOW_MINIMUM
 
 Ausência não é convertida em zero.
 
-Esse princípio também é preservado pelo score.
+Esse princípio é preservado pelo score e pelo momentum.
 
 ---
 
 ## 22. Desconto à vista
 
-O filtro e o score utilizam somente condições:
+O filtro, o score e a comparação histórica de desconto reutilizam somente condições:
 
 ```text
 PaymentConditionType.CASH
@@ -747,7 +814,15 @@ Não existe soma de descontos.
 
 Em empate, os métodos observados são preservados deterministicamente.
 
-O mesmo seletor é reutilizado na construção do `ScoreInput`, evitando duas interpretações diferentes de desconto à vista.
+O mesmo seletor é reutilizado:
+
+```text
+filtros comerciais
+score
+evolução histórica
+```
+
+evitando definições concorrentes de melhor desconto à vista.
 
 ---
 
@@ -804,7 +879,8 @@ coletado
 normalizado
 persistido
 auditável
-utilizado no score
+utilizado no SCORE_V1
+utilizado no MOMENTUM_V1
 ```
 
 mas:
@@ -813,7 +889,9 @@ mas:
 não elimina ofertas
 ```
 
-No `SCORE_V1`, ele representa sinal de popularidade/tração.
+No `SCORE_V1`, representa sinal da observação atual.
+
+No `MOMENTUM_V1`, sua variação temporal representa evolução histórica.
 
 Ausência não equivale a zero observado.
 
@@ -843,7 +921,7 @@ Todas as três regras são avaliadas para produzir auditoria completa.
 
 ## 28. Avaliação agregada
 
-`AmazonDealEvaluationApplicationService` executa:
+`AmazonDealEvaluationApplicationService` executa atualmente:
 
 ```text
 AmazonEligibilityValidator
@@ -866,11 +944,27 @@ todas as regras passaram?
         ScoreEngine
              ↓
         ScoreResult
-             ↓
-        DealEvaluation pontuada
+
+independentemente da elegibilidade
+        ↓
+MomentumCalculationService
+        ↓
+OfferHistoryQueryPort
+        ↓
+SnapshotEvolutionCalculator
+        ↓
+MomentumEngine
+        ↓
+MomentumCalculation
+        ↓
+DealEvaluation
+        ↓
+DealEvaluationRepository
+        ↓
+MomentumAuditRepository
 ```
 
-A ordem das regras eliminatórias é:
+A ordem das regras eliminatórias continua:
 
 ```text
 1. SELLER_IS_AMAZON
@@ -889,6 +983,8 @@ DealEvaluation.rejectionReason
 Todos os cinco resultados permanecem persistidos.
 
 Score só é calculado quando todos passam.
+
+Momentum é calculado separadamente e não participa da decisão de elegibilidade.
 
 ---
 
@@ -918,6 +1014,8 @@ MIN_REVIEW_COUNT
 O resultado agregado continua estruturalmente rejeitado, mas a auditoria comercial permanece disponível.
 
 O score não é calculado nesse cenário.
+
+O momentum pode ser calculado se houver histórico suficiente, porque é um sinal independente.
 
 ---
 
@@ -954,6 +1052,8 @@ Esse fator não foi implementado porque ainda não existe fonte semântica indep
 
 Os pontos reservados não foram redistribuídos.
 
+A FASE 11 não alterou esse contrato.
+
 ---
 
 ## 31. `ScoreProfile`
@@ -984,7 +1084,7 @@ reviewCountFullScoreThreshold = 1000
 
 O threshold de `1000` possui semântica de saturação do fator.
 
-Ele é diferente do filtro mínimo da FASE 9:
+Ele é diferente do filtro mínimo:
 
 ```text
 minReviewCount = 100
@@ -1034,6 +1134,8 @@ SCORE_V2
 SCORE_V3
 ...
 ```
+
+Perfis históricos não são modificados retroativamente.
 
 ---
 
@@ -1185,6 +1287,8 @@ contribution = 0
 ```
 
 A contribuição pode ser igual, mas a explicação histórica permanece diferente.
+
+A FASE 11 preserva o mesmo princípio para momentum.
 
 ---
 
@@ -1342,9 +1446,584 @@ O ASIN é somente desempate técnico determinístico.
 
 Ele não adiciona peso comercial ao score.
 
+Momentum não participa do ranking atual.
+
 ---
 
-## 41. Persistência
+## 41. Histórico por ASIN
+
+A FASE 11 introduziu a porta:
+
+```text
+OfferHistoryQueryPort
+```
+
+e a implementação:
+
+```text
+OfferHistoryJdbcRepository
+```
+
+Consultas disponíveis:
+
+```text
+findHistoryByAsin
+findFirstByAsin
+findLatestByAsin
+findPreviousByAsin
+countByAsin
+```
+
+A projeção histórica é:
+
+```text
+HistoricalOfferObservation
+```
+
+Campos principais:
+
+```text
+snapshotId
+asin
+collectedAt
+currentPrice
+soldPercentage
+source
+paymentConditions
+```
+
+Ordenação determinística:
+
+```text
+collected_at ASC
+id ASC
+```
+
+Para comparação:
+
+```text
+previous.collectedAt < current.collectedAt
+```
+
+O snapshot atual nunca é tratado como seu próprio predecessor.
+
+---
+
+## 42. Evolução entre snapshots
+
+Foi criado:
+
+```text
+SnapshotEvolutionCalculator
+```
+
+Entrada:
+
+```text
+HistoricalOfferObservation previous
+HistoricalOfferObservation current
+```
+
+Saída:
+
+```text
+SnapshotEvolution
+```
+
+O cálculo produz:
+
+```text
+soldPercentageDelta
+currentPriceDelta
+currentPriceDeltaPercentage
+cashDiscountDelta
+elapsedSeconds
+```
+
+O componente é puro.
+
+Ele não consulta banco, não decide elegibilidade, não calcula score e não publica.
+
+---
+
+## 43. Variação de percentual vendido
+
+Fórmula:
+
+```text
+soldPercentageDelta
+=
+current.soldPercentage
+-
+previous.soldPercentage
+```
+
+Exemplo:
+
+```text
+62% → 68%
+```
+
+Resultado:
+
+```text
++6 pontos percentuais
+```
+
+O delta pode ser positivo, zero ou negativo.
+
+Se alguma observação não possuir percentual vendido:
+
+```text
+soldPercentageDelta = null
+```
+
+Ausência não é convertida em zero observado.
+
+---
+
+## 44. Variação de preço
+
+Variação absoluta:
+
+```text
+currentPriceDelta
+=
+currentPrice
+-
+previousPrice
+```
+
+Exemplo:
+
+```text
+100,00 → 90,00
+```
+
+Resultado:
+
+```text
+-10,00
+```
+
+Variação percentual:
+
+```text
+currentPriceDeltaPercentage
+=
+currentPriceDelta
+/
+previousPrice
+×
+100
+```
+
+Exemplo:
+
+```text
+100,00 → 90,00
+```
+
+Resultado:
+
+```text
+-10.0000%
+```
+
+Quando o preço anterior é zero:
+
+```text
+currentPriceDeltaPercentage = null
+```
+
+Matemática:
+
+```text
+scale = 4
+HALF_UP
+```
+
+---
+
+## 45. Variação do desconto
+
+A comparação histórica reutiliza:
+
+```text
+BestCashDiscountSelector
+```
+
+Fórmula:
+
+```text
+cashDiscountDelta
+=
+currentBestCashDiscount
+-
+previousBestCashDiscount
+```
+
+Se alguma observação não possuir desconto reconhecido:
+
+```text
+cashDiscountDelta = null
+```
+
+Nenhum desconto é inferido pela diferença entre preços.
+
+---
+
+## 46. Intervalo temporal
+
+`SnapshotEvolution` preserva:
+
+```text
+previousCollectedAt
+currentCollectedAt
+```
+
+e calcula:
+
+```text
+elapsedSeconds
+```
+
+A relação obrigatória é:
+
+```text
+currentCollectedAt > previousCollectedAt
+```
+
+---
+
+## 47. `MOMENTUM_V1`
+
+Foi criado:
+
+```text
+MomentumEngine
+```
+
+Versão atual:
+
+```text
+MOMENTUM_V1
+```
+
+O indicador mede:
+
+```text
+velocidade da variação do percentual vendido
+em pontos percentuais por hora
+```
+
+Fórmula:
+
+```text
+momentum
+=
+soldPercentageDelta × 3600
+/
+elapsedSeconds
+```
+
+Precisão:
+
+```text
+BigDecimal
+scale = 4
+HALF_UP
+```
+
+Exemplo:
+
+```text
+10:00 → 62%
+13:00 → 68%
+
+delta = +6 p.p.
+intervalo = 3h
+
+momentum = 2.0000 p.p./hora
+```
+
+Momentum negativo é permitido.
+
+Não existe clamp para zero.
+
+---
+
+## 48. Disponibilidade do momentum
+
+Foi criado:
+
+```text
+MomentumResult
+```
+
+O resultado pode ser disponível ou indisponível.
+
+Motivos modelados:
+
+```text
+NO_PREVIOUS_SNAPSHOT
+SOLD_PERCENTAGE_UNAVAILABLE
+```
+
+Primeira observação:
+
+```text
+DealEvaluation
+momentum = null
+momentumVersion = null
+
+MomentumAudit
+calculationVersion = MOMENTUM_V1
+status = UNAVAILABLE
+unavailableReason = NO_PREVIOUS_SNAPSHOT
+```
+
+Se houver snapshot anterior, mas sold percentage insuficiente:
+
+```text
+status = UNAVAILABLE
+unavailableReason = SOLD_PERCENTAGE_UNAVAILABLE
+```
+
+Outros fatos históricos disponíveis permanecem preservados.
+
+---
+
+## 49. Momentum independente de elegibilidade
+
+Regra central:
+
+```text
+momentum ≠ filtro
+```
+
+Uma oferta inelegível pode possuir momentum.
+
+Momentum não transforma uma oferta em elegível.
+
+A FASE 11 não enfraqueceu as regras da FASE 8 ou FASE 9.
+
+---
+
+## 50. Momentum independente do score
+
+Regra central:
+
+```text
+momentum ≠ SCORE_V1
+```
+
+O `SCORE_V1` permanece com os mesmos quatro fatores:
+
+```text
+SOLD_PERCENTAGE
+CASH_DISCOUNT
+RATING
+REVIEW_COUNT
+```
+
+Momentum não é quinto fator.
+
+Uma combinação futura entre score e momentum exigirá nova decisão semântica e novo versionamento.
+
+---
+
+## 51. Orquestração do cálculo histórico
+
+Foi criado:
+
+```text
+MomentumCalculationService
+```
+
+Fluxo:
+
+```text
+OfferSnapshot atual persistido
+        ↓
+OfferHistoryQueryPort
+        ↓
+snapshot anterior
+        ↓
+SnapshotEvolutionCalculator
+        ↓
+SnapshotEvolution
+        ↓
+MomentumEngine
+        ↓
+MomentumResult
+        ↓
+MomentumCalculation
+```
+
+O snapshot atual não é relido desnecessariamente.
+
+Somente a observação anterior é consultada no hot path do momentum.
+
+---
+
+## 52. Auditoria persistente de momentum
+
+A migration:
+
+```text
+V9__momentum_audit.sql
+```
+
+criou:
+
+```text
+deal_evaluation_momentum_audit
+```
+
+Campos:
+
+```text
+id
+deal_evaluation_id
+calculation_version
+status
+unavailable_reason
+previous_offer_snapshot_id
+elapsed_seconds
+sold_percentage_delta
+current_price_delta
+current_price_delta_percentage
+cash_discount_delta
+momentum
+created_at
+```
+
+O schema protege coerência entre:
+
+```text
+AVAILABLE
+UNAVAILABLE
+```
+
+e os campos correspondentes.
+
+---
+
+## 53. Resultado agregado e auditoria
+
+`deal_evaluation` preserva:
+
+```text
+momentum
+momentum_version
+```
+
+para acesso agregado.
+
+`deal_evaluation_momentum_audit` preserva a base do cálculo.
+
+Exemplo disponível:
+
+```text
+deal_evaluation
+momentum = 2.0000
+momentum_version = MOMENTUM_V1
+
+audit
+status = AVAILABLE
+previous_offer_snapshot_id = ...
+elapsed_seconds = 10800
+sold_percentage_delta = 6
+momentum = 2.0000
+```
+
+Exemplo indisponível:
+
+```text
+deal_evaluation
+momentum = null
+momentum_version = null
+
+audit
+calculation_version = MOMENTUM_V1
+status = UNAVAILABLE
+unavailable_reason = NO_PREVIOUS_SNAPSHOT
+```
+
+---
+
+## 54. Recorrência e status histórico
+
+Foram criados:
+
+```text
+OfferHistoryStatus
+OfferHistoryStatusQueryPort
+OfferHistoryStatusJdbcRepository
+```
+
+O read model informa:
+
+```text
+asin
+snapshotCount
+firstDetectedAt
+lastUpdatedAt
+publishedBefore
+```
+
+Uma oferta é recorrente quando:
+
+```text
+snapshotCount > 1
+```
+
+Também são calculáveis:
+
+```text
+timeSinceFirstDetection(referenceTime)
+timeSinceLastUpdate(referenceTime)
+```
+
+O instante de referência é explícito para preservar determinismo e testabilidade.
+
+---
+
+## 55. Oferta já publicada
+
+A FASE 11 define:
+
+```text
+já publicada
+=
+existe Publication
+do mesmo ASIN
+com status = PUBLISHED
+```
+
+Estados:
+
+```text
+CREATED
+READY
+FAILED
+```
+
+não representam publicação concluída.
+
+Portanto:
+
+```text
+READY != publishedBefore
+PUBLISHED = publishedBefore
+```
+
+A consulta utiliza `EXISTS`, evitando multiplicação indevida das linhas de snapshots.
+
+---
+
+## 56. Persistência atual
 
 Estado principal:
 
@@ -1360,7 +2039,11 @@ offer_snapshot
   │
   └── deal_evaluation
           ├── deal_evaluation_rule_result
-          └── deal_evaluation_score_factor
+          ├── deal_evaluation_score_factor
+          ├── deal_evaluation_momentum_audit
+          └── publication
+                  ↓
+             publication_attempt
 ```
 
 Configurações versionadas:
@@ -1370,9 +2053,17 @@ filter_profile
 score_profile
 ```
 
+A unidade histórica continua sendo:
+
+```text
+OfferSnapshot
+```
+
+Não existe uma cópia paralela do histórico.
+
 ---
 
-## 42. Fluxo vertical atual
+## 57. Fluxo vertical atual
 
 ```text
 CollectionRequest
@@ -1413,14 +2104,40 @@ aprovada?
              ↓
         ScoreEngine
              ↓
-        DealEvaluation pontuada
-             ↓
-        PostgreSQL
+        SCORE_V1
+
+independentemente da elegibilidade
+        ↓
+OfferHistoryQueryPort
+        ↓
+snapshot anterior
+        ↓
+SnapshotEvolutionCalculator
+        ↓
+MomentumEngine
+        ↓
+MOMENTUM_V1
+        ↓
+DealEvaluation
+        ↓
+MomentumAudit
+        ↓
+PostgreSQL
+```
+
+Separação:
+
+```text
+SCORE_V1
+→ fatos da observação atual
+
+MOMENTUM_V1
+→ evolução histórica entre observações
 ```
 
 ---
 
-## 43. Transações
+## 58. Transações
 
 `JdbcTransactionAdapter` continua protegendo a unidade de trabalho.
 
@@ -1435,13 +2152,33 @@ restauração de autoCommit
 
 Quando recebe `autoCommit=false`, utiliza Savepoint e não interfere indevidamente na transação externa.
 
-`FilterProfile` e `ScoreProfile` são lidos durante a avaliação.
+A mesma `Connection` JDBC é compartilhada pelos componentes da unidade de trabalho.
 
-Os dados persistentes da observação e da avaliação continuam pertencendo à mesma unidade de trabalho.
+Na FASE 11 isso inclui:
+
+```text
+OfferSnapshot
+PaymentConditions
+Evidence
+DealEvaluation
+MomentumAudit
+```
+
+Sequência relevante:
+
+```text
+persistir DealEvaluation
+        ↓
+obter deal_evaluation.id
+        ↓
+persistir MomentumAudit
+```
+
+Se a auditoria falhar, a unidade transacional pode sofrer rollback, evitando estado parcial.
 
 ---
 
-## 44. Idempotência
+## 59. Idempotência
 
 A identidade da observação de `OfferSnapshot` permanece:
 
@@ -1463,25 +2200,81 @@ Evidence
 DealEvaluation
 EvaluationRuleResults
 ScoreFactors
+MomentumAudit
+```
+
+O teste vertical de momentum reprocessa a segunda observação e comprova que permanecem:
+
+```text
+2 OfferSnapshots
+2 DealEvaluations
+2 MomentumAudits
 ```
 
 ---
 
-## 45. Testes ponta a ponta
+## 60. Índices históricos
+
+A migration:
+
+```text
+V10__historical_read_indexes.sql
+```
+
+adicionou:
+
+```text
+idx_offer_snapshot_history
+```
+
+sobre:
+
+```text
+(product_id, collected_at DESC, id DESC)
+```
+
+Atende:
+
+```text
+snapshot anterior
+primeiro snapshot
+último snapshot
+histórico ordenado
+```
+
+Também foram adicionados:
+
+```text
+idx_deal_evaluation_offer_snapshot
+```
+
+sobre:
+
+```text
+deal_evaluation(offer_snapshot_id)
+```
+
+e:
+
+```text
+idx_publication_evaluation_status
+```
+
+sobre:
+
+```text
+publication(deal_evaluation_id, status)
+```
+
+---
+
+## 61. Testes ponta a ponta
 
 ### `AmazonDealProcessingEndToEndTest`
 
-Comprova o cenário fail-closed comercial:
+Comprova o cenário fail-closed comercial.
 
-```text
-seller Amazon
-delivery Amazon
-rating suficiente
-reviewCount suficiente
-sem desconto explícito Pix/NuPay
-```
-
-Resultado:
+Resultado relevante:
 
 ```text
 eligible = false
@@ -1491,27 +2284,11 @@ scoreVersion = null
 scoreFactors = []
 ```
 
-O reprocessamento continua idempotente.
-
 ### `AmazonDealPaymentConditionsEndToEndTest`
 
-Comprova:
+Comprova o fluxo de condições comerciais até o PostgreSQL.
 
-```text
-fixture Deals
-        ↓
-produto comercial
-        ↓
-Pix/NuPay
-        ↓
-cartão
-        ↓
-OfferSnapshot
-        ↓
-PostgreSQL
-```
-
-Exemplo persistido:
+Exemplo:
 
 ```text
 CASH
@@ -1530,7 +2307,7 @@ CREDIT_INSTALLMENT
 
 ### `AmazonDealProcessingScoreEndToEndTest`
 
-Comprova o caminho positivo da FASE 10.
+Comprova o caminho positivo do `SCORE_V1`.
 
 Dados observados:
 
@@ -1550,7 +2327,7 @@ RATING          = 18.4000
 REVIEW_COUNT    = 15.0000
 ```
 
-Score persistido:
+Score:
 
 ```text
 50.7500
@@ -1562,17 +2339,65 @@ Versão:
 SCORE_V1
 ```
 
-Também são persistidas exatamente quatro linhas em:
+### `AmazonDealProcessingMomentumEndToEndTest`
+
+Comprova o caminho histórico da FASE 11.
+
+Cenário:
 
 ```text
-deal_evaluation_score_factor
+primeira observação
+62%
+
+segunda observação, 3 horas depois
+68%
 ```
+
+Evolução:
+
+```text
+soldPercentageDelta = 6
+elapsedSeconds = 10800
+```
+
+Momentum:
+
+```text
+2.0000
+```
+
+Primeira avaliação:
+
+```text
+momentum = null
+momentumVersion = null
+
+audit
+status = UNAVAILABLE
+reason = NO_PREVIOUS_SNAPSHOT
+version = MOMENTUM_V1
+```
+
+Segunda avaliação:
+
+```text
+momentum = 2.0000
+momentumVersion = MOMENTUM_V1
+
+audit
+status = AVAILABLE
+previous snapshot preservado
+delta preservado
+elapsedSeconds preservado
+```
+
+O teste também comprova idempotência no reprocessamento.
 
 ---
 
-## 46. Fixtures
+## 62. Fixtures
 
-Estrutura relevante atual:
+Estrutura relevante:
 
 ```text
 src/test/resources/amazon/fixtures/
@@ -1594,28 +2419,31 @@ Capturas completas não fazem parte da dependência normal da suíte.
 
 ---
 
-## 47. Schema
+## 63. Schema
 
-Estado atual:
+Estado local ao final da FASE 11:
 
 ```text
 PostgreSQL: 18.6
 Flyway: OK
-Migrations: 8
-Schema: versão 8
+Migrations: 10
+Schema: versão 10
 ```
 
-Migration mais recente:
+Migrations relevantes:
 
 ```text
+V7__commercial_filter_profile.sql
 V8__score_profile_and_factors.sql
+V9__momentum_audit.sql
+V10__historical_read_indexes.sql
 ```
 
-Migrations aplicadas permanecem imutáveis.
+As migrations anteriores não foram alteradas retroativamente.
 
 ---
 
-## 48. Testes externos
+## 64. Testes externos
 
 A suíte padrão permanece hermética:
 
@@ -1639,7 +2467,7 @@ A probe utiliza requisição real à Amazon e permanece fora da suíte hermétic
 
 ---
 
-## 49. CI
+## 65. CI
 
 Workflow:
 
@@ -1662,48 +2490,35 @@ Comando:
 ./mvnw --batch-mode clean test
 ```
 
-Gatilhos atuais:
+Gatilhos:
 
 ```text
 pull_request
 push em main
 ```
 
-Validação da FASE 10:
+A FASE 10 permanece integrada à `main` com CI remoto aprovado.
+
+Estado da FASE 11:
 
 ```text
-PR #1
-FASE 10 - score, ranking e explicabilidade
-CI: SUCCESS
+validação local = SUCCESS
+CI remoto da branch/PR = PENDENTE
+Pull Request = PENDENTE
+merge em main = PENDENTE
+CI pós-merge = PENDENTE
 ```
 
-Após o merge:
-
-```text
-main
-merge commit:
-567fb771f26cec3d93e93da1d9f2dec335b5bc8c
-```
-
-O CI foi executado novamente por `push` na `main`.
-
-Resultado:
-
-```text
-CI #16
-SUCCESS
-```
-
-O aviso sobre futura mudança de `ubuntu-latest` é informativo e não bloqueia o projeto.
+Esses estados somente serão alterados depois que ocorrerem de fato.
 
 ---
 
-## 50. Testes
+## 66. Testes
 
-Validação final da FASE 10:
+Gate local final da FASE 11:
 
 ```text
-Tests run: 391
+Tests run: 422
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1711,17 +2526,83 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Flyway:
+Baseline final da FASE 10:
 
 ```text
-Successfully validated 8 migrations
-Current version of schema "public": 8
-Schema "public" is up to date.
+391 testes
+```
+
+Crescimento líquido:
+
+```text
+31 testes
+```
+
+Também foi executado:
+
+```text
+git diff --check
+```
+
+sem erros.
+
+Estado do repositório após o gate:
+
+```text
+working tree clean
 ```
 
 ---
 
-## 51. ADRs
+## 67. Cobertura específica da FASE 11
+
+A fase possui testes para:
+
+```text
+OfferHistoryJdbcRepository
+HistoricalOfferObservation
+SnapshotEvolution
+SnapshotEvolutionCalculator
+MomentumEngine
+MomentumResult
+MomentumCalculation
+MomentumCalculationService
+MomentumAudit
+MomentumAuditJdbcRepository
+OfferHistoryStatus
+OfferHistoryStatusJdbcRepository
+```
+
+São cobertos, entre outros:
+
+```text
+histórico por ASIN
+snapshot anterior
+primeiro snapshot
+último snapshot
+contagem
+delta positivo
+delta negativo
+delta zero
+soldPercentage ausente
+preço anterior zero
+desconto ausente
+intervalo temporal
+momentum positivo
+momentum negativo
+momentum zero
+primeira observação
+auditoria AVAILABLE
+auditoria UNAVAILABLE
+recorrência
+publicação READY
+publicação PUBLISHED
+idempotência vertical
+```
+
+---
+
+## 68. ADRs
 
 Semântica comercial:
 
@@ -1735,6 +2616,12 @@ Semântica de score, ranking e explicabilidade:
 docs/adr/0002-semantica-score-ranking-explicabilidade.md
 ```
 
+Semântica de histórico e momentum:
+
+```text
+docs/adr/0003-semantica-historico-e-momentum.md
+```
+
 Os ADRs separam explicitamente:
 
 ```text
@@ -1742,13 +2629,14 @@ elegibilidade estrutural
 filtros comerciais
 score
 ranking
+histórico
 momentum
 decisão de apresentação/publicação
 ```
 
 ---
 
-## 52. Documentação de fases
+## 69. Documentação de fases
 
 ```text
 docs/phases/
@@ -1767,14 +2655,15 @@ docs/phases/
 ├── FASE_8_RESULTADO.md
 ├── FASE_8_5_RESULTADO.md
 ├── FASE_9_RESULTADO.md
-└── FASE_10_RESULTADO.md
+├── FASE_10_RESULTADO.md
+└── FASE_11_RESULTADO.md
 ```
 
 A documentação de cada fase registra o estado verificável antes da passagem para a seguinte.
 
 ---
 
-## 53. Commits de referência da FASE 10
+## 70. Commits de referência da FASE 10
 
 ADR operacional:
 
@@ -1820,30 +2709,191 @@ Merge pull request #1 from veiocadan/fase-10-score
 
 ---
 
-## 54. O que ainda não foi implementado
+## 71. Commits de referência da FASE 11
+
+Contrato semântico:
+
+```text
+f1d8227
+docs: define semantica de historico e momentum
+```
+
+Consulta histórica:
+
+```text
+33f6921
+feat: adiciona consulta historica de ofertas
+```
+
+Evolução entre snapshots:
+
+```text
+ecc49b9
+feat: calcula evolucao entre snapshots
+```
+
+Momentum:
+
+```text
+867881b
+feat: implementa momentum v1
+```
+
+Auditoria persistente:
+
+```text
+4217f90
+feat: adiciona auditoria persistente de momentum
+```
+
+Commits intermediários de persistência:
+
+```text
+fac1758
+feat: persiste auditoria de momentum
+
+ac3a866
+feat: persiste auditoria de momentum
+```
+
+Orquestração histórica:
+
+```text
+ec1ae59
+feat: orquestra calculo historico de momentum
+```
+
+Integração na avaliação:
+
+```text
+d259a71
+feat: integra momentum na avaliacao de ofertas
+```
+
+Teste vertical:
+
+```text
+87e45d7
+test: valida momentum no fluxo vertical
+```
+
+Status histórico:
+
+```text
+356e431
+feat: adiciona status historico de ofertas
+```
+
+Índices históricos:
+
+```text
+0fd47a9
+perf: adiciona indices para consultas historicas
+```
+
+Fechamento documental local:
+
+```text
+0ac1908
+docs: encerra localmente a fase 11
+```
+
+---
+
+## 72. Critérios de conclusão da FASE 11
+
+Critério:
+
+```text
+consultar histórico de um ASIN
+```
+
+Resultado:
+
+```text
+ATENDIDO
+```
+
+Implementado por:
+
+```text
+OfferHistoryQueryPort
+OfferHistoryJdbcRepository
+```
+
+Critério:
+
+```text
+calcular variação entre dois snapshots
+```
+
+Resultado:
+
+```text
+ATENDIDO
+```
+
+Implementado por:
+
+```text
+SnapshotEvolutionCalculator
+SnapshotEvolution
+```
+
+Critério:
+
+```text
+produzir momentum sem alterar a regra principal de elegibilidade
+```
+
+Resultado:
+
+```text
+ATENDIDO
+```
+
+Implementado por:
+
+```text
+MOMENTUM_V1
+```
+
+Também foram atendidos:
+
+```text
+tempo desde primeira detecção
+tempo desde última atualização
+detecção de recorrência
+detecção de publicação anterior
+```
+
+---
+
+## 73. O que ainda não foi implementado
 
 Para preservar a separação entre fases, permanecem:
 
-- momentum;
-- evolução temporal;
-- comparação analítica entre snapshots históricos;
-- tendência;
-- aceleração de vendas;
-- mudança recente de preço;
-- combinação entre score atual e sinais históricos;
-- execução recorrente;
+- combinação entre `SCORE_V1` e momentum em uma nova regra de priorização;
+- aceleração histórica de segunda ordem;
+- previsão de vendas;
+- modelos estatísticos ou machine learning;
+- paginação do histórico para interface operacional;
+- execução assíncrona;
+- reprocessamento independente por etapa;
+- scheduler;
+- filas;
+- múltiplos workers;
 - interface operacional;
 - seleção final para publicação;
 - `PublicationGenerator`;
 - geração efetiva de link de associado;
-- scheduler;
-- filas;
+- publicação automática em canais;
 - WhatsApp/Telegram;
 - observabilidade completa;
 - resiliência de produção;
 - segurança e governança operacional;
 - Excel/CSV opcional;
-- mecanismos de escala guiados por métricas reais.
+- mecanismos adicionais de escala guiados por métricas reais.
 
 Também permanece fora do `SCORE_V1`:
 
@@ -1853,43 +2903,47 @@ PRICE_ATTRACTIVENESS
 
 Esse fator somente deverá ser implementado quando houver uma fonte semântica independente e confiável.
 
----
-
-## 55. FASE 11
-
-A próxima fase é:
-
-```text
-FASE 11 — Histórico e momentum
-```
-
-A FASE 11 deve responder a questões temporais que a FASE 10 deliberadamente não responde.
-
-Exemplos:
-
-```text
-o desconto está aumentando?
-o percentual vendido está acelerando?
-o preço caiu recentemente?
-a oferta ganhou ou perdeu tração?
-como a observação atual se compara ao histórico?
-```
-
-A FASE 11 não deve alterar retroativamente o contrato de `SCORE_V1`.
-
-Separação esperada:
-
-```text
-FASE 10
-score sobre os fatos da observação atual
-
-FASE 11
-momentum derivado da evolução histórica
-```
+O histórico completo ainda não possui paginação porque essa necessidade pertence à interface operacional futura.
 
 ---
 
-## 56. Roadmap
+## 74. FASE 12
+
+A próxima fase planejada é:
+
+```text
+FASE 12 — Orquestração e processamento assíncrono
+```
+
+A FASE 12 deverá permitir separar etapas e repetir somente o que falhou.
+
+Responsabilidades previstas:
+
+```text
+casos de uso explícitos por etapa
+idempotência por etapa
+reprocessamento seguro
+separação entre falhas transitórias e permanentes
+jobs e/ou fila conforme necessidade
+preparação para múltiplos workers
+```
+
+A FASE 12 não deve misturar novamente os contratos já separados de:
+
+```text
+coleta
+enriquecimento
+avaliação
+histórico
+momentum
+publicação
+```
+
+O início da FASE 12 deve ocorrer somente após o fechamento remoto da FASE 11.
+
+---
+
+## 75. Roadmap
 
 ```text
 FASE 4   → Configuração e segredos                 [CONCLUÍDA]
@@ -1900,9 +2954,9 @@ FASE 8   → Validação Amazon                        [CONCLUÍDA]
 FASE 8.5 → Consolidação do núcleo                  [CONCLUÍDA]
 FASE 9   → Filtros comerciais configuráveis        [CONCLUÍDA]
 FASE 10  → Score, ranking e explicabilidade        [CONCLUÍDA]
-FASE 11  → Histórico e momentum                    [PRÓXIMA]
-FASE 12  → Orquestração
-FASE 13  → Interface
+FASE 11  → Histórico, evolução e momentum          [CONCLUÍDA LOCALMENTE]
+FASE 12  → Orquestração e processamento assíncrono [PRÓXIMA]
+FASE 13  → Interface operacional
 FASE 14  → Publicação
 FASE 15+ → qualidade integrada, observabilidade,
             agendamento, canais, resiliência,
@@ -1911,13 +2965,13 @@ FASE 15+ → qualidade integrada, observabilidade,
 
 ---
 
-## 57. Estado atual consolidado
+## 76. Estado atual consolidado
 
 ```text
-FASE 10 — Score, ranking e explicabilidade
+FASE 11 — Histórico, evolução e momentum
 
 STATUS:
-CONCLUÍDA
+CONCLUÍDA LOCALMENTE
 
 Elegibilidade estrutural:
 AMAZON_SELLER_DELIVERY_V1
@@ -1942,7 +2996,7 @@ reviewCount >= 100
 Perfil de score:
 SCORE_V1
 
-Fatores:
+Fatores do SCORE_V1:
 SOLD_PERCENTAGE = 30
 CASH_DISCOUNT   = 25
 RATING          = 20
@@ -1951,31 +3005,90 @@ REVIEW_COUNT    = 15
 Peso ativo:
 90
 
-Preço atrativo:
+PRICE_ATTRACTIVENESS:
 10 pontos reservados
 NÃO IMPLEMENTADO NO SCORE_V1
 
 reviewCountFullScoreThreshold:
 1000
 
-Normalização:
-DETERMINÍSTICA
+Ranking:
+score DESC
+ASIN ASC
+
+Histórico por ASIN:
+IMPLEMENTADO
+
+Snapshot anterior:
+IMPLEMENTADO
+
+Primeira observação:
+IMPLEMENTADA
+
+Última observação:
+IMPLEMENTADA
+
+Contagem de snapshots:
+IMPLEMENTADA
+
+Variação de vendidos:
+IMPLEMENTADA
+
+Variação absoluta de preço:
+IMPLEMENTADA
+
+Variação percentual de preço:
+IMPLEMENTADA
+
+Variação de desconto:
+IMPLEMENTADA
+
+Tempo desde primeira detecção:
+IMPLEMENTADO
+
+Tempo desde última atualização:
+IMPLEMENTADO
+
+Recorrência:
+IMPLEMENTADA
+
+Detecção de publicação anterior:
+IMPLEMENTADA
+
+Momentum:
+MOMENTUM_V1
+
+Fórmula:
+soldPercentageDelta × 3600 / elapsedSeconds
+
+Unidade:
+pontos percentuais por hora
 
 Matemática:
 BigDecimal
 scale = 4
 HALF_UP
 
-Null:
-AUSÊNCIA != ZERO OBSERVADO
+Momentum negativo:
+PERMITIDO
 
-Ranking:
-score DESC
-ASIN ASC
+Ausência:
+DIFERENTE DE ZERO OBSERVADO
 
-Momentum:
-NÃO IMPLEMENTADO
-RESERVADO PARA FASE 11
+Momentum altera elegibilidade:
+NÃO
+
+Momentum altera SCORE_V1:
+NÃO
+
+Auditoria de momentum:
+IMPLEMENTADA
+
+Migration de auditoria:
+V9
+
+Índices históricos:
+V10
 
 Fluxo vertical:
 OK
@@ -2001,28 +3114,19 @@ OK
 Auditabilidade:
 OK
 
-Teste vertical positivo:
+Teste vertical de score:
 OK
 
-Teste vertical negativo:
+Teste vertical de momentum:
 OK
 
 Suíte hermética:
-391 testes
+422 testes
 0 falhas
 0 erros
 0 ignorados
 
-Build:
-SUCCESS
-
-CI do PR:
-SUCCESS
-
-Merge em main:
-SUCCESS
-
-CI da main:
+Build local:
 SUCCESS
 
 PostgreSQL:
@@ -2032,14 +3136,68 @@ Flyway:
 OK
 
 Migrations:
-8
+10
 
 Schema:
-versão 8
+versão 10
 
-Gate da FASE 10:
+CI remoto da FASE 11:
+PENDENTE
+
+Pull Request:
+PENDENTE
+
+Merge em main:
+PENDENTE
+
+CI pós-merge:
+PENDENTE
+
+Gate local da FASE 11:
 FECHADO
 
 Próxima fase:
-FASE 11 — Histórico e momentum
+FASE 12 — Orquestração e processamento assíncrono
+```
+
+---
+
+## 77. Encerramento local
+
+A FASE 11 atingiu seus critérios técnicos locais.
+
+O projeto passou de avaliações baseadas apenas na observação atual para um modelo capaz de explicar também a evolução temporal da oferta.
+
+A separação central permanece:
+
+```text
+SCORE_V1
+=
+qualidade/prioridade da observação atual
+
+MOMENTUM_V1
+=
+velocidade histórica do percentual vendido
+```
+
+Os dois conceitos permanecem independentes.
+
+O fechamento remoto deve seguir:
+
+```text
+README / documentação local
+        ↓
+push da branch
+        ↓
+Pull Request
+        ↓
+CI verde
+        ↓
+merge em main
+        ↓
+CI da main
+        ↓
+registro documental final
+        ↓
+FASE 12
 ```
