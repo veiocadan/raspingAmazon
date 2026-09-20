@@ -3,6 +3,8 @@ package com.raspingamazon.domain.evaluation;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
+import com.raspingamazon.domain.scoring.ScoreFactorCode;
+import com.raspingamazon.domain.scoring.ScoreFactorResult;
 import com.raspingamazon.domain.shared.Money;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
@@ -21,129 +23,138 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DealEvaluationTest {
 
     private static final Product PRODUCT =
-            new Product(
-                    1L,
-                    new Asin("B0FN4BK3V7"),
-                    "Produto de teste",
-                    null,
-                    "https://www.amazon.com.br/dp/B0FN4BK3V7"
-            );
+        new Product(
+            1L,
+            new Asin("B0FN4BK3V7"),
+            "Produto de teste",
+            null,
+            "https://www.amazon.com.br/dp/B0FN4BK3V7"
+        );
 
     private static final OfferSnapshot SNAPSHOT =
-            new OfferSnapshot(
-                    10L,
-                    PRODUCT,
-                    OffsetDateTime.parse(
-                            "2026-09-13T19:00:00-03:00"
-                    ),
-                    Money.of("199.90"),
-                    null,
-                    Money.of("249.90"),
-                    null,
-                    4.7,
-                    1520L,
-                    "Amazon.com.br",
-                    "Amazon",
-                    SellerType.AMAZON,
-                    DeliveryType.AMAZON,
-                    "amazon-deals",
-                    List.of()
-            );
+        new OfferSnapshot(
+            10L,
+            PRODUCT,
+            OffsetDateTime.parse(
+                "2026-09-13T19:00:00-03:00"
+            ),
+            Money.of("199.90"),
+            null,
+            Money.of("249.90"),
+            null,
+            4.7,
+            1520L,
+            "Amazon.com.br",
+            "Amazon",
+            SellerType.AMAZON,
+            DeliveryType.AMAZON,
+            "amazon-deals",
+            List.of()
+        );
 
     private static final List<EvaluationRuleResult> PASSED_RULES =
-            List.of(
-                    EvaluationRuleResult.passed(
-                            "SELLER_IS_AMAZON",
-                            "AMAZON",
-                            "AMAZON"
-                    ),
-                    EvaluationRuleResult.passed(
-                            "DELIVERY_IS_AMAZON",
-                            "AMAZON",
-                            "AMAZON"
-                    )
-            );
+        List.of(
+            EvaluationRuleResult.passed(
+                "SELLER_IS_AMAZON",
+                "AMAZON",
+                "AMAZON"
+            ),
+            EvaluationRuleResult.passed(
+                "DELIVERY_IS_AMAZON",
+                "AMAZON",
+                "AMAZON"
+            )
+        );
 
     @Test
     void shouldCreateCompleteEvaluation() {
 
         OffsetDateTime evaluatedAt =
-                OffsetDateTime.parse(
-                        "2026-09-13T19:05:00-03:00"
-                );
+            OffsetDateTime.parse(
+                "2026-09-13T19:05:00-03:00"
+            );
+
+        List<ScoreFactorResult> factors =
+            validScoreFactors();
 
         DealEvaluation evaluation =
-                new DealEvaluation(
-                        20L,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        "filter-v1",
-                        PASSED_RULES,
-                        new BigDecimal("85.50"),
-                        "score-v1",
-                        new BigDecimal("12.30"),
-                        "momentum-v1",
-                        evaluatedAt
-                );
+            new DealEvaluation(
+                20L,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                "filter-v1",
+                PASSED_RULES,
+                new BigDecimal("54.5000"),
+                "SCORE_V1",
+                factors,
+                new BigDecimal("12.30"),
+                "momentum-v1",
+                evaluatedAt
+            );
 
         assertEquals(
-                20L,
-                evaluation.id()
+            20L,
+            evaluation.id()
         );
 
         assertEquals(
-                SNAPSHOT,
-                evaluation.offerSnapshot()
+            SNAPSHOT,
+            evaluation.offerSnapshot()
         );
 
         assertTrue(
-                evaluation.eligible()
+            evaluation.eligible()
         );
 
         assertNull(
-                evaluation.rejectionReason()
+            evaluation.rejectionReason()
         );
 
         assertEquals(
-                "eligibility-v1",
-                evaluation.eligibilityPolicyVersion()
+            "eligibility-v1",
+            evaluation.eligibilityPolicyVersion()
         );
 
         assertEquals(
-                "filter-v1",
-                evaluation.filterProfileVersion()
+            "filter-v1",
+            evaluation.filterProfileVersion()
         );
 
         assertEquals(
-                2,
-                evaluation.ruleResults().size()
+            2,
+            evaluation.ruleResults().size()
         );
 
         assertEquals(
-                new BigDecimal("85.50"),
-                evaluation.score()
+            new BigDecimal("54.5000"),
+            evaluation.score()
         );
 
         assertEquals(
-                "score-v1",
-                evaluation.scoreVersion()
+            "SCORE_V1",
+            evaluation.scoreVersion()
         );
 
         assertEquals(
-                new BigDecimal("12.30"),
-                evaluation.momentum()
+            4,
+            evaluation.scoreFactors().size()
         );
 
         assertEquals(
-                "momentum-v1",
-                evaluation.momentumVersion()
+            new BigDecimal("12.30"),
+            evaluation.momentum()
         );
 
         assertEquals(
-                evaluatedAt,
-                evaluation.evaluatedAt()
+            "momentum-v1",
+            evaluation.momentumVersion()
+        );
+
+        assertEquals(
+            evaluatedAt,
+            evaluation.evaluatedAt()
         );
     }
 
@@ -151,56 +162,60 @@ class DealEvaluationTest {
     void shouldCreateRejectedEvaluationWithMultipleFailures() {
 
         List<EvaluationRuleResult> rules =
-                List.of(
-                        EvaluationRuleResult.failed(
-                                "SELLER_IS_AMAZON",
-                                "THIRD_PARTY",
-                                "AMAZON",
-                                RejectionReason.SELLER_THIRD_PARTY
-                        ),
-                        EvaluationRuleResult.failed(
-                                "DELIVERY_IS_AMAZON",
-                                "THIRD_PARTY",
-                                "AMAZON",
-                                RejectionReason.DELIVERY_THIRD_PARTY
-                        )
-                );
+            List.of(
+                EvaluationRuleResult.failed(
+                    "SELLER_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.SELLER_THIRD_PARTY
+                ),
+                EvaluationRuleResult.failed(
+                    "DELIVERY_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.DELIVERY_THIRD_PARTY
+                )
+            );
 
         DealEvaluation evaluation =
-                new DealEvaluation(
-                        21L,
-                        SNAPSHOT,
-                        false,
-                        RejectionReason.SELLER_THIRD_PARTY,
-                        "eligibility-v1",
-                        null,
-                        rules,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                );
+            new DealEvaluation(
+                21L,
+                SNAPSHOT,
+                false,
+                RejectionReason.SELLER_THIRD_PARTY,
+                "eligibility-v1",
+                null,
+                rules,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            );
 
         assertFalse(
-                evaluation.eligible()
+            evaluation.eligible()
         );
 
         assertEquals(
-                2,
-                evaluation.ruleResults().size()
+            2,
+            evaluation.ruleResults().size()
         );
 
         assertEquals(
-                RejectionReason.SELLER_THIRD_PARTY,
-                evaluation.rejectionReason()
+            RejectionReason.SELLER_THIRD_PARTY,
+            evaluation.rejectionReason()
         );
 
         assertEquals(
-                RejectionReason.DELIVERY_THIRD_PARTY,
-                evaluation.ruleResults()
-                        .get(1)
-                        .reasonCode()
+            RejectionReason.DELIVERY_THIRD_PARTY,
+            evaluation.ruleResults()
+                .get(1)
+                .reasonCode()
+        );
+
+        assertTrue(
+            evaluation.scoreFactors().isEmpty()
         );
     }
 
@@ -208,31 +223,31 @@ class DealEvaluationTest {
     void shouldRejectEligibleEvaluationWithFailedRule() {
 
         List<EvaluationRuleResult> rules =
-                List.of(
-                        EvaluationRuleResult.failed(
-                                "SELLER_IS_AMAZON",
-                                "THIRD_PARTY",
-                                "AMAZON",
-                                RejectionReason.SELLER_THIRD_PARTY
-                        )
-                );
+            List.of(
+                EvaluationRuleResult.failed(
+                    "SELLER_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.SELLER_THIRD_PARTY
+                )
+            );
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        rules,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                )
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                rules,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -240,21 +255,21 @@ class DealEvaluationTest {
     void shouldRejectIneligibleEvaluationWhenAllRulesPassed() {
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        false,
-                        RejectionReason.SELLER_THIRD_PARTY,
-                        "eligibility-v1",
-                        null,
-                        PASSED_RULES,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                )
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                false,
+                RejectionReason.SELLER_THIRD_PARTY,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -262,43 +277,37 @@ class DealEvaluationTest {
     void shouldRejectWrongPrimaryRejectionReason() {
 
         List<EvaluationRuleResult> rules =
-                List.of(
-                        EvaluationRuleResult.failed(
-                                "SELLER_IS_AMAZON",
-                                "THIRD_PARTY",
-                                "AMAZON",
-                                RejectionReason.SELLER_THIRD_PARTY
-                        ),
-                        EvaluationRuleResult.failed(
-                                "DELIVERY_IS_AMAZON",
-                                "THIRD_PARTY",
-                                "AMAZON",
-                                RejectionReason.DELIVERY_THIRD_PARTY
-                        )
-                );
+            List.of(
+                EvaluationRuleResult.failed(
+                    "SELLER_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.SELLER_THIRD_PARTY
+                ),
+                EvaluationRuleResult.failed(
+                    "DELIVERY_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.DELIVERY_THIRD_PARTY
+                )
+            );
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        false,
-
-                        /*
-                         * Incorreto:
-                         * a primeira falha é SELLER.
-                         */
-                        RejectionReason.DELIVERY_THIRD_PARTY,
-
-                        "eligibility-v1",
-                        null,
-                        rules,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                )
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                false,
+                RejectionReason.DELIVERY_THIRD_PARTY,
+                "eligibility-v1",
+                null,
+                rules,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -306,21 +315,21 @@ class DealEvaluationTest {
     void shouldRejectEmptyRuleResults() {
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        List.of(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                )
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -328,21 +337,21 @@ class DealEvaluationTest {
     void shouldRejectNullRuleResults() {
 
         assertThrows(
-                NullPointerException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
-                )
+            NullPointerException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -350,21 +359,162 @@ class DealEvaluationTest {
     void shouldRejectScoreWithoutScoreVersion() {
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        PASSED_RULES,
-                        new BigDecimal("50.00"),
-                        null,
-                        null,
-                        null,
-                        OffsetDateTime.now()
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                new BigDecimal("54.5000"),
+                null,
+                validScoreFactors(),
+                null,
+                null,
+                OffsetDateTime.now()
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectScoreWithoutFactors() {
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                new BigDecimal("54.5000"),
+                "SCORE_V1",
+                List.of(),
+                null,
+                null,
+                OffsetDateTime.now()
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectFactorsWithoutScore() {
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                null,
+                null,
+                validScoreFactors(),
+                null,
+                null,
+                OffsetDateTime.now()
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectScoreThatDoesNotMatchFactorContributions() {
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                new BigDecimal("99.0000"),
+                "SCORE_V1",
+                validScoreFactors(),
+                null,
+                null,
+                OffsetDateTime.now()
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectScoreForIneligibleEvaluation() {
+
+        List<EvaluationRuleResult> rules =
+            List.of(
+                EvaluationRuleResult.failed(
+                    "SELLER_IS_AMAZON",
+                    "THIRD_PARTY",
+                    "AMAZON",
+                    RejectionReason.SELLER_THIRD_PARTY
                 )
+            );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                false,
+                RejectionReason.SELLER_THIRD_PARTY,
+                "eligibility-v1",
+                "filter-v1",
+                rules,
+                new BigDecimal("54.5000"),
+                "SCORE_V1",
+                validScoreFactors(),
+                null,
+                null,
+                OffsetDateTime.now()
+            )
+        );
+    }
+
+    @Test
+    void shouldDefensivelyCopyScoreFactors() {
+
+        List<ScoreFactorResult> mutableFactors =
+            new java.util.ArrayList<>(
+                validScoreFactors()
+            );
+
+        DealEvaluation evaluation =
+            new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                "filter-v1",
+                PASSED_RULES,
+                new BigDecimal("54.5000"),
+                "SCORE_V1",
+                mutableFactors,
+                null,
+                null,
+                OffsetDateTime.now()
+            );
+
+        mutableFactors.clear();
+
+        assertEquals(
+            4,
+            evaluation.scoreFactors().size()
+        );
+
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> evaluation.scoreFactors().clear()
         );
     }
 
@@ -372,21 +522,21 @@ class DealEvaluationTest {
     void shouldRejectMomentumWithoutMomentumVersion() {
 
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        PASSED_RULES,
-                        null,
-                        null,
-                        new BigDecimal("10.00"),
-                        null,
-                        OffsetDateTime.now()
-                )
+            IllegalArgumentException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                null,
+                null,
+                new BigDecimal("10.00"),
+                null,
+                OffsetDateTime.now()
+            )
         );
     }
 
@@ -394,21 +544,55 @@ class DealEvaluationTest {
     void shouldRejectNullEvaluatedAt() {
 
         assertThrows(
-                NullPointerException.class,
-                () -> new DealEvaluation(
-                        null,
-                        SNAPSHOT,
-                        true,
-                        null,
-                        "eligibility-v1",
-                        null,
-                        PASSED_RULES,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null
-                )
+            NullPointerException.class,
+            () -> new DealEvaluation(
+                null,
+                SNAPSHOT,
+                true,
+                null,
+                "eligibility-v1",
+                null,
+                PASSED_RULES,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        );
+    }
+
+    private static List<ScoreFactorResult> validScoreFactors() {
+
+        return List.of(
+            ScoreFactorResult.available(
+                ScoreFactorCode.SOLD_PERCENTAGE,
+                new BigDecimal("80"),
+                new BigDecimal("80"),
+                new BigDecimal("30"),
+                new BigDecimal("24")
+            ),
+            ScoreFactorResult.available(
+                ScoreFactorCode.CASH_DISCOUNT,
+                new BigDecimal("20"),
+                new BigDecimal("20"),
+                new BigDecimal("25"),
+                new BigDecimal("5")
+            ),
+            ScoreFactorResult.available(
+                ScoreFactorCode.RATING,
+                new BigDecimal("4.5"),
+                new BigDecimal("90"),
+                new BigDecimal("20"),
+                new BigDecimal("18")
+            ),
+            ScoreFactorResult.available(
+                ScoreFactorCode.REVIEW_COUNT,
+                new BigDecimal("500"),
+                new BigDecimal("50"),
+                new BigDecimal("15"),
+                new BigDecimal("7.5")
+            )
         );
     }
 }

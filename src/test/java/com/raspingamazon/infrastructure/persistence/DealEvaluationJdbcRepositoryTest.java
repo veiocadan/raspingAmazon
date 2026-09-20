@@ -6,6 +6,9 @@ import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.evaluation.RejectionReason;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
+import com.raspingamazon.domain.scoring.ScoreFactorCode;
+import com.raspingamazon.domain.scoring.ScoreFactorResult;
+import com.raspingamazon.domain.scoring.ScoreFactorStatus;
 import com.raspingamazon.domain.shared.Money;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
@@ -30,37 +33,17 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Teste de integração entre DealEvaluation e PostgreSQL.
- *
- * <p>Além da linha agregada em deal_evaluation, a FASE 8.5-C3
- * exige que cada regra aplicada seja persistida individualmente em
- * deal_evaluation_rule_result.</p>
- *
- * <p>Este teste verifica:</p>
- *
- * <ul>
- *     <li>a decisão agregada;</li>
- *     <li>as versões da avaliação;</li>
- *     <li>os resultados individuais das regras;</li>
- *     <li>a ordem das regras;</li>
- *     <li>os motivos individuais de rejeição.</li>
- * </ul>
- */
 class DealEvaluationJdbcRepositoryTest {
 
     @Test
     void shouldPersistEligibleDealEvaluationWithRuleResults()
-            throws Exception {
+        throws Exception {
 
         ApplicationConfig config =
-                EnvironmentConfigProvider.load();
+            EnvironmentConfigProvider.load();
 
-        /*
-         * Aplica migrations pendentes, inclusive V5.
-         */
         DatabaseMigration.migrate(
-                config
+            config
         );
 
         long productId = 0;
@@ -68,274 +51,208 @@ class DealEvaluationJdbcRepositoryTest {
         long evaluationId = 0;
 
         try (Connection connection =
-                     DatabaseConnection.open(
-                             config
-                     )) {
+                 DatabaseConnection.open(
+                     config
+                 )) {
 
             Product product =
-                    createProduct(
-                            connection,
-                            "B000TEST86"
-                    );
+                createProduct(
+                    connection,
+                    "B000TEST86"
+                );
 
             productId =
-                    product.id();
+                product.id();
 
             offerSnapshotId =
-                    createOfferSnapshot(
-                            connection,
-                            product.id()
-                    );
+                createOfferSnapshot(
+                    connection,
+                    product.id()
+                );
 
             OfferSnapshot offerSnapshot =
-                    createOfferSnapshotDomain(
-                            product,
-                            offerSnapshotId
-                    );
+                createOfferSnapshotDomain(
+                    product,
+                    offerSnapshotId
+                );
 
             OffsetDateTime evaluatedAt =
-                    OffsetDateTime.now();
-
-            /*
-             * Oferta elegível:
-             * ambas as regras passaram.
-             */
-            List<EvaluationRuleResult> ruleResults =
-                    List.of(
-                            EvaluationRuleResult.passed(
-                                    "SELLER_IS_AMAZON",
-                                    "AMAZON",
-                                    "AMAZON"
-                            ),
-                            EvaluationRuleResult.passed(
-                                    "DELIVERY_IS_AMAZON",
-                                    "AMAZON",
-                                    "AMAZON"
-                            )
-                    );
+                OffsetDateTime.now();
 
             DealEvaluation evaluation =
-                    new DealEvaluation(
-                            null,
-                            offerSnapshot,
-                            true,
-                            null,
-                            "AMAZON_SELLER_DELIVERY_V1",
-                            null,
-                            ruleResults,
-                            null,
-                            null,
-                            null,
-                            null,
-                            evaluatedAt
-                    );
-
-            DealEvaluationJdbcRepository repository =
-                    new DealEvaluationJdbcRepository(
-                            connection
-                    );
-
-            DealEvaluation persisted =
-                    repository.save(
-                            evaluation
-                    );
-
-            evaluationId =
-                    persisted.id();
-
-            /*
-             * Verificações no objeto retornado.
-             */
-            assertNotNull(
-                    persisted
-            );
-
-            assertNotNull(
-                    persisted.id()
-            );
-
-            assertTrue(
-                    persisted.id() > 0
-            );
-
-            assertEquals(
-                    offerSnapshotId,
-                    persisted.offerSnapshot().id()
-            );
-
-            assertTrue(
-                    persisted.eligible()
-            );
-
-            assertNull(
-                    persisted.rejectionReason()
-            );
-
-            assertEquals(
-                    "AMAZON_SELLER_DELIVERY_V1",
-                    persisted.eligibilityPolicyVersion()
-            );
-
-            assertNull(
-                    persisted.filterProfileVersion()
-            );
-
-            assertEquals(
-                    2,
-                    persisted.ruleResults().size()
-            );
-
-            assertTrue(
-                    persisted.ruleResults()
-                            .get(0)
-                            .passed()
-            );
-
-            assertTrue(
-                    persisted.ruleResults()
-                            .get(1)
-                            .passed()
-            );
-
-            assertNull(
-                    persisted.score()
-            );
-
-            assertNull(
-                    persisted.scoreVersion()
-            );
-
-            assertNull(
-                    persisted.momentum()
-            );
-
-            assertNull(
-                    persisted.momentumVersion()
-            );
-
-            assertEquals(
-                    evaluatedAt.toInstant(),
-                    persisted.evaluatedAt().toInstant()
-            );
-
-            /*
-             * Verifica diretamente a linha agregada.
-             */
-            assertDatabaseEvaluationRow(
-                    connection,
-                    persisted.id(),
-                    offerSnapshotId,
+                new DealEvaluation(
+                    null,
+                    offerSnapshot,
                     true,
                     null,
                     "AMAZON_SELLER_DELIVERY_V1",
                     null,
+                    passedRuleResults(),
                     null,
                     null,
                     null,
                     null,
                     evaluatedAt
+                );
+
+            DealEvaluationJdbcRepository repository =
+                new DealEvaluationJdbcRepository(
+                    connection
+                );
+
+            DealEvaluation persisted =
+                repository.save(
+                    evaluation
+                );
+
+            evaluationId =
+                persisted.id();
+
+            assertNotNull(
+                persisted
             );
 
-            /*
-             * Verifica diretamente as duas linhas de regra.
-             */
+            assertNotNull(
+                persisted.id()
+            );
+
+            assertTrue(
+                persisted.id() > 0
+            );
+
+            assertEquals(
+                offerSnapshotId,
+                persisted.offerSnapshot().id()
+            );
+
+            assertTrue(
+                persisted.eligible()
+            );
+
+            assertNull(
+                persisted.rejectionReason()
+            );
+
+            assertEquals(
+                "AMAZON_SELLER_DELIVERY_V1",
+                persisted.eligibilityPolicyVersion()
+            );
+
+            assertNull(
+                persisted.filterProfileVersion()
+            );
+
+            assertEquals(
+                2,
+                persisted.ruleResults().size()
+            );
+
+            assertNull(
+                persisted.score()
+            );
+
+            assertNull(
+                persisted.scoreVersion()
+            );
+
+            assertTrue(
+                persisted.scoreFactors().isEmpty()
+            );
+
+            assertNull(
+                persisted.momentum()
+            );
+
+            assertNull(
+                persisted.momentumVersion()
+            );
+
+            assertEquals(
+                evaluatedAt.toInstant(),
+                persisted.evaluatedAt().toInstant()
+            );
+
+            assertDatabaseEvaluationRow(
+                connection,
+                persisted.id(),
+                offerSnapshotId,
+                true,
+                null,
+                "AMAZON_SELLER_DELIVERY_V1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                evaluatedAt
+            );
+
             List<PersistedRuleResult> persistedRules =
-                    loadRuleResults(
-                            connection,
-                            persisted.id()
-                    );
+                loadRuleResults(
+                    connection,
+                    persisted.id()
+                );
 
             assertEquals(
-                    2,
-                    persistedRules.size()
-            );
-
-            PersistedRuleResult sellerRule =
-                    persistedRules.get(
-                            0
-                    );
-
-            assertEquals(
-                    0,
-                    sellerRule.ruleOrder()
+                2,
+                persistedRules.size()
             );
 
             assertEquals(
-                    "SELLER_IS_AMAZON",
-                    sellerRule.ruleCode()
+                0,
+                persistedRules.get(0).ruleOrder()
+            );
+
+            assertEquals(
+                "SELLER_IS_AMAZON",
+                persistedRules.get(0).ruleCode()
             );
 
             assertTrue(
-                    sellerRule.passed()
+                persistedRules.get(0).passed()
             );
 
             assertEquals(
-                    "AMAZON",
-                    sellerRule.observedValue()
+                1,
+                persistedRules.get(1).ruleOrder()
             );
 
             assertEquals(
-                    "AMAZON",
-                    sellerRule.thresholdValue()
-            );
-
-            assertNull(
-                    sellerRule.reasonCode()
-            );
-
-            PersistedRuleResult deliveryRule =
-                    persistedRules.get(
-                            1
-                    );
-
-            assertEquals(
-                    1,
-                    deliveryRule.ruleOrder()
-            );
-
-            assertEquals(
-                    "DELIVERY_IS_AMAZON",
-                    deliveryRule.ruleCode()
+                "DELIVERY_IS_AMAZON",
+                persistedRules.get(1).ruleCode()
             );
 
             assertTrue(
-                    deliveryRule.passed()
+                persistedRules.get(1).passed()
             );
 
-            assertEquals(
-                    "AMAZON",
-                    deliveryRule.observedValue()
-            );
-
-            assertEquals(
-                    "AMAZON",
-                    deliveryRule.thresholdValue()
-            );
-
-            assertNull(
-                    deliveryRule.reasonCode()
+            assertTrue(
+                loadScoreFactors(
+                    connection,
+                    persisted.id()
+                ).isEmpty()
             );
 
         } finally {
 
             cleanup(
-                    config,
-                    evaluationId,
-                    offerSnapshotId,
-                    productId
+                config,
+                evaluationId,
+                offerSnapshotId,
+                productId
             );
         }
     }
 
     @Test
     void shouldPersistRejectedDealEvaluationWithMultipleFailures()
-            throws Exception {
+        throws Exception {
 
         ApplicationConfig config =
-                EnvironmentConfigProvider.load();
+            EnvironmentConfigProvider.load();
 
         DatabaseMigration.migrate(
-                config
+            config
         );
 
         long productId = 0;
@@ -343,219 +260,510 @@ class DealEvaluationJdbcRepositoryTest {
         long evaluationId = 0;
 
         try (Connection connection =
-                     DatabaseConnection.open(
-                             config
-                     )) {
+                 DatabaseConnection.open(
+                     config
+                 )) {
 
             Product product =
-                    createProduct(
-                            connection,
-                            "B000TEST87"
-                    );
+                createProduct(
+                    connection,
+                    "B000TEST87"
+                );
 
             productId =
-                    product.id();
+                product.id();
 
             offerSnapshotId =
-                    createOfferSnapshot(
-                            connection,
-                            product.id()
-                    );
+                createOfferSnapshot(
+                    connection,
+                    product.id()
+                );
 
             OfferSnapshot offerSnapshot =
-                    createOfferSnapshotDomain(
-                            product,
-                            offerSnapshotId
-                    );
+                createOfferSnapshotDomain(
+                    product,
+                    offerSnapshotId
+                );
 
             OffsetDateTime evaluatedAt =
-                    OffsetDateTime.now();
+                OffsetDateTime.now();
 
-            /*
-             * Neste cenário seller e delivery falham.
-             *
-             * SELLER continua sendo a rejeição principal,
-             * mas DELIVERY também precisa ser persistida.
-             */
             List<EvaluationRuleResult> ruleResults =
-                    List.of(
-                            EvaluationRuleResult.failed(
-                                    "SELLER_IS_AMAZON",
-                                    "THIRD_PARTY",
-                                    "AMAZON",
-                                    RejectionReason.SELLER_THIRD_PARTY
-                            ),
-                            EvaluationRuleResult.failed(
-                                    "DELIVERY_IS_AMAZON",
-                                    "THIRD_PARTY",
-                                    "AMAZON",
-                                    RejectionReason.DELIVERY_THIRD_PARTY
-                            )
-                    );
+                List.of(
+                    EvaluationRuleResult.failed(
+                        "SELLER_IS_AMAZON",
+                        "THIRD_PARTY",
+                        "AMAZON",
+                        RejectionReason.SELLER_THIRD_PARTY
+                    ),
+                    EvaluationRuleResult.failed(
+                        "DELIVERY_IS_AMAZON",
+                        "THIRD_PARTY",
+                        "AMAZON",
+                        RejectionReason.DELIVERY_THIRD_PARTY
+                    )
+                );
 
             DealEvaluation evaluation =
-                    new DealEvaluation(
-                            null,
-                            offerSnapshot,
-                            false,
-                            RejectionReason.SELLER_THIRD_PARTY,
-                            "AMAZON_SELLER_DELIVERY_V1",
-                            null,
-                            ruleResults,
-                            null,
-                            null,
-                            null,
-                            null,
-                            evaluatedAt
-                    );
-
-            DealEvaluationJdbcRepository repository =
-                    new DealEvaluationJdbcRepository(
-                            connection
-                    );
-
-            DealEvaluation persisted =
-                    repository.save(
-                            evaluation
-                    );
-
-            evaluationId =
-                    persisted.id();
-
-            assertNotNull(
-                    persisted.id()
-            );
-
-            assertFalse(
-                    persisted.eligible()
-            );
-
-            assertEquals(
-                    RejectionReason.SELLER_THIRD_PARTY,
-                    persisted.rejectionReason()
-            );
-
-            assertEquals(
-                    2,
-                    persisted.ruleResults().size()
-            );
-
-            /*
-             * Verificamos que a segunda falha não foi perdida.
-             */
-            assertEquals(
-                    RejectionReason.DELIVERY_THIRD_PARTY,
-                    persisted.ruleResults()
-                            .get(1)
-                            .reasonCode()
-            );
-
-            assertDatabaseEvaluationRow(
-                    connection,
-                    persisted.id(),
-                    offerSnapshotId,
+                new DealEvaluation(
+                    null,
+                    offerSnapshot,
                     false,
-                    RejectionReason.SELLER_THIRD_PARTY.name(),
+                    RejectionReason.SELLER_THIRD_PARTY,
                     "AMAZON_SELLER_DELIVERY_V1",
                     null,
+                    ruleResults,
                     null,
                     null,
                     null,
                     null,
                     evaluatedAt
+                );
+
+            DealEvaluationJdbcRepository repository =
+                new DealEvaluationJdbcRepository(
+                    connection
+                );
+
+            DealEvaluation persisted =
+                repository.save(
+                    evaluation
+                );
+
+            evaluationId =
+                persisted.id();
+
+            assertNotNull(
+                persisted.id()
+            );
+
+            assertFalse(
+                persisted.eligible()
+            );
+
+            assertEquals(
+                RejectionReason.SELLER_THIRD_PARTY,
+                persisted.rejectionReason()
+            );
+
+            assertEquals(
+                RejectionReason.DELIVERY_THIRD_PARTY,
+                persisted.ruleResults()
+                    .get(1)
+                    .reasonCode()
+            );
+
+            assertNull(
+                persisted.score()
+            );
+
+            assertTrue(
+                persisted.scoreFactors().isEmpty()
+            );
+
+            assertDatabaseEvaluationRow(
+                connection,
+                persisted.id(),
+                offerSnapshotId,
+                false,
+                RejectionReason.SELLER_THIRD_PARTY.name(),
+                "AMAZON_SELLER_DELIVERY_V1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                evaluatedAt
             );
 
             List<PersistedRuleResult> persistedRules =
-                    loadRuleResults(
-                            connection,
-                            persisted.id()
-                    );
+                loadRuleResults(
+                    connection,
+                    persisted.id()
+                );
 
             assertEquals(
-                    2,
-                    persistedRules.size()
+                2,
+                persistedRules.size()
             );
-
-            PersistedRuleResult sellerRule =
-                    persistedRules.get(
-                            0
-                    );
 
             assertFalse(
-                    sellerRule.passed()
+                persistedRules.get(0).passed()
             );
 
             assertEquals(
-                    "SELLER_THIRD_PARTY",
-                    sellerRule.reasonCode()
+                "SELLER_THIRD_PARTY",
+                persistedRules.get(0).reasonCode()
             );
-
-            PersistedRuleResult deliveryRule =
-                    persistedRules.get(
-                            1
-                    );
 
             assertFalse(
-                    deliveryRule.passed()
+                persistedRules.get(1).passed()
             );
 
             assertEquals(
-                    "DELIVERY_THIRD_PARTY",
-                    deliveryRule.reasonCode()
+                "DELIVERY_THIRD_PARTY",
+                persistedRules.get(1).reasonCode()
+            );
+
+            assertTrue(
+                loadScoreFactors(
+                    connection,
+                    persisted.id()
+                ).isEmpty()
             );
 
         } finally {
 
             cleanup(
-                    config,
-                    evaluationId,
-                    offerSnapshotId,
-                    productId
+                config,
+                evaluationId,
+                offerSnapshotId,
+                productId
             );
         }
     }
 
-    /**
-     * Cria um Product persistido e devolve sua representação de domínio.
-     */
-    private Product createProduct(
-            Connection connection,
-            String asin
-    ) throws SQLException {
+    @Test
+    void shouldPersistScoreAndScoreFactors()
+        throws Exception {
 
-        ProductRepository repository =
-                new ProductRepository(
-                        connection
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        DatabaseMigration.migrate(
+            config
+        );
+
+        long productId = 0;
+        long offerSnapshotId = 0;
+        long evaluationId = 0;
+
+        try (Connection connection =
+                 DatabaseConnection.open(
+                     config
+                 )) {
+
+            Product product =
+                createProduct(
+                    connection,
+                    "B000TEST88"
                 );
 
-        long productId =
-                repository.insert(
-                        asin,
-                        "Produto de teste",
-                        null,
-                        "https://example.invalid/produto/"
-                                + asin
+            productId =
+                product.id();
+
+            offerSnapshotId =
+                createOfferSnapshot(
+                    connection,
+                    product.id()
                 );
 
-        return new Product(
-                productId,
-                new Asin(
-                        asin
-                ),
-                "Produto de teste",
+            OfferSnapshot offerSnapshot =
+                createOfferSnapshotDomain(
+                    product,
+                    offerSnapshotId
+                );
+
+            OffsetDateTime evaluatedAt =
+                OffsetDateTime.now();
+
+            List<ScoreFactorResult> scoreFactors =
+                List.of(
+                    ScoreFactorResult.unavailable(
+                        ScoreFactorCode.SOLD_PERCENTAGE,
+                        new BigDecimal("30")
+                    ),
+                    ScoreFactorResult.available(
+                        ScoreFactorCode.CASH_DISCOUNT,
+                        new BigDecimal("20"),
+                        new BigDecimal("20"),
+                        new BigDecimal("25"),
+                        new BigDecimal("5")
+                    ),
+                    ScoreFactorResult.available(
+                        ScoreFactorCode.RATING,
+                        new BigDecimal("4.5"),
+                        new BigDecimal("90"),
+                        new BigDecimal("20"),
+                        new BigDecimal("18")
+                    ),
+                    ScoreFactorResult.available(
+                        ScoreFactorCode.REVIEW_COUNT,
+                        new BigDecimal("500"),
+                        new BigDecimal("50"),
+                        new BigDecimal("15"),
+                        new BigDecimal("7.5")
+                    )
+                );
+
+            DealEvaluation evaluation =
+                new DealEvaluation(
+                    null,
+                    offerSnapshot,
+                    true,
+                    null,
+                    "AMAZON_SELLER_DELIVERY_V1",
+                    "COMMERCIAL_FILTER_V1",
+                    passedRuleResults(),
+                    new BigDecimal("30.5000"),
+                    "SCORE_V1",
+                    scoreFactors,
+                    null,
+                    null,
+                    evaluatedAt
+                );
+
+            DealEvaluationJdbcRepository repository =
+                new DealEvaluationJdbcRepository(
+                    connection
+                );
+
+            DealEvaluation persisted =
+                repository.save(
+                    evaluation
+                );
+
+            evaluationId =
+                persisted.id();
+
+            assertNotNull(
+                persisted.id()
+            );
+
+            assertTrue(
+                persisted.eligible()
+            );
+
+            assertBigDecimalEquals(
+                "30.5000",
+                persisted.score()
+            );
+
+            assertEquals(
+                "SCORE_V1",
+                persisted.scoreVersion()
+            );
+
+            assertEquals(
+                4,
+                persisted.scoreFactors().size()
+            );
+
+            assertDatabaseEvaluationRow(
+                connection,
+                persisted.id(),
+                offerSnapshotId,
+                true,
                 null,
-                "https://example.invalid/produto/"
-                        + asin
+                "AMAZON_SELLER_DELIVERY_V1",
+                "COMMERCIAL_FILTER_V1",
+                new BigDecimal("30.5000"),
+                "SCORE_V1",
+                null,
+                null,
+                evaluatedAt
+            );
+
+            List<PersistedScoreFactor> persistedFactors =
+                loadScoreFactors(
+                    connection,
+                    persisted.id()
+                );
+
+            assertEquals(
+                4,
+                persistedFactors.size()
+            );
+
+            PersistedScoreFactor soldPercentage =
+                persistedFactors.get(
+                    0
+                );
+
+            assertEquals(
+                0,
+                soldPercentage.factorOrder()
+            );
+
+            assertEquals(
+                "SOLD_PERCENTAGE",
+                soldPercentage.factorCode()
+            );
+
+            assertEquals(
+                "UNAVAILABLE",
+                soldPercentage.status()
+            );
+
+            assertNull(
+                soldPercentage.rawValue()
+            );
+
+            assertNull(
+                soldPercentage.normalizedValue()
+            );
+
+            assertBigDecimalEquals(
+                "30.0000",
+                soldPercentage.weight()
+            );
+
+            assertBigDecimalEquals(
+                "0.0000",
+                soldPercentage.contribution()
+            );
+
+            PersistedScoreFactor cashDiscount =
+                persistedFactors.get(
+                    1
+                );
+
+            assertEquals(
+                "CASH_DISCOUNT",
+                cashDiscount.factorCode()
+            );
+
+            assertEquals(
+                ScoreFactorStatus.AVAILABLE.name(),
+                cashDiscount.status()
+            );
+
+            assertBigDecimalEquals(
+                "20",
+                cashDiscount.rawValue()
+            );
+
+            assertBigDecimalEquals(
+                "20.0000",
+                cashDiscount.normalizedValue()
+            );
+
+            assertBigDecimalEquals(
+                "25.0000",
+                cashDiscount.weight()
+            );
+
+            assertBigDecimalEquals(
+                "5.0000",
+                cashDiscount.contribution()
+            );
+
+            PersistedScoreFactor rating =
+                persistedFactors.get(
+                    2
+                );
+
+            assertEquals(
+                "RATING",
+                rating.factorCode()
+            );
+
+            assertBigDecimalEquals(
+                "4.5",
+                rating.rawValue()
+            );
+
+            assertBigDecimalEquals(
+                "90.0000",
+                rating.normalizedValue()
+            );
+
+            assertBigDecimalEquals(
+                "18.0000",
+                rating.contribution()
+            );
+
+            PersistedScoreFactor reviewCount =
+                persistedFactors.get(
+                    3
+                );
+
+            assertEquals(
+                "REVIEW_COUNT",
+                reviewCount.factorCode()
+            );
+
+            assertBigDecimalEquals(
+                "500",
+                reviewCount.rawValue()
+            );
+
+            assertBigDecimalEquals(
+                "50.0000",
+                reviewCount.normalizedValue()
+            );
+
+            assertBigDecimalEquals(
+                "15.0000",
+                reviewCount.weight()
+            );
+
+            assertBigDecimalEquals(
+                "7.5000",
+                reviewCount.contribution()
+            );
+
+        } finally {
+
+            cleanup(
+                config,
+                evaluationId,
+                offerSnapshotId,
+                productId
+            );
+        }
+    }
+
+    private static List<EvaluationRuleResult> passedRuleResults() {
+
+        return List.of(
+            EvaluationRuleResult.passed(
+                "SELLER_IS_AMAZON",
+                "AMAZON",
+                "AMAZON"
+            ),
+            EvaluationRuleResult.passed(
+                "DELIVERY_IS_AMAZON",
+                "AMAZON",
+                "AMAZON"
+            )
         );
     }
 
-    /**
-     * Persiste a linha de offer_snapshot necessária para a foreign key
-     * da avaliação.
-     */
+    private Product createProduct(
+        Connection connection,
+        String asin
+    ) throws SQLException {
+
+        ProductRepository repository =
+            new ProductRepository(
+                connection
+            );
+
+        long productId =
+            repository.insert(
+                asin,
+                "Produto de teste",
+                null,
+                "https://example.invalid/produto/"
+                    + asin
+            );
+
+        return new Product(
+            productId,
+            new Asin(
+                asin
+            ),
+            "Produto de teste",
+            null,
+            "https://example.invalid/produto/"
+                + asin
+        );
+    }
+
     private long createOfferSnapshot(
-            Connection connection,
-            long productId
+        Connection connection,
+        long productId
     ) throws SQLException {
 
         String sql = """
@@ -577,129 +785,133 @@ class DealEvaluationJdbcRepositoryTest {
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    productId
+                1,
+                productId
             );
 
             statement.setObject(
-                    2,
-                    OffsetDateTime.now()
+                2,
+                OffsetDateTime.now()
             );
 
             statement.setBigDecimal(
-                    3,
-                    new BigDecimal("99.90")
+                3,
+                new BigDecimal("99.90")
             );
 
             statement.setBigDecimal(
-                    4,
-                    new BigDecimal("129.90")
+                4,
+                new BigDecimal("129.90")
             );
 
             statement.setBigDecimal(
-                    5,
-                    new BigDecimal("119.90")
+                5,
+                new BigDecimal("119.90")
             );
 
             statement.setObject(
-                    6,
-                    null
+                6,
+                null
             );
 
-            statement.setObject(
-                    7,
-                    null
+            statement.setBigDecimal(
+                7,
+                new BigDecimal("4.5")
             );
 
-            statement.setObject(
-                    8,
-                    null
-            );
-
-            statement.setString(
-                    9,
-                    "Vendedor teste"
+            statement.setLong(
+                8,
+                500
             );
 
             statement.setString(
-                    10,
-                    "Amazon"
+                9,
+                "Vendedor teste"
             );
 
             statement.setString(
-                    11,
-                    "TEST"
+                10,
+                "Amazon"
+            );
+
+            statement.setString(
+                11,
+                "TEST"
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 if (!resultSet.next()) {
                     throw new SQLException(
-                            "Failed to obtain generated offer_snapshot id"
+                        "Failed to obtain generated offer_snapshot id"
                     );
                 }
 
                 return resultSet.getLong(
-                        "id"
+                    "id"
                 );
             }
         }
     }
 
-    /**
-     * Cria a representação de domínio do mesmo snapshot persistido.
-     */
     private OfferSnapshot createOfferSnapshotDomain(
-            Product product,
-            long offerSnapshotId
+        Product product,
+        long offerSnapshotId
     ) {
+
         return new OfferSnapshot(
-                offerSnapshotId,
-                product,
-                OffsetDateTime.now(),
-                new Money(
-                        new BigDecimal("99.90")
-                ),
-                new Money(
-                        new BigDecimal("129.90")
-                ),
-                new Money(
-                        new BigDecimal("119.90")
-                ),
-                null,
-                null,
-                null,
-                "Vendedor teste",
-                "Amazon",
-                SellerType.AMAZON,
-                DeliveryType.AMAZON,
-                "TEST",
-                List.of()
+            offerSnapshotId,
+            product,
+            OffsetDateTime.now(),
+            new Money(
+                new BigDecimal("99.90")
+            ),
+            new Money(
+                new BigDecimal("129.90")
+            ),
+            new Money(
+                new BigDecimal("119.90")
+            ),
+            null,
+
+            /*
+             * OfferSnapshot usa Double para rating.
+             *
+             * O BigDecimal é utilizado no domínio de scoring,
+             * mas a entidade OfferSnapshot ainda possui o contrato
+             * histórico Double.
+             */
+            4.5,
+
+            500L,
+            "Vendedor teste",
+            "Amazon",
+            SellerType.AMAZON,
+            DeliveryType.AMAZON,
+            "TEST",
+            List.of()
         );
     }
 
-    /**
-     * Verifica diretamente a linha agregada em deal_evaluation.
-     */
     private void assertDatabaseEvaluationRow(
-            Connection connection,
-            long evaluationId,
-            long offerSnapshotId,
-            boolean eligible,
-            String rejectionReason,
-            String eligibilityPolicyVersion,
-            String filterProfileVersion,
-            BigDecimal score,
-            String scoreVersion,
-            BigDecimal momentum,
-            String momentumVersion,
-            OffsetDateTime evaluatedAt
+        Connection connection,
+        long evaluationId,
+        long offerSnapshotId,
+        boolean eligible,
+        String rejectionReason,
+        String eligibilityPolicyVersion,
+        String filterProfileVersion,
+        BigDecimal score,
+        String scoreVersion,
+        BigDecimal momentum,
+        String momentumVersion,
+        OffsetDateTime evaluatedAt
     ) throws SQLException {
 
         String sql = """
@@ -719,122 +931,124 @@ class DealEvaluationJdbcRepositoryTest {
                 """;
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    evaluationId
+                1,
+                evaluationId
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 assertTrue(
-                        resultSet.next(),
-                        "Persisted deal_evaluation row was not found"
+                    resultSet.next(),
+                    "Persisted deal_evaluation row was not found"
                 );
 
                 assertEquals(
-                        offerSnapshotId,
-                        resultSet.getLong(
-                                "offer_snapshot_id"
-                        )
+                    offerSnapshotId,
+                    resultSet.getLong(
+                        "offer_snapshot_id"
+                    )
                 );
 
                 assertEquals(
-                        eligible,
-                        resultSet.getBoolean(
-                                "eligible"
-                        )
+                    eligible,
+                    resultSet.getBoolean(
+                        "eligible"
+                    )
                 );
 
                 assertEquals(
-                        rejectionReason,
-                        resultSet.getString(
-                                "rejection_reason"
-                        )
+                    rejectionReason,
+                    resultSet.getString(
+                        "rejection_reason"
+                    )
                 );
 
                 assertEquals(
-                        eligibilityPolicyVersion,
-                        resultSet.getString(
-                                "eligibility_policy_version"
-                        )
+                    eligibilityPolicyVersion,
+                    resultSet.getString(
+                        "eligibility_policy_version"
+                    )
                 );
 
                 assertEquals(
-                        filterProfileVersion,
-                        resultSet.getString(
-                                "filter_profile_version"
-                        )
+                    filterProfileVersion,
+                    resultSet.getString(
+                        "filter_profile_version"
+                    )
                 );
 
-                assertEquals(
-                        score,
+                if (score == null) {
+
+                    assertNull(
                         resultSet.getBigDecimal(
-                                "score"
+                            "score"
                         )
-                );
+                    );
 
-                assertEquals(
-                        scoreVersion,
-                        resultSet.getString(
-                                "score_version"
-                        )
-                );
+                } else {
 
-                assertEquals(
-                        momentum,
+                    assertBigDecimalEquals(
+                        score.toPlainString(),
                         resultSet.getBigDecimal(
-                                "momentum"
+                            "score"
                         )
+                    );
+                }
+
+                assertEquals(
+                    scoreVersion,
+                    resultSet.getString(
+                        "score_version"
+                    )
                 );
 
                 assertEquals(
-                        momentumVersion,
-                        resultSet.getString(
-                                "momentum_version"
-                        )
+                    momentum,
+                    resultSet.getBigDecimal(
+                        "momentum"
+                    )
+                );
+
+                assertEquals(
+                    momentumVersion,
+                    resultSet.getString(
+                        "momentum_version"
+                    )
                 );
 
                 OffsetDateTime databaseEvaluatedAt =
-                        resultSet.getObject(
-                                "evaluated_at",
-                                OffsetDateTime.class
-                        );
+                    resultSet.getObject(
+                        "evaluated_at",
+                        OffsetDateTime.class
+                    );
 
                 Duration difference =
-                        Duration.between(
-                                evaluatedAt.toInstant(),
-                                databaseEvaluatedAt.toInstant()
-                        ).abs();
+                    Duration.between(
+                        evaluatedAt.toInstant(),
+                        databaseEvaluatedAt.toInstant()
+                    ).abs();
 
-                /*
-                 * PostgreSQL pode normalizar precisão de timestamp.
-                 */
                 assertTrue(
-                        difference.compareTo(
-                                Duration.ofNanos(
-                                        1_000
-                                )
-                        ) <= 0,
-                        "Database timestamp differs from application timestamp by more than 1 microsecond"
+                    difference.compareTo(
+                        Duration.ofNanos(
+                            1_000
+                        )
+                    ) <= 0,
+                    "Database timestamp differs from application timestamp by more than 1 microsecond"
                 );
             }
         }
     }
 
-    /**
-     * Lê diretamente todos os resultados de regra persistidos.
-     *
-     * <p>ORDER BY rule_order é importante porque a ordem das regras
-     * também faz parte da explicação determinística da avaliação.</p>
-     */
     private List<PersistedRuleResult> loadRuleResults(
-            Connection connection,
-            long evaluationId
+        Connection connection,
+        long evaluationId
     ) throws SQLException {
 
         String sql = """
@@ -851,44 +1065,44 @@ class DealEvaluationJdbcRepositoryTest {
                 """;
 
         List<PersistedRuleResult> results =
-                new ArrayList<>();
+            new ArrayList<>();
 
         try (PreparedStatement statement =
-                     connection.prepareStatement(
-                             sql
-                     )) {
+                 connection.prepareStatement(
+                     sql
+                 )) {
 
             statement.setLong(
-                    1,
-                    evaluationId
+                1,
+                evaluationId
             );
 
             try (ResultSet resultSet =
-                         statement.executeQuery()) {
+                     statement.executeQuery()) {
 
                 while (resultSet.next()) {
 
                     results.add(
-                            new PersistedRuleResult(
-                                    resultSet.getInt(
-                                            "rule_order"
-                                    ),
-                                    resultSet.getString(
-                                            "rule_code"
-                                    ),
-                                    resultSet.getBoolean(
-                                            "passed"
-                                    ),
-                                    resultSet.getString(
-                                            "observed_value"
-                                    ),
-                                    resultSet.getString(
-                                            "threshold_value"
-                                    ),
-                                    resultSet.getString(
-                                            "reason_code"
-                                    )
+                        new PersistedRuleResult(
+                            resultSet.getInt(
+                                "rule_order"
+                            ),
+                            resultSet.getString(
+                                "rule_code"
+                            ),
+                            resultSet.getBoolean(
+                                "passed"
+                            ),
+                            resultSet.getString(
+                                "observed_value"
+                            ),
+                            resultSet.getString(
+                                "threshold_value"
+                            ),
+                            resultSet.getString(
+                                "reason_code"
                             )
+                        )
                     );
                 }
             }
@@ -897,44 +1111,106 @@ class DealEvaluationJdbcRepositoryTest {
         return results;
     }
 
-    /**
-     * Remove os dados de teste.
-     *
-     * <p>A tabela deal_evaluation_rule_result possui ON DELETE CASCADE.
-     * Portanto, ao apagar deal_evaluation, seus resultados individuais
-     * também são removidos automaticamente.</p>
-     */
+    private List<PersistedScoreFactor> loadScoreFactors(
+        Connection connection,
+        long evaluationId
+    ) throws SQLException {
+
+        String sql = """
+                SELECT
+                    factor_order,
+                    factor_code,
+                    status,
+                    raw_value,
+                    normalized_value,
+                    weight,
+                    contribution
+                FROM deal_evaluation_score_factor
+                WHERE deal_evaluation_id = ?
+                ORDER BY factor_order
+                """;
+
+        List<PersistedScoreFactor> results =
+            new ArrayList<>();
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                evaluationId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                while (resultSet.next()) {
+
+                    results.add(
+                        new PersistedScoreFactor(
+                            resultSet.getInt(
+                                "factor_order"
+                            ),
+                            resultSet.getString(
+                                "factor_code"
+                            ),
+                            resultSet.getString(
+                                "status"
+                            ),
+                            resultSet.getBigDecimal(
+                                "raw_value"
+                            ),
+                            resultSet.getBigDecimal(
+                                "normalized_value"
+                            ),
+                            resultSet.getBigDecimal(
+                                "weight"
+                            ),
+                            resultSet.getBigDecimal(
+                                "contribution"
+                            )
+                        )
+                    );
+                }
+            }
+        }
+
+        return results;
+    }
+
     private void cleanup(
-            ApplicationConfig config,
-            long evaluationId,
-            long offerSnapshotId,
-            long productId
+        ApplicationConfig config,
+        long evaluationId,
+        long offerSnapshotId,
+        long productId
     ) {
 
         if (evaluationId == 0
-                && offerSnapshotId == 0
-                && productId == 0) {
+            && offerSnapshotId == 0
+            && productId == 0) {
             return;
         }
 
         try (Connection connection =
-                     DatabaseConnection.open(
-                             config
-                     )) {
+                 DatabaseConnection.open(
+                     config
+                 )) {
 
             if (evaluationId > 0) {
 
                 try (PreparedStatement statement =
-                             connection.prepareStatement(
-                                     """
-                                     DELETE FROM deal_evaluation
-                                     WHERE id = ?
-                                     """
-                             )) {
+                         connection.prepareStatement(
+                             """
+                             DELETE FROM deal_evaluation
+                             WHERE id = ?
+                             """
+                         )) {
 
                     statement.setLong(
-                            1,
-                            evaluationId
+                        1,
+                        evaluationId
                     );
 
                     statement.executeUpdate();
@@ -944,16 +1220,16 @@ class DealEvaluationJdbcRepositoryTest {
             if (offerSnapshotId > 0) {
 
                 try (PreparedStatement statement =
-                             connection.prepareStatement(
-                                     """
-                                     DELETE FROM offer_snapshot
-                                     WHERE id = ?
-                                     """
-                             )) {
+                         connection.prepareStatement(
+                             """
+                             DELETE FROM offer_snapshot
+                             WHERE id = ?
+                             """
+                         )) {
 
                     statement.setLong(
-                            1,
-                            offerSnapshotId
+                        1,
+                        offerSnapshotId
                     );
 
                     statement.executeUpdate();
@@ -963,16 +1239,16 @@ class DealEvaluationJdbcRepositoryTest {
             if (productId > 0) {
 
                 try (PreparedStatement statement =
-                             connection.prepareStatement(
-                                     """
-                                     DELETE FROM product
-                                     WHERE id = ?
-                                     """
-                             )) {
+                         connection.prepareStatement(
+                             """
+                             DELETE FROM product
+                             WHERE id = ?
+                             """
+                         )) {
 
                     statement.setLong(
-                            1,
-                            productId
+                        1,
+                        productId
                     );
 
                     statement.executeUpdate();
@@ -982,23 +1258,45 @@ class DealEvaluationJdbcRepositoryTest {
         } catch (SQLException exception) {
 
             throw new IllegalStateException(
-                    "Failed to clean up persistence test data",
-                    exception
+                "Failed to clean up persistence test data",
+                exception
             );
         }
     }
 
-    /**
-     * Representação auxiliar de uma linha de
-     * deal_evaluation_rule_result lida diretamente do banco.
-     */
+    private static void assertBigDecimalEquals(
+        String expected,
+        BigDecimal actual
+    ) {
+
+        assertNotNull(
+            actual
+        );
+
+        assertEquals(
+            0,
+            new BigDecimal(expected).compareTo(actual)
+        );
+    }
+
     private record PersistedRuleResult(
-            int ruleOrder,
-            String ruleCode,
-            boolean passed,
-            String observedValue,
-            String thresholdValue,
-            String reasonCode
+        int ruleOrder,
+        String ruleCode,
+        boolean passed,
+        String observedValue,
+        String thresholdValue,
+        String reasonCode
+    ) {
+    }
+
+    private record PersistedScoreFactor(
+        int factorOrder,
+        String factorCode,
+        String status,
+        BigDecimal rawValue,
+        BigDecimal normalizedValue,
+        BigDecimal weight,
+        BigDecimal contribution
     ) {
     }
 }

@@ -3,7 +3,9 @@ package com.raspingamazon.infrastructure.composition;
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.application.deal.OfferSnapshotFactory;
 import com.raspingamazon.application.evaluation.AmazonDealEvaluationApplicationService;
+import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
+import com.raspingamazon.domain.scoring.ScoreEngine;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageEnrichmentClient;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageParser;
@@ -16,6 +18,7 @@ import com.raspingamazon.infrastructure.persistence.OfferEvidenceJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferPaymentConditionRepository;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
 import com.raspingamazon.infrastructure.persistence.ProductRepository;
+import com.raspingamazon.infrastructure.persistence.ScoreProfileJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcTransactionAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferEvidenceJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferSnapshotJdbcPersistenceAdapter;
@@ -37,8 +40,8 @@ import java.util.Objects;
  * <p>A mesma Connection JDBC é compartilhada por todos os repositories
  * e pelo JdbcTransactionAdapter. Essa característica é fundamental:
  * somente assim Product, OfferSnapshot, PaymentConditions, Evidence,
- * FilterProfile e DealEvaluation podem participar de uma composição
- * consistente.</p>
+ * FilterProfile, ScoreProfile e DealEvaluation podem participar de uma
+ * composição consistente.</p>
  *
  * <p>A classe não possui regras de negócio e não executa o fluxo.
  * Ela apenas conecta implementações concretas aos contratos da
@@ -126,9 +129,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * ENRICHMENT
          * ---------------------------------------------------------
-         *
-         * O construtor utilizado aqui habilita também o parser de
-         * condições comerciais padrão introduzido na FASE 9-C1.5.
          */
         AmazonProductPageEnrichmentClient enrichmentClient =
             new AmazonProductPageEnrichmentClient(
@@ -206,11 +206,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * FILTER PROFILE
          * ---------------------------------------------------------
-         *
-         * A configuração comercial ativa não é codificada aqui.
-         *
-         * O composition root conecta a porta FilterProfileProvider
-         * à implementação JDBC que lê a versão ativa persistida.
          */
         FilterProfileJdbcRepository filterProfileRepository =
             new FilterProfileJdbcRepository(
@@ -219,13 +214,46 @@ public final class AmazonDealProcessingComposition {
 
         /*
          * ---------------------------------------------------------
-         * COMMERCIAL FILTER ENGINE
+         * SCORE PROFILE
          * ---------------------------------------------------------
          *
-         * O motor permanece puro e independente da infraestrutura.
+         * O perfil de score ativo também é lido da configuração
+         * persistida e versionada.
+         */
+        ScoreProfileJdbcRepository scoreProfileRepository =
+            new ScoreProfileJdbcRepository(
+                connection
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * COMMERCIAL FILTER ENGINE
+         * ---------------------------------------------------------
          */
         CommercialFilterEngine commercialFilterEngine =
             new CommercialFilterEngine();
+
+        /*
+         * ---------------------------------------------------------
+         * SCORE ENGINE
+         * ---------------------------------------------------------
+         *
+         * O motor permanece puro e independente de infraestrutura.
+         */
+        ScoreEngine scoreEngine =
+            new ScoreEngine();
+
+        /*
+         * ---------------------------------------------------------
+         * CASH DISCOUNT SELECTOR
+         * ---------------------------------------------------------
+         *
+         * O mesmo conceito de melhor desconto à vista reconhecido
+         * pelos filtros comerciais é reutilizado na construção do
+         * ScoreInput.
+         */
+        BestCashDiscountSelector bestCashDiscountSelector =
+            new BestCashDiscountSelector();
 
         /*
          * ---------------------------------------------------------
@@ -242,6 +270,9 @@ public final class AmazonDealProcessingComposition {
                 new AmazonEligibilityValidator(),
                 commercialFilterEngine,
                 filterProfileRepository,
+                scoreProfileRepository,
+                scoreEngine,
+                bestCashDiscountSelector,
                 evaluationRepository
             );
 
@@ -263,7 +294,8 @@ public final class AmazonDealProcessingComposition {
          *
          * pertencem à mesma unidade atômica de persistência.
          *
-         * O FilterProfile é somente lido durante a avaliação.
+         * FilterProfile e ScoreProfile são somente lidos durante
+         * a avaliação.
          */
         JdbcTransactionAdapter transactionAdapter =
             new JdbcTransactionAdapter(

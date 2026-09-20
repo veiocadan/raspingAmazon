@@ -1,6 +1,8 @@
 package com.raspingamazon.domain.evaluation;
 
 import com.raspingamazon.domain.deal.OfferSnapshot;
+import com.raspingamazon.domain.scoring.ScoreFactorResult;
+import com.raspingamazon.domain.scoring.ScoreResult;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -17,11 +19,15 @@ import java.util.Objects;
  *     <li>o motivo principal de rejeição;</li>
  *     <li>as versões das etapas aplicadas;</li>
  *     <li>os resultados individuais das regras;</li>
- *     <li>score e momentum, quando existirem.</li>
+ *     <li>o score e seus fatores explicativos, quando existirem;</li>
+ *     <li>momentum, quando existir.</li>
  * </ul>
  *
  * <p>Os resultados individuais permitem reconstruir exatamente
  * quais regras passaram ou falharam em uma avaliação histórica.</p>
+ *
+ * <p>Quando há score, os fatores preservam a explicação matemática
+ * necessária para reproduzir a pontuação histórica.</p>
  */
 public final class DealEvaluation {
 
@@ -54,108 +60,109 @@ public final class DealEvaluation {
 
     private final String scoreVersion;
 
+    /**
+     * Decomposição auditável do score.
+     *
+     * <p>Quando não existe score, esta lista obrigatoriamente
+     * permanece vazia.</p>
+     */
+    private final List<ScoreFactorResult> scoreFactors;
+
     private final BigDecimal momentum;
 
     private final String momentumVersion;
 
     private final OffsetDateTime evaluatedAt;
 
+    /**
+     * Construtor completo da avaliação.
+     *
+     * <p>Este é o contrato que deve ser utilizado por avaliações
+     * pontuadas a partir da FASE 10.</p>
+     */
     public DealEvaluation(
-            Long id,
-            OfferSnapshot offerSnapshot,
-            boolean eligible,
-            RejectionReason rejectionReason,
-            String eligibilityPolicyVersion,
-            String filterProfileVersion,
-            List<EvaluationRuleResult> ruleResults,
-            BigDecimal score,
-            String scoreVersion,
-            BigDecimal momentum,
-            String momentumVersion,
-            OffsetDateTime evaluatedAt
+        Long id,
+        OfferSnapshot offerSnapshot,
+        boolean eligible,
+        RejectionReason rejectionReason,
+        String eligibilityPolicyVersion,
+        String filterProfileVersion,
+        List<EvaluationRuleResult> ruleResults,
+        BigDecimal score,
+        String scoreVersion,
+        List<ScoreFactorResult> scoreFactors,
+        BigDecimal momentum,
+        String momentumVersion,
+        OffsetDateTime evaluatedAt
     ) {
         this.id = id;
 
         this.offerSnapshot =
-                Objects.requireNonNull(
-                        offerSnapshot,
-                        "DealEvaluation offerSnapshot must not be null"
-                );
+            Objects.requireNonNull(
+                offerSnapshot,
+                "DealEvaluation offerSnapshot must not be null"
+            );
 
         this.eligible = eligible;
 
         this.eligibilityPolicyVersion =
-                requireText(
-                        eligibilityPolicyVersion,
-                        "DealEvaluation eligibilityPolicyVersion must not be blank"
-                );
+            requireText(
+                eligibilityPolicyVersion,
+                "DealEvaluation eligibilityPolicyVersion must not be blank"
+            );
 
         this.filterProfileVersion =
-                optionalText(
-                        filterProfileVersion,
-                        "DealEvaluation filterProfileVersion must not be blank"
-                );
+            optionalText(
+                filterProfileVersion,
+                "DealEvaluation filterProfileVersion must not be blank"
+            );
 
         Objects.requireNonNull(
-                ruleResults,
-                "DealEvaluation ruleResults must not be null"
+            ruleResults,
+            "DealEvaluation ruleResults must not be null"
         );
 
         if (ruleResults.isEmpty()) {
             throw new IllegalArgumentException(
-                    "DealEvaluation ruleResults must not be empty"
+                "DealEvaluation ruleResults must not be empty"
             );
         }
 
-        /*
-         * Cópia defensiva:
-         * depois de criada, a avaliação não pode ter suas regras
-         * alteradas externamente.
-         */
         this.ruleResults =
-                List.copyOf(
-                        ruleResults
-                );
+            List.copyOf(
+                ruleResults
+            );
 
-        /*
-         * A elegibilidade agregada deve refletir TODAS as regras.
-         */
         boolean allRulesPassed =
-                this.ruleResults.stream()
-                        .allMatch(
-                                EvaluationRuleResult::passed
-                        );
+            this.ruleResults.stream()
+                .allMatch(
+                    EvaluationRuleResult::passed
+                );
 
         if (eligible != allRulesPassed) {
             throw new IllegalArgumentException(
-                    "DealEvaluation eligibility must match rule results"
+                "DealEvaluation eligibility must match rule results"
             );
         }
 
-        /*
-         * Encontramos a primeira regra que falhou.
-         *
-         * Sua razão é utilizada como motivo principal da avaliação,
-         * mantendo comportamento determinístico.
-         */
         RejectionReason firstFailureReason =
-                this.ruleResults.stream()
-                        .filter(
-                                result -> !result.passed()
-                        )
-                        .map(
-                                EvaluationRuleResult::reasonCode
-                        )
-                        .findFirst()
-                        .orElse(
-                                null
-                        );
+            this.ruleResults.stream()
+                .filter(
+                    result -> !result.passed()
+                )
+                .map(
+                    EvaluationRuleResult::reasonCode
+                )
+                .findFirst()
+                .orElse(
+                    null
+                );
 
         if (eligible) {
 
             if (rejectionReason != null) {
                 throw new IllegalArgumentException(
-                        "Eligible evaluation must not have rejectionReason"
+                    "Eligible evaluation must not have rejectionReason"
                 );
             }
 
@@ -163,83 +170,192 @@ public final class DealEvaluation {
 
             if (rejectionReason == null) {
                 throw new IllegalArgumentException(
-                        "Ineligible evaluation must have rejectionReason"
+                    "Ineligible evaluation must have rejectionReason"
                 );
             }
 
-            /*
-             * O resumo agregado precisa corresponder à primeira falha
-             * registrada nas regras.
-             */
             if (rejectionReason != firstFailureReason) {
                 throw new IllegalArgumentException(
-                        "DealEvaluation rejectionReason must match the first failed rule"
+                    "DealEvaluation rejectionReason must match the first failed rule"
                 );
             }
         }
 
         this.rejectionReason =
-                rejectionReason;
-
-        this.score =
-                score;
+            rejectionReason;
 
         this.scoreVersion =
-                optionalText(
-                        scoreVersion,
-                        "DealEvaluation scoreVersion must not be blank"
-                );
+            optionalText(
+                scoreVersion,
+                "DealEvaluation scoreVersion must not be blank"
+            );
 
-        this.momentum =
-                momentum;
+        Objects.requireNonNull(
+            scoreFactors,
+            "DealEvaluation scoreFactors must not be null"
+        );
 
-        this.momentumVersion =
-                optionalText(
-                        momentumVersion,
-                        "DealEvaluation momentumVersion must not be blank"
-                );
+        this.scoreFactors =
+            List.copyOf(
+                scoreFactors
+            );
 
         /*
          * Score e versão sempre aparecem juntos.
          */
         if ((score == null)
-                != (this.scoreVersion == null)) {
+            != (this.scoreVersion == null)) {
 
             throw new IllegalArgumentException(
-                    "DealEvaluation score and scoreVersion must either both be present or both be null"
+                "DealEvaluation score and scoreVersion must either both be present or both be null"
             );
         }
 
         /*
-         * Momentum e versão também sempre aparecem juntos.
+         * Uma avaliação sem score não pode carregar fatores.
          */
-        if ((momentum == null)
-                != (this.momentumVersion == null)) {
+        if (score == null
+            && !this.scoreFactors.isEmpty()) {
 
             throw new IllegalArgumentException(
-                    "DealEvaluation momentum and momentumVersion must either both be present or both be null"
+                "DealEvaluation without score must not have scoreFactors"
+            );
+        }
+
+        /*
+         * Uma avaliação pontuada precisa ser elegível.
+         *
+         * O score atua somente depois de elegibilidade estrutural
+         * e filtros comerciais.
+         */
+        if (score != null
+            && !eligible) {
+
+            throw new IllegalArgumentException(
+                "Ineligible DealEvaluation must not have score"
+            );
+        }
+
+        /*
+         * Toda avaliação pontuada precisa carregar sua explicação.
+         */
+        if (score != null
+            && this.scoreFactors.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                "Scored DealEvaluation must have scoreFactors"
+            );
+        }
+
+        /*
+         * ScoreResult reaplica as invariantes matemáticas:
+         *
+         * - fatores não duplicados;
+         * - score entre 0 e 100;
+         * - score igual à soma das contribuições;
+         * - arredondamento determinístico.
+         *
+         * Assim DealEvaluation não duplica a lógica matemática
+         * de scoring.
+         */
+        if (score != null) {
+
+            ScoreResult validatedScore =
+                new ScoreResult(
+                    this.scoreVersion,
+                    score,
+                    this.scoreFactors
+                );
+
+            this.score =
+                validatedScore.score();
+
+        } else {
+
+            this.score =
+                null;
+        }
+
+        this.momentum =
+            momentum;
+
+        this.momentumVersion =
+            optionalText(
+                momentumVersion,
+                "DealEvaluation momentumVersion must not be blank"
+            );
+
+        /*
+         * Momentum e versão sempre aparecem juntos.
+         */
+        if ((momentum == null)
+            != (this.momentumVersion == null)) {
+
+            throw new IllegalArgumentException(
+                "DealEvaluation momentum and momentumVersion must either both be present or both be null"
             );
         }
 
         this.evaluatedAt =
-                Objects.requireNonNull(
-                        evaluatedAt,
-                        "DealEvaluation evaluatedAt must not be null"
-                );
+            Objects.requireNonNull(
+                evaluatedAt,
+                "DealEvaluation evaluatedAt must not be null"
+            );
+    }
+
+    /**
+     * Construtor de compatibilidade para avaliações ainda sem score.
+     *
+     * <p>Ele preserva os pontos existentes do código durante a
+     * integração incremental da FASE 10.</p>
+     *
+     * <p>Uma avaliação pontuada não pode mais utilizar esta assinatura,
+     * pois scoreFactors ficaria vazio e a invariável de explicabilidade
+     * rejeitaria o objeto.</p>
+     */
+    public DealEvaluation(
+        Long id,
+        OfferSnapshot offerSnapshot,
+        boolean eligible,
+        RejectionReason rejectionReason,
+        String eligibilityPolicyVersion,
+        String filterProfileVersion,
+        List<EvaluationRuleResult> ruleResults,
+        BigDecimal score,
+        String scoreVersion,
+        BigDecimal momentum,
+        String momentumVersion,
+        OffsetDateTime evaluatedAt
+    ) {
+        this(
+            id,
+            offerSnapshot,
+            eligible,
+            rejectionReason,
+            eligibilityPolicyVersion,
+            filterProfileVersion,
+            ruleResults,
+            score,
+            scoreVersion,
+            List.of(),
+            momentum,
+            momentumVersion,
+            evaluatedAt
+        );
     }
 
     private static String requireText(
-            String value,
-            String message
+        String value,
+        String message
     ) {
         Objects.requireNonNull(
-                value,
-                message
+            value,
+            message
         );
 
         if (value.isBlank()) {
             throw new IllegalArgumentException(
-                    message
+                message
             );
         }
 
@@ -247,8 +363,8 @@ public final class DealEvaluation {
     }
 
     private static String optionalText(
-            String value,
-            String message
+        String value,
+        String message
     ) {
         if (value == null) {
             return null;
@@ -256,7 +372,7 @@ public final class DealEvaluation {
 
         if (value.isBlank()) {
             throw new IllegalArgumentException(
-                    message
+                message
             );
         }
 
@@ -297,6 +413,10 @@ public final class DealEvaluation {
 
     public String scoreVersion() {
         return scoreVersion;
+    }
+
+    public List<ScoreFactorResult> scoreFactors() {
+        return scoreFactors;
     }
 
     public BigDecimal momentum() {

@@ -2,15 +2,21 @@ package com.raspingamazon.application.evaluation;
 
 import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.filter.FilterProfileProvider;
+import com.raspingamazon.application.scoring.ScoreProfileProvider;
 import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.commercial.PaymentConditionType;
 import com.raspingamazon.domain.commercial.PaymentMethod;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
+import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
 import com.raspingamazon.domain.filter.FilterProfile;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
+import com.raspingamazon.domain.scoring.ScoreEngine;
+import com.raspingamazon.domain.scoring.ScoreFactorCode;
+import com.raspingamazon.domain.scoring.ScoreFactorStatus;
+import com.raspingamazon.domain.scoring.ScoreProfile;
 import com.raspingamazon.domain.shared.Money;
 import com.raspingamazon.domain.shared.Percentage;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
@@ -32,10 +38,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Verifica que AmazonDealEvaluationApplicationService pode ser usado
  * diretamente como porta de avaliação pelo fluxo vertical.
  *
- * A partir da FASE 9, a avaliação aplicada pela porta contém:
+ * <p>A partir da FASE 10, a avaliação aplicada pela porta contém:</p>
  *
- * - elegibilidade estrutural Amazon;
- * - filtros comerciais configuráveis.
+ * <ul>
+ *     <li>elegibilidade estrutural Amazon;</li>
+ *     <li>filtros comerciais configuráveis;</li>
+ *     <li>score versionado para ofertas aprovadas;</li>
+ *     <li>fatores auditáveis do score.</li>
+ * </ul>
  */
 class AmazonDealEvaluationProcessingPortTest {
 
@@ -47,8 +57,21 @@ class AmazonDealEvaluationProcessingPortTest {
             100L
         );
 
+    private static final ScoreProfile SCORE_PROFILE =
+        new ScoreProfile(
+            "SCORE_V1",
+            new BigDecimal("30"),
+            new BigDecimal("25"),
+            new BigDecimal("20"),
+            new BigDecimal("15"),
+            1000L
+        );
+
     private static final FilterProfileProvider FILTER_PROFILE_PROVIDER =
         () -> FILTER_PROFILE;
+
+    private static final ScoreProfileProvider SCORE_PROFILE_PROVIDER =
+        () -> SCORE_PROFILE;
 
     @Test
     void shouldEvaluateSnapshotThroughProcessingPort() {
@@ -71,6 +94,9 @@ class AmazonDealEvaluationProcessingPortTest {
                 new AmazonEligibilityValidator(),
                 new CommercialFilterEngine(),
                 FILTER_PROFILE_PROVIDER,
+                SCORE_PROFILE_PROVIDER,
+                new ScoreEngine(),
+                new BestCashDiscountSelector(),
                 repository
             );
 
@@ -130,7 +156,7 @@ class AmazonDealEvaluationProcessingPortTest {
         );
 
         /*
-         * A avaliação atual possui cinco regras:
+         * A avaliação atual possui cinco regras eliminatórias:
          *
          * 1. seller;
          * 2. delivery;
@@ -150,6 +176,102 @@ class AmazonDealEvaluationProcessingPortTest {
                     result ->
                         result.passed()
                 )
+        );
+
+        /*
+         * A oferta foi aprovada, portanto a FASE 10 deve produzir
+         * score e fatores explicativos.
+         *
+         * soldPercentage = null
+         * cashDiscount   = 25
+         * rating         = 4.7
+         * reviewCount    = 1500
+         *
+         * SCORE:
+         *
+         * soldPercentage = 0
+         * cashDiscount   = 6.25
+         * rating         = 18.8
+         * reviewCount    = 15
+         *
+         * total = 40.05
+         */
+        assertBigDecimalEquals(
+            "40.0500",
+            evaluation.score()
+        );
+
+        assertEquals(
+            "SCORE_V1",
+            evaluation.scoreVersion()
+        );
+
+        assertEquals(
+            4,
+            evaluation.scoreFactors().size()
+        );
+
+        assertEquals(
+            ScoreFactorCode.SOLD_PERCENTAGE,
+            evaluation.scoreFactors()
+                .get(0)
+                .code()
+        );
+
+        assertEquals(
+            ScoreFactorStatus.UNAVAILABLE,
+            evaluation.scoreFactors()
+                .get(0)
+                .status()
+        );
+
+        assertBigDecimalEquals(
+            "0",
+            evaluation.scoreFactors()
+                .get(0)
+                .contribution()
+        );
+
+        assertEquals(
+            ScoreFactorCode.CASH_DISCOUNT,
+            evaluation.scoreFactors()
+                .get(1)
+                .code()
+        );
+
+        assertBigDecimalEquals(
+            "6.2500",
+            evaluation.scoreFactors()
+                .get(1)
+                .contribution()
+        );
+
+        assertEquals(
+            ScoreFactorCode.RATING,
+            evaluation.scoreFactors()
+                .get(2)
+                .code()
+        );
+
+        assertBigDecimalEquals(
+            "18.8000",
+            evaluation.scoreFactors()
+                .get(2)
+                .contribution()
+        );
+
+        assertEquals(
+            ScoreFactorCode.REVIEW_COUNT,
+            evaluation.scoreFactors()
+                .get(3)
+                .code()
+        );
+
+        assertBigDecimalEquals(
+            "15.0000",
+            evaluation.scoreFactors()
+                .get(3)
+                .contribution()
         );
     }
 
@@ -207,6 +329,20 @@ class AmazonDealEvaluationProcessingPortTest {
             List.of(
                 cashCondition
             )
+        );
+    }
+
+    private static void assertBigDecimalEquals(
+        String expected,
+        BigDecimal actual
+    ) {
+        assertNotNull(
+            actual
+        );
+
+        assertEquals(
+            0,
+            new BigDecimal(expected).compareTo(actual)
         );
     }
 }
