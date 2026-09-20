@@ -2,17 +2,25 @@ package com.raspingamazon.application.evaluation;
 
 import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.filter.FilterProfileProvider;
+import com.raspingamazon.application.scoring.ScoreProfileProvider;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
 import com.raspingamazon.domain.evaluation.RejectionReason;
+import com.raspingamazon.domain.filter.BestCashDiscountSelector;
+import com.raspingamazon.domain.filter.CashDiscountObservation;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
 import com.raspingamazon.domain.filter.FilterProfile;
+import com.raspingamazon.domain.scoring.ScoreEngine;
+import com.raspingamazon.domain.scoring.ScoreInput;
+import com.raspingamazon.domain.scoring.ScoreProfile;
+import com.raspingamazon.domain.scoring.ScoreResult;
 import com.raspingamazon.domain.validation.AmazonEligibilityResult;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,26 +30,39 @@ import java.util.Objects;
  * Serviço de aplicação responsável por produzir a avaliação completa
  * de uma oferta.
  *
- * A avaliação combina duas etapas conceitualmente distintas:
+ * <p>A avaliação combina três etapas conceitualmente distintas:</p>
  *
- * 1. elegibilidade estrutural Amazon;
- * 2. filtros comerciais configuráveis.
+ * <ol>
+ *     <li>elegibilidade estrutural Amazon;</li>
+ *     <li>filtros comerciais configuráveis;</li>
+ *     <li>score para ofertas aprovadas.</li>
+ * </ol>
  *
- * A separação entre essas etapas é preservada por:
+ * <p>A separação entre essas etapas é preservada por:</p>
  *
- * - eligibilityPolicyVersion;
- * - filterProfileVersion;
- * - códigos de regra distintos.
+ * <ul>
+ *     <li>eligibilityPolicyVersion;</li>
+ *     <li>filterProfileVersion;</li>
+ *     <li>scoreVersion;</li>
+ *     <li>códigos de regra distintos;</li>
+ *     <li>fatores auditáveis do score.</li>
+ * </ul>
  *
- * A ordem das regras também é deliberadamente estável:
+ * <p>A ordem das regras eliminatórias é deliberadamente estável:</p>
  *
- * 1. seller;
- * 2. delivery;
- * 3. desconto à vista;
- * 4. rating;
- * 5. quantidade de avaliações.
+ * <ol>
+ *     <li>seller;</li>
+ *     <li>delivery;</li>
+ *     <li>desconto à vista;</li>
+ *     <li>rating;</li>
+ *     <li>quantidade de avaliações.</li>
+ * </ol>
  *
- * Todas as regras são avaliadas. Não existe short-circuit.
+ * <p>Todas as regras eliminatórias são avaliadas. Não existe
+ * short-circuit entre elas.</p>
+ *
+ * <p>O score, entretanto, somente é calculado depois que todas
+ * essas regras tiverem sido aprovadas.</p>
  */
 public final class AmazonDealEvaluationApplicationService
     implements DealEvaluationProcessingPort {
@@ -55,12 +76,21 @@ public final class AmazonDealEvaluationApplicationService
 
     private final FilterProfileProvider filterProfileProvider;
 
+    private final ScoreProfileProvider scoreProfileProvider;
+
+    private final ScoreEngine scoreEngine;
+
+    private final BestCashDiscountSelector bestCashDiscountSelector;
+
     private final DealEvaluationRepository evaluationRepository;
 
     public AmazonDealEvaluationApplicationService(
         AmazonEligibilityValidator eligibilityValidator,
         CommercialFilterEngine commercialFilterEngine,
         FilterProfileProvider filterProfileProvider,
+        ScoreProfileProvider scoreProfileProvider,
+        ScoreEngine scoreEngine,
+        BestCashDiscountSelector bestCashDiscountSelector,
         DealEvaluationRepository evaluationRepository
     ) {
         this.eligibilityValidator =
@@ -81,6 +111,24 @@ public final class AmazonDealEvaluationApplicationService
                 "filterProfileProvider must not be null"
             );
 
+        this.scoreProfileProvider =
+            Objects.requireNonNull(
+                scoreProfileProvider,
+                "scoreProfileProvider must not be null"
+            );
+
+        this.scoreEngine =
+            Objects.requireNonNull(
+                scoreEngine,
+                "scoreEngine must not be null"
+            );
+
+        this.bestCashDiscountSelector =
+            Objects.requireNonNull(
+                bestCashDiscountSelector,
+                "bestCashDiscountSelector must not be null"
+            );
+
         this.evaluationRepository =
             Objects.requireNonNull(
                 evaluationRepository,
@@ -92,8 +140,8 @@ public final class AmazonDealEvaluationApplicationService
      * Avalia uma oferta utilizando classificações estruturais
      * explicitamente fornecidas.
      *
-     * Este método é mantido para consumidores que já possuem
-     * SellerType e DeliveryType separadamente.
+     * <p>Este método é mantido para consumidores que já possuem
+     * SellerType e DeliveryType separadamente.</p>
      */
     public DealEvaluation evaluate(
         OfferSnapshot offerSnapshot,
@@ -136,10 +184,6 @@ public final class AmazonDealEvaluationApplicationService
          * ---------------------------------------------------------
          * 2. PERFIL COMERCIAL ATIVO
          * ---------------------------------------------------------
-         *
-         * O serviço não conhece PostgreSQL.
-         *
-         * Ele depende somente da porta FilterProfileProvider.
          */
         FilterProfile filterProfile =
             filterProfileProvider.activeProfile();
@@ -159,9 +203,6 @@ public final class AmazonDealEvaluationApplicationService
          * ---------------------------------------------------------
          * 4. AGREGAÇÃO DAS REGRAS
          * ---------------------------------------------------------
-         *
-         * As regras estruturais aparecem primeiro para preservar
-         * sua prioridade semântica no rejectionReason agregado.
          */
         List<EvaluationRuleResult> ruleResults =
             combineRuleResults(
@@ -180,39 +221,150 @@ public final class AmazonDealEvaluationApplicationService
                 ruleResults
             );
 
-        DealEvaluation evaluation =
-            new DealEvaluation(
-                null,
+        /*
+         * ---------------------------------------------------------
+         * 5. SCORE
+         * ---------------------------------------------------------
+         *
+         * Score somente existe quando todas as etapas eliminatórias
+         * anteriores foram aprovadas.
+         */
+        ScoreResult scoreResult =
+            null;
 
-                offerSnapshot,
+        if (eligible) {
 
-                eligible,
+            ScoreProfile scoreProfile =
+                scoreProfileProvider.activeProfile();
 
-                rejectionReason,
+            ScoreInput scoreInput =
+                createScoreInput(
+                    offerSnapshot
+                );
 
-                ELIGIBILITY_POLICY_VERSION,
+            scoreResult =
+                scoreEngine.calculate(
+                    scoreProfile,
+                    scoreInput
+                );
+        }
 
-                filterProfile.version(),
+        /*
+         * ---------------------------------------------------------
+         * 6. AVALIAÇÃO AGREGADA
+         * ---------------------------------------------------------
+         */
+        DealEvaluation evaluation;
 
-                ruleResults,
+        if (scoreResult == null) {
 
-                /*
-                 * Score pertence à FASE 10.
-                 */
-                null,
-                null,
+            evaluation =
+                new DealEvaluation(
+                    null,
+                    offerSnapshot,
+                    false,
+                    rejectionReason,
+                    ELIGIBILITY_POLICY_VERSION,
+                    filterProfile.version(),
+                    ruleResults,
+                    null,
+                    null,
+                    null,
+                    null,
+                    evaluatedAt
+                );
 
-                /*
-                 * Momentum pertence à FASE 11.
-                 */
-                null,
-                null,
+        } else {
 
-                evaluatedAt
-            );
+            evaluation =
+                new DealEvaluation(
+                    null,
+                    offerSnapshot,
+                    true,
+                    null,
+                    ELIGIBILITY_POLICY_VERSION,
+                    filterProfile.version(),
+                    ruleResults,
+                    scoreResult.score(),
+                    scoreResult.version(),
+                    scoreResult.factors(),
+                    null,
+                    null,
+                    evaluatedAt
+                );
+        }
 
         return evaluationRepository.save(
             evaluation
+        );
+    }
+
+    /**
+     * Constrói os fatos necessários ao motor de score a partir
+     * da oferta já aprovada pelos filtros comerciais.
+     *
+     * <p>Esta conversão ocorre somente depois da aprovação dos filtros.
+     * Consequentemente, desconto à vista, rating e reviewCount devem
+     * estar disponíveis.</p>
+     *
+     * <p>soldPercentage continua opcional por definição do SCORE_V1.</p>
+     */
+    private ScoreInput createScoreInput(
+        OfferSnapshot offerSnapshot
+    ) {
+
+        CashDiscountObservation cashDiscount =
+            bestCashDiscountSelector
+                .select(
+                    offerSnapshot.paymentConditions()
+                )
+                .orElseThrow(
+                    () -> new IllegalStateException(
+                        "Eligible offer must have a recognized cash discount"
+                    )
+                );
+
+        if (offerSnapshot.rating() == null) {
+            throw new IllegalStateException(
+                "Eligible offer must have rating"
+            );
+        }
+
+        if (offerSnapshot.reviewCount() == null) {
+            throw new IllegalStateException(
+                "Eligible offer must have reviewCount"
+            );
+        }
+
+        BigDecimal soldPercentage =
+            offerSnapshot.soldPercentage() == null
+                ? null
+                : offerSnapshot
+                .soldPercentage()
+                .value();
+
+        /*
+         * OfferSnapshot mantém rating como Double por contrato
+         * histórico.
+         *
+         * O domínio de scoring utiliza BigDecimal.
+         *
+         * BigDecimal.valueOf é usado deliberadamente para evitar
+         * a representação binária indesejada produzida por
+         * new BigDecimal(double).
+         */
+        BigDecimal rating =
+            BigDecimal.valueOf(
+                offerSnapshot.rating()
+            );
+
+        return new ScoreInput(
+            soldPercentage,
+            cashDiscount
+                .discountPercentage()
+                .value(),
+            rating,
+            offerSnapshot.reviewCount()
         );
     }
 
@@ -256,8 +408,6 @@ public final class AmazonDealEvaluationApplicationService
     /**
      * O motivo agregado da rejeição é a razão da primeira regra
      * que falhou.
-     *
-     * Essa lógica corresponde à própria invariante de DealEvaluation.
      */
     private RejectionReason firstFailureReason(
         List<EvaluationRuleResult> ruleResults
@@ -279,7 +429,7 @@ public final class AmazonDealEvaluationApplicationService
     /**
      * Porta utilizada pelo fluxo vertical.
      *
-     * SellerType e DeliveryType já fazem parte do OfferSnapshot.
+     * <p>SellerType e DeliveryType já fazem parte do OfferSnapshot.</p>
      */
     @Override
     public void evaluateAndPersist(
