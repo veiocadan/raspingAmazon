@@ -3,7 +3,7 @@
 **Projeto:** Rasping Amazon
 **Fase:** 11 — Histórico, evolução e momentum
 **Data:** 20/09/2026
-**Status:** CONCLUÍDA LOCALMENTE — validação local aprovada; CI remoto e merge ainda pendentes
+**Status:** CONCLUÍDA LOCALMENTE — validação local e CI remoto aprovados, merge ainda pendentes
 
 ---
 
