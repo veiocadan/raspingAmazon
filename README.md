@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: implementação técnica local da FASE 12 concluída. O sistema preserva o motor de decisão consolidado até a FASE 11 e acrescenta orquestração por etapas, fila durável em PostgreSQL, reprocessamento seletivo, classificação de falhas, retry com backoff, leases, recuperação de jobs, worker genérico, preparação para múltiplos workers e reforços de idempotência/concorrência. A validação local está verde com 514 testes. O schema PostgreSQL/Flyway está na versão 13. O gate remoto da FASE 12 ainda depende de push, Pull Request, CI e merge. Após esse fechamento, a próxima fase planejada pelo roadmap da versão 1.0 é a FASE 13 — Geração de publicação e link de associado.**
+> **Estado atual: FASE 12 concluída local e remotamente. O sistema preserva o motor de decisão consolidado até a FASE 11 e acrescenta orquestração por etapas, fila durável em PostgreSQL, reprocessamento seletivo, classificação de falhas, retry com backoff, leases, recuperação de jobs, worker genérico, preparação para múltiplos workers e reforços de idempotência/concorrência. A validação local está verde com 514 testes. O schema PostgreSQL/Flyway está na versão 13. O Pull Request #3 foi integrado à `main` pelo merge commit `cb220c7`, e o CI pós-merge da `main` (run #25) foi concluído com sucesso. A próxima fase é a FASE 13 — Geração de publicação e link de associado.**
 
 ## 1. Objetivo
 
@@ -64,7 +64,7 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 | FASE 9    | Motor de filtros comerciais configuráveis                   | CONCLUÍDA                      |
 | FASE 10   | Score, ranking e explicabilidade                            | CONCLUÍDA                      |
 | FASE 11   | Histórico, evolução e momentum                              | CONCLUÍDA                      |
-| FASE 12   | Orquestração e processamento assíncrono                     | GATE LOCAL FECHADO / PR PENDENTE |
+| FASE 12   | Orquestração e processamento assíncrono                     | CONCLUÍDA                      |
 | FASE 13   | Geração de publicação e link de associado                   | PLANEJADA                      |
 | FASE 14   | Interface operacional                                       | PLANEJADA                      |
 | FASE 15   | Qualidade integrada e regressão de sistema                  | PLANEJADA                      |
@@ -81,7 +81,7 @@ O planejamento das FASES 13 a 21 está consolidado em:
 docs/phases/ROADMAP_RASPING_AMAZON_V1.md
 ```
 
-A FASE 12 está tecnicamente concluída no ambiente local, com 514 testes verdes. O fechamento formal ainda depende do gate remoto da branch.
+A FASE 12 está concluída local e remotamente, com 514 testes verdes, PR #3 integrado à `main` e CI pós-merge aprovado.
 
 ---
 
@@ -170,10 +170,10 @@ Estado do gate:
 
 ```text
 local  = FECHADO
-remoto = PENDENTE
+remoto = FECHADO
 ```
 
-O gate remoto será considerado fechado somente depois de push da branch, CI verde no Pull Request, merge em `main` e validação pós-merge.
+O fechamento remoto foi concluído com CI verde no Pull Request #3, merge em `main` pelo commit `cb220c7` e CI pós-merge verde no GitHub Actions run #25.
 
 ---
 
@@ -2652,11 +2652,14 @@ PostgreSQL 18.6
 Maven Wrapper
 ```
 
-Comando:
+Sequência principal do CI:
 
 ```text
-./mvnw --batch-mode clean test
+./mvnw --batch-mode -Dtest=DatabaseMigrationTest test
+./mvnw --batch-mode test
 ```
+
+A primeira etapa aplica e valida explicitamente as migrations antes da suíte completa, evitando dependência acidental da ordem de execução dos testes.
 
 Gatilhos:
 
@@ -2665,26 +2668,25 @@ pull_request
 push em main
 ```
 
-Último gate remoto formalmente encerrado:
+Gate remoto da FASE 12:
 
 ```text
-FASE 11
-Pull Request #2 = MERGED
-merge commit = 46d7e4c
-CI pós-merge da main = SUCCESS
-GitHub Actions run = #21
-```
-
-Estado da FASE 12 neste documento:
-
-```text
-gate local = SUCCESS
-514 testes verdes
+Pull Request #3 = MERGED
 branch = fase-12-orquestracao-assincrona
-push/PR/CI/merge = PENDENTES
+CI do PR = SUCCESS
+merge commit = cb220c7
+CI pós-merge da main = SUCCESS
+GitHub Actions run = #25
 ```
 
-Nenhum sucesso remoto da FASE 12 é antecipado antes de acontecer.
+Estado final da FASE 12:
+
+```text
+gate local = FECHADO
+gate remoto = FECHADO
+514 testes verdes
+FASE 12 = CONCLUÍDA
+```
 
 ---
 
@@ -3306,11 +3308,14 @@ e791531 test: integra orquestracao assincrona
 2a95e75 fix: serializa avaliacoes concorrentes
 ```
 
-Estado neste momento:
+Estado final:
 
 ```text
 gate técnico local = FECHADO
-gate remoto = PENDENTE
+gate remoto = FECHADO
+Pull Request #3 = MERGED
+merge commit = cb220c7
+CI pós-merge = SUCCESS — run #25
 ```
 
 ---
@@ -3337,8 +3342,8 @@ FASE 8.5 → Consolidação do núcleo                          [CONCLUÍDA]
 FASE 9   → Filtros comerciais configuráveis                [CONCLUÍDA]
 FASE 10  → Score, ranking e explicabilidade                [CONCLUÍDA]
 FASE 11  → Histórico, evolução e momentum                  [CONCLUÍDA]
-FASE 12  → Orquestração e processamento assíncrono         [GATE LOCAL FECHADO]
-FASE 13  → Geração de publicação e link de associado       [APÓS GATE REMOTO DA FASE 12]
+FASE 12  → Orquestração e processamento assíncrono         [CONCLUÍDA]
+FASE 13  → Geração de publicação e link de associado       [PRÓXIMA]
 FASE 14  → Interface operacional
 FASE 15  → Qualidade integrada e regressão de sistema
 FASE 16  → Observabilidade e auditoria operacional
@@ -3372,11 +3377,14 @@ A interface não deve se tornar o local onde regras de publicação são criadas
 ```text
 FASE 12 — Orquestração e processamento assíncrono
 
-STATUS TÉCNICO LOCAL:
-CONCLUÍDO
+STATUS:
+CONCLUÍDA
 
-STATUS REMOTO:
-PENDENTE
+GATE LOCAL:
+FECHADO
+
+GATE REMOTO:
+FECHADO
 
 
 Motor de decisão preservado:
@@ -3663,18 +3671,30 @@ Gate local:
 FECHADO
 
 Gate remoto:
-PENDENTE
+FECHADO
+
+Pull Request:
+#3 — MERGED
+
+Merge em main:
+SUCCESS — cb220c7
+
+CI do PR:
+SUCCESS
+
+CI pós-merge:
+SUCCESS — run #25
 
 
-Próxima fase após fechamento remoto:
+Próxima fase:
 FASE 13 — Geração de publicação e link de associado
 ```
 
 ---
 
-## 77. Encerramento técnico local da FASE 12
+## 77. Encerramento da FASE 12
 
-A implementação técnica local da FASE 12 atingiu os critérios definidos para orquestração e processamento assíncrono.
+A FASE 12 atingiu os critérios técnicos locais e remotos definidos para orquestração e processamento assíncrono.
 
 O projeto passou a possuir:
 
@@ -3729,31 +3749,39 @@ O planejamento posterior está em:
 docs/phases/ROADMAP_RASPING_AMAZON_V1.md
 ```
 
-O gate remoto ainda precisa executar:
+O ciclo remoto foi concluído:
 
 ```text
 branch fase-12-orquestracao-assincrona
         ↓
-push
+Pull Request #3
         ↓
-Pull Request
-        ↓
-CI do PR
+CI do PR verde
         ↓
 merge em main
         ↓
-CI pós-merge
+cb220c7
         ↓
-fechamento documental remoto da FASE 12
+CI da main verde
+        ↓
+GitHub Actions run #25
+        ↓
+FASE 12 CONCLUÍDA
 ```
 
-Até que essa sequência seja concluída, este README não declara PR, merge ou CI remoto da FASE 12 como realizados.
+Durante o primeiro CI do PR, os testes JDBC da FASE 12 revelaram que o workflow iniciava a suíte sobre um PostgreSQL vazio sem aplicar migrations explicitamente. A correção foi registrada no commit:
+
+```text
+549144f ci: aplica migrations antes dos testes
+```
+
+O workflow passou a aplicar e validar as migrations antes da suíte completa, eliminando a dependência acidental da ordem dos testes.
 
 ---
 
 ## 78. Próxima fase
 
-Após o fechamento remoto da FASE 12, o roadmap da versão 1.0 libera:
+Com a FASE 12 concluída, o roadmap da versão 1.0 libera:
 
 ```text
 FASE 13 — Geração de publicação e link de associado
