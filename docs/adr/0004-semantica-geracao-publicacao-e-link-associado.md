@@ -1,7 +1,7 @@
 # ADR-0004 — Semântica da geração de publicação e link de associado
 
 - **Status:** Aceita
-- **Data:** 2026-09-22
+- **Data:** 2026-09-23
 - **Projeto:** Rasping Amazon
 - **Fase relacionada:** FASE 13
 - **Complementa:** ADR-0001
