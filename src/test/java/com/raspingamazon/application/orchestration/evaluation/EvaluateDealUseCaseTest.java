@@ -4,6 +4,7 @@ import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.orchestration.port.DealEvaluationLookupPort;
 import com.raspingamazon.application.orchestration.port.OfferSnapshotEvaluationLoadPort;
+import com.raspingamazon.application.orchestration.port.OfferSnapshotEvaluationLockPort;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -29,7 +30,6 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EvaluateDealUseCaseTest {
 
@@ -50,24 +50,19 @@ class EvaluateDealUseCaseTest {
         );
 
     @Test
-    void shouldLoadAndEvaluatePersistedSnapshot() {
+    void shouldLockLoadAndEvaluatePersistedSnapshot() {
 
         List<String> events =
             new ArrayList<>();
 
-        AtomicInteger lookupCalls =
+        AtomicInteger lookups =
             new AtomicInteger();
 
         DealEvaluationLookupPort lookup =
             snapshotId -> {
 
-                assertEquals(
-                    SNAPSHOT_ID,
-                    snapshotId
-                );
-
                 int invocation =
-                    lookupCalls.incrementAndGet();
+                    lookups.incrementAndGet();
 
                 events.add(
                     "lookup-" + invocation
@@ -86,37 +81,43 @@ class EvaluateDealUseCaseTest {
                     "load"
                 );
 
-                assertEquals(
-                    SNAPSHOT_ID,
-                    snapshotId
-                );
-
                 return Optional.of(
                     snapshot
                 );
             };
 
-        AtomicReference<OfferSnapshot>
-            evaluatedSnapshot =
+        OfferSnapshotEvaluationLockPort lockPort =
+            snapshotId -> {
+
+                assertEquals(
+                    SNAPSHOT_ID,
+                    snapshotId
+                );
+
+                events.add(
+                    "lock"
+                );
+            };
+
+        AtomicReference<OfferSnapshot> evaluatedSnapshot =
             new AtomicReference<>();
 
-        AtomicReference<OffsetDateTime>
-            capturedEvaluatedAt =
+        AtomicReference<OffsetDateTime> evaluatedAt =
             new AtomicReference<>();
 
-        DealEvaluationProcessingPort processing =
-            (value, evaluatedAt) -> {
+        DealEvaluationProcessingPort processor =
+            (offerSnapshot, evaluationTime) -> {
 
                 events.add(
                     "evaluate"
                 );
 
                 evaluatedSnapshot.set(
-                    value
+                    offerSnapshot
                 );
 
-                capturedEvaluatedAt.set(
-                    evaluatedAt
+                evaluatedAt.set(
+                    evaluationTime
                 );
             };
 
@@ -129,7 +130,8 @@ class EvaluateDealUseCaseTest {
             new EvaluateDealUseCase(
                 lookup,
                 loader,
-                processing,
+                lockPort,
+                processor,
                 transaction,
                 CLOCK
             );
@@ -143,6 +145,7 @@ class EvaluateDealUseCaseTest {
                 "lookup-1",
                 "load",
                 "transaction-begin",
+                "lock",
                 "lookup-2",
                 "evaluate",
                 "transaction-commit"
@@ -157,12 +160,7 @@ class EvaluateDealUseCaseTest {
 
         assertEquals(
             EVALUATED_AT,
-            capturedEvaluatedAt.get()
-        );
-
-        assertEquals(
-            2,
-            lookupCalls.get()
+            evaluatedAt.get()
         );
 
         assertEquals(
@@ -174,20 +172,11 @@ class EvaluateDealUseCaseTest {
     @Test
     void shouldReturnImmediatelyWhenEvaluationAlreadyExists() {
 
-        List<String> events =
-            new ArrayList<>();
-
         DealEvaluationLookupPort lookup =
-            snapshotId -> {
-
-                events.add(
-                    "lookup"
-                );
-
-                return OptionalLong.of(
+            snapshotId ->
+                OptionalLong.of(
                     900L
                 );
-            };
 
         OfferSnapshotEvaluationLoadPort loader =
             snapshotId -> {
@@ -196,7 +185,14 @@ class EvaluateDealUseCaseTest {
                 );
             };
 
-        DealEvaluationProcessingPort processing =
+        OfferSnapshotEvaluationLockPort lockPort =
+            snapshotId -> {
+                throw new AssertionError(
+                    "snapshot must not be locked"
+                );
+            };
+
+        DealEvaluationProcessingPort processor =
             (snapshot, evaluatedAt) -> {
                 throw new AssertionError(
                     "evaluation must not run"
@@ -205,27 +201,21 @@ class EvaluateDealUseCaseTest {
 
         RecordingTransactionPort transaction =
             new RecordingTransactionPort(
-                events
+                new ArrayList<>()
             );
 
         EvaluateDealUseCase useCase =
             new EvaluateDealUseCase(
                 lookup,
                 loader,
-                processing,
+                lockPort,
+                processor,
                 transaction,
                 CLOCK
             );
 
         useCase.execute(
             SNAPSHOT_ID
-        );
-
-        assertEquals(
-            List.of(
-                "lookup"
-            ),
-            events
         );
 
         assertEquals(
@@ -237,30 +227,22 @@ class EvaluateDealUseCaseTest {
     @Test
     void shouldFailWhenSnapshotDoesNotExist() {
 
-        List<String> events =
-            new ArrayList<>();
-
         DealEvaluationLookupPort lookup =
-            snapshotId -> {
-
-                events.add(
-                    "lookup"
-                );
-
-                return OptionalLong.empty();
-            };
+            snapshotId ->
+                OptionalLong.empty();
 
         OfferSnapshotEvaluationLoadPort loader =
+            snapshotId ->
+                Optional.empty();
+
+        OfferSnapshotEvaluationLockPort lockPort =
             snapshotId -> {
-
-                events.add(
-                    "load"
+                throw new AssertionError(
+                    "missing snapshot must not be locked"
                 );
-
-                return Optional.empty();
             };
 
-        DealEvaluationProcessingPort processing =
+        DealEvaluationProcessingPort processor =
             (snapshot, evaluatedAt) -> {
                 throw new AssertionError(
                     "evaluation must not run"
@@ -269,14 +251,15 @@ class EvaluateDealUseCaseTest {
 
         RecordingTransactionPort transaction =
             new RecordingTransactionPort(
-                events
+                new ArrayList<>()
             );
 
         EvaluateDealUseCase useCase =
             new EvaluateDealUseCase(
                 lookup,
                 loader,
-                processing,
+                lockPort,
+                processor,
                 transaction,
                 CLOCK
             );
@@ -290,17 +273,8 @@ class EvaluateDealUseCaseTest {
             );
 
         assertEquals(
-            "OfferSnapshot not found: "
-                + SNAPSHOT_ID,
+            "OfferSnapshot not found: 300",
             exception.getMessage()
-        );
-
-        assertEquals(
-            List.of(
-                "lookup",
-                "load"
-            ),
-            events
         );
 
         assertEquals(
@@ -310,19 +284,19 @@ class EvaluateDealUseCaseTest {
     }
 
     @Test
-    void shouldStopInsideTransactionWhenConcurrentEvaluationAppears() {
+    void shouldStopInsideTransactionWhenEvaluationAppearsAfterLock() {
 
         List<String> events =
             new ArrayList<>();
 
-        AtomicInteger lookupCalls =
+        AtomicInteger lookups =
             new AtomicInteger();
 
         DealEvaluationLookupPort lookup =
             snapshotId -> {
 
                 int invocation =
-                    lookupCalls.incrementAndGet();
+                    lookups.incrementAndGet();
 
                 events.add(
                     "lookup-" + invocation
@@ -337,9 +311,6 @@ class EvaluateDealUseCaseTest {
                 );
             };
 
-        OfferSnapshot snapshot =
-            createSnapshot();
-
         OfferSnapshotEvaluationLoadPort loader =
             snapshotId -> {
 
@@ -348,20 +319,20 @@ class EvaluateDealUseCaseTest {
                 );
 
                 return Optional.of(
-                    snapshot
+                    createSnapshot()
                 );
             };
 
-        AtomicInteger evaluationCalls =
-            new AtomicInteger();
-
-        DealEvaluationProcessingPort processing =
-            (value, evaluatedAt) -> {
-
-                evaluationCalls.incrementAndGet();
-
+        OfferSnapshotEvaluationLockPort lockPort =
+            snapshotId ->
                 events.add(
-                    "evaluate"
+                    "lock"
+                );
+
+        DealEvaluationProcessingPort processor =
+            (snapshot, evaluatedAt) -> {
+                throw new AssertionError(
+                    "evaluation must not run"
                 );
             };
 
@@ -374,7 +345,8 @@ class EvaluateDealUseCaseTest {
             new EvaluateDealUseCase(
                 lookup,
                 loader,
-                processing,
+                lockPort,
+                processor,
                 transaction,
                 CLOCK
             );
@@ -388,20 +360,11 @@ class EvaluateDealUseCaseTest {
                 "lookup-1",
                 "load",
                 "transaction-begin",
+                "lock",
                 "lookup-2",
                 "transaction-commit"
             ),
             events
-        );
-
-        assertEquals(
-            0,
-            evaluationCalls.get()
-        );
-
-        assertEquals(
-            2,
-            lookupCalls.get()
         );
 
         assertEquals(
@@ -411,10 +374,87 @@ class EvaluateDealUseCaseTest {
     }
 
     @Test
-    void shouldRejectInvalidSnapshotId() {
+    void shouldAcquireLockBeforeSecondEvaluationLookup() {
 
         List<String> events =
             new ArrayList<>();
+
+        AtomicInteger lookupCount =
+            new AtomicInteger();
+
+        DealEvaluationLookupPort lookup =
+            snapshotId -> {
+
+                int count =
+                    lookupCount.incrementAndGet();
+
+                events.add(
+                    "lookup-" + count
+                );
+
+                return OptionalLong.empty();
+            };
+
+        OfferSnapshotEvaluationLoadPort loader =
+            snapshotId -> {
+
+                events.add(
+                    "load"
+                );
+
+                return Optional.of(
+                    createSnapshot()
+                );
+            };
+
+        OfferSnapshotEvaluationLockPort lockPort =
+            snapshotId ->
+                events.add(
+                    "lock"
+                );
+
+        DealEvaluationProcessingPort processor =
+            (snapshot, evaluatedAt) ->
+                events.add(
+                    "evaluate"
+                );
+
+        RecordingTransactionPort transaction =
+            new RecordingTransactionPort(
+                events
+            );
+
+        EvaluateDealUseCase useCase =
+            new EvaluateDealUseCase(
+                lookup,
+                loader,
+                lockPort,
+                processor,
+                transaction,
+                CLOCK
+            );
+
+        useCase.execute(
+            SNAPSHOT_ID
+        );
+
+        assertEquals(
+            "lock",
+            events.get(
+                3
+            )
+        );
+
+        assertEquals(
+            "lookup-2",
+            events.get(
+                4
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidSnapshotId() {
 
         DealEvaluationLookupPort lookup =
             snapshotId -> {
@@ -430,23 +470,31 @@ class EvaluateDealUseCaseTest {
                 );
             };
 
-        DealEvaluationProcessingPort processing =
+        OfferSnapshotEvaluationLockPort lockPort =
+            snapshotId -> {
+                throw new AssertionError(
+                    "lock must not run"
+                );
+            };
+
+        DealEvaluationProcessingPort processor =
             (snapshot, evaluatedAt) -> {
                 throw new AssertionError(
-                    "evaluation must not run"
+                    "processor must not run"
                 );
             };
 
         RecordingTransactionPort transaction =
             new RecordingTransactionPort(
-                events
+                new ArrayList<>()
             );
 
         EvaluateDealUseCase useCase =
             new EvaluateDealUseCase(
                 lookup,
                 loader,
-                processing,
+                lockPort,
+                processor,
                 transaction,
                 CLOCK
             );
@@ -454,12 +502,8 @@ class EvaluateDealUseCaseTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> useCase.execute(
-                0L
+                0
             )
-        );
-
-        assertTrue(
-            events.isEmpty()
         );
 
         assertEquals(

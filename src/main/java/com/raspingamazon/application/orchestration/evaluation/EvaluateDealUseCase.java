@@ -4,6 +4,7 @@ import com.raspingamazon.application.deal.port.DealEvaluationProcessingPort;
 import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.orchestration.port.DealEvaluationLookupPort;
 import com.raspingamazon.application.orchestration.port.OfferSnapshotEvaluationLoadPort;
+import com.raspingamazon.application.orchestration.port.OfferSnapshotEvaluationLockPort;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 
 import java.time.Clock;
@@ -21,6 +22,7 @@ import java.util.Objects;
  * <ol>
  *     <li>detectar avaliação já concluída;</li>
  *     <li>reconstruir o OfferSnapshot persistido;</li>
+ *     <li>serializar avaliações concorrentes do mesmo snapshot;</li>
  *     <li>executar elegibilidade, filtros, score e momentum;</li>
  *     <li>persistir DealEvaluation e MomentumAudit.</li>
  * </ol>
@@ -32,6 +34,9 @@ public final class EvaluateDealUseCase {
 
     private final OfferSnapshotEvaluationLoadPort
         snapshotLoadPort;
+
+    private final OfferSnapshotEvaluationLockPort
+        snapshotLockPort;
 
     private final DealEvaluationProcessingPort
         evaluationProcessingPort;
@@ -45,6 +50,7 @@ public final class EvaluateDealUseCase {
     public EvaluateDealUseCase(
         DealEvaluationLookupPort evaluationLookup,
         OfferSnapshotEvaluationLoadPort snapshotLoadPort,
+        OfferSnapshotEvaluationLockPort snapshotLockPort,
         DealEvaluationProcessingPort evaluationProcessingPort,
         TransactionPort transactionPort,
         Clock clock
@@ -60,6 +66,12 @@ public final class EvaluateDealUseCase {
             Objects.requireNonNull(
                 snapshotLoadPort,
                 "snapshotLoadPort must not be null"
+            );
+
+        this.snapshotLockPort =
+            Objects.requireNonNull(
+                snapshotLockPort,
+                "snapshotLockPort must not be null"
             );
 
         this.evaluationProcessingPort =
@@ -104,8 +116,8 @@ public final class EvaluateDealUseCase {
         /*
          * Fast path idempotente.
          *
-         * Evita reconstrução do agregado e cálculos históricos
-         * quando a avaliação já foi persistida anteriormente.
+         * Evita reconstrução do agregado e abertura desnecessária
+         * de transação quando a avaliação já existe.
          */
         if (evaluationLookup
             .findEvaluationIdByOfferSnapshotId(
@@ -136,14 +148,25 @@ public final class EvaluateDealUseCase {
             () -> {
 
                 /*
-                 * Segunda verificação dentro da fronteira
-                 * transacional.
+                 * A linha do snapshot é a unidade de serialização.
                  *
-                 * O primeiro lookup economiza trabalho.
-                 * Este reduz a janela entre leitura e persistência.
+                 * Dois workers avaliando o mesmo snapshot podem passar
+                 * simultaneamente pelo fast path acima.
                  *
-                 * A constraint UNIQUE da V12 permanece sendo a
-                 * proteção final no banco.
+                 * Aqui somente um prossegue por vez. O segundo aguarda
+                 * o commit do primeiro e somente depois executa o
+                 * segundo lookup.
+                 */
+                snapshotLockPort.lockById(
+                    offerSnapshotId
+                );
+
+                /*
+                 * Depois da aquisição do lock esta verificação fecha
+                 * a corrida concorrente.
+                 *
+                 * A constraint UNIQUE da tabela deal_evaluation
+                 * permanece como defesa adicional do schema.
                  */
                 if (evaluationLookup
                     .findEvaluationIdByOfferSnapshotId(
