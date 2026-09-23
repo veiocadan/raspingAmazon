@@ -12,50 +12,91 @@ import java.util.Objects;
  * banco de dados, SQL, filas, HTTP, WhatsApp, Telegram ou qualquer
  * provedor externo.</p>
  *
- * <p>O ciclo de vida da publicação é controlado aqui para evitar
- * transições inválidas.</p>
+ * <p>Além do conteúdo gerado, a publicação preserva as versões
+ * das decisões utilizadas em sua geração.</p>
  */
 public final class Publication {
 
     private final Long id;
+
     private final DealEvaluation dealEvaluation;
+
     private final String templateVersion;
+
+    private final String commercialPresentationVersion;
+
+    private final String affiliateLinkVersion;
+
     private final String generatedText;
+
     private final String affiliateUrl;
+
     private PublicationStatus status;
+
     private final OffsetDateTime createdAt;
 
     public Publication(
-            Long id,
-            DealEvaluation dealEvaluation,
-            String templateVersion,
-            String generatedText,
-            String affiliateUrl,
-            PublicationStatus status,
-            OffsetDateTime createdAt
+        Long id,
+        DealEvaluation dealEvaluation,
+        String templateVersion,
+        String commercialPresentationVersion,
+        String affiliateLinkVersion,
+        String generatedText,
+        String affiliateUrl,
+        PublicationStatus status,
+        OffsetDateTime createdAt
     ) {
-        this.id = id;
-        this.dealEvaluation = Objects.requireNonNull(
+
+        this.id =
+            id;
+
+        this.dealEvaluation =
+            Objects.requireNonNull(
                 dealEvaluation,
                 "Deal evaluation must not be null"
-        );
-        this.templateVersion = requireText(
+            );
+
+        this.templateVersion =
+            requireText(
                 templateVersion,
                 "Template version"
-        );
-        this.generatedText = requireText(
+            );
+
+        this.commercialPresentationVersion =
+            requireText(
+                commercialPresentationVersion,
+                "Commercial presentation version"
+            );
+
+        this.affiliateLinkVersion =
+            requireText(
+                affiliateLinkVersion,
+                "Affiliate link version"
+            );
+
+        this.generatedText =
+            requireText(
                 generatedText,
                 "Generated text"
-        );
-        this.affiliateUrl = affiliateUrl;
-        this.status = Objects.requireNonNull(
+            );
+
+        this.affiliateUrl =
+            requireText(
+                affiliateUrl,
+                "Affiliate URL"
+            );
+
+        this.status =
+            Objects.requireNonNull(
                 status,
                 "Publication status must not be null"
-        );
-        this.createdAt = Objects.requireNonNull(
+            );
+
+        this.createdAt =
+            Objects.requireNonNull(
                 createdAt,
                 "Created at must not be null"
-        );
+            );
     }
 
     public Long id() {
@@ -68,6 +109,14 @@ public final class Publication {
 
     public String templateVersion() {
         return templateVersion;
+    }
+
+    public String commercialPresentationVersion() {
+        return commercialPresentationVersion;
+    }
+
+    public String affiliateLinkVersion() {
+        return affiliateLinkVersion;
     }
 
     public String generatedText() {
@@ -93,68 +142,83 @@ public final class Publication {
      * para o fluxo posterior de publicação.</p>
      */
     public void markReady() {
-        requireCurrentStatus(PublicationStatus.CREATED);
 
-        this.status = PublicationStatus.READY;
+        requireCurrentStatus(
+            PublicationStatus.CREATED
+        );
+
+        this.status =
+            PublicationStatus.READY;
     }
 
     /**
      * Marca uma publicação READY como publicada com sucesso.
      */
     public void markPublished() {
-        requireCurrentStatus(PublicationStatus.READY);
 
-        this.status = PublicationStatus.PUBLISHED;
+        requireCurrentStatus(
+            PublicationStatus.READY
+        );
+
+        this.status =
+            PublicationStatus.PUBLISHED;
     }
 
     /**
      * Marca uma publicação READY como falha.
-     *
-     * <p>A causa detalhada da falha não pertence ao estado da Publication.
-     * Posteriormente ela será registrada no mecanismo de tentativas.</p>
      */
     public void markFailed() {
-        requireCurrentStatus(PublicationStatus.READY);
 
-        this.status = PublicationStatus.FAILED;
+        requireCurrentStatus(
+            PublicationStatus.READY
+        );
+
+        this.status =
+            PublicationStatus.FAILED;
     }
 
     /**
-     * Permite que uma publicação FAILED retorne ao fluxo de publicação.
-     *
-     * <p>A decisão sobre quando realizar retry pertence a uma camada
-     * posterior. O domínio apenas controla que a transição seja válida.</p>
+     * Permite que uma publicação FAILED retorne ao fluxo.
      */
     public void retry() {
-        requireCurrentStatus(PublicationStatus.FAILED);
 
-        this.status = PublicationStatus.READY;
+        requireCurrentStatus(
+            PublicationStatus.FAILED
+        );
+
+        this.status =
+            PublicationStatus.READY;
     }
 
-    /**
-     * Garante que uma transição só seja executada a partir do estado
-     * esperado.
-     */
-    private void requireCurrentStatus(PublicationStatus expectedStatus) {
+    private void requireCurrentStatus(
+        PublicationStatus expectedStatus
+    ) {
+
         if (this.status != expectedStatus) {
+
             throw new IllegalStateException(
-                    "Invalid publication transition from "
-                            + this.status
-                            + ", expected "
-                            + expectedStatus
+                "Invalid publication transition from "
+                    + this.status
+                    + ", expected "
+                    + expectedStatus
             );
         }
     }
 
-    /**
-     * Validação estrutural compartilhada para textos obrigatórios.
-     */
-    private static String requireText(String value, String fieldName) {
-        Objects.requireNonNull(value, fieldName + " must not be null");
+    private static String requireText(
+        String value,
+        String fieldName
+    ) {
+
+        Objects.requireNonNull(
+            value,
+            fieldName + " must not be null"
+        );
 
         if (value.isBlank()) {
+
             throw new IllegalArgumentException(
-                    fieldName + " must not be blank"
+                fieldName + " must not be blank"
             );
         }
 
