@@ -9,7 +9,6 @@ import com.raspingamazon.domain.shared.Percentage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -27,11 +26,6 @@ public final class AmazonPublicationV1
 
     public static final String VERSION =
         "AMAZON_PUBLICATION_V1";
-
-    private static final Locale BRAZIL =
-        Locale.forLanguageTag(
-            "pt-BR"
-        );
 
     @Override
     public String version() {
@@ -84,19 +78,19 @@ public final class AmazonPublicationV1
             presentation.installmentCondition()
         );
 
+        /*
+         * A identificação permanece imediatamente junto do link,
+         * de forma clara para quem receber o conteúdo.
+         */
         appendLine(
             text,
-            "Link: "
+            "Link patrocinado: "
                 + input.affiliateUrl()
         );
 
         return text.toString();
     }
 
-    /**
-     * Preço-base/lista e preço anterior são conceitos diferentes.
-     * Ambos permanecem identificados separadamente quando existem.
-     */
     private void appendReferencePrices(
         StringBuilder text,
         CommercialPresentation presentation
@@ -298,12 +292,6 @@ public final class AmazonPublicationV1
             ) == 0;
     }
 
-    /**
-     * Formatação monetária explícita e determinística.
-     *
-     * <p>Não dependemos do Locale default da JVM porque ele pode
-     * variar entre estação de desenvolvimento e CI.</p>
-     */
     private String formatMoney(
         Money money
     ) {

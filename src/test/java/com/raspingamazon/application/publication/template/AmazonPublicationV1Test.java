@@ -122,7 +122,7 @@ class AmazonPublicationV1Test {
             NuPay: R$ 89,90 (10% de desconto)
             Pix: R$ 94,90 (5% de desconto)
             Cartão: 10x de R$ 9,99 sem juros
-            Link: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
+            Link patrocinado: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
             rendered
         );
     }
@@ -159,7 +159,7 @@ class AmazonPublicationV1Test {
             """
             Produto simples
             Preço atual: R$ 79,90
-            Link: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
+            Link patrocinado: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
             rendered
         );
 
@@ -237,7 +237,7 @@ class AmazonPublicationV1Test {
             Produto parcelado
             Preço atual: R$ 99,90
             Cartão: 12x de R$ 10,50 com 15% de juros
-            Link: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
+            Link patrocinado: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
             rendered
         );
     }
@@ -274,7 +274,7 @@ class AmazonPublicationV1Test {
             """
             Produto caro
             Preço atual: R$ 12.345,67
-            Link: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
+            Link patrocinado: https://www.amazon.com.br/dp/B0PUB13003?tag=test-20""",
             rendered
         );
     }
