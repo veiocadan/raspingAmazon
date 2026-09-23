@@ -380,12 +380,14 @@ class OfferHistoryStatusJdbcRepositoryTest {
             INSERT INTO publication (
                 deal_evaluation_id,
                 template_version,
+                commercial_presentation_version,
+                affiliate_link_version,
                 generated_text,
                 affiliate_url,
                 status,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """;
 
@@ -406,21 +408,31 @@ class OfferHistoryStatusJdbcRepositoryTest {
 
             statement.setString(
                 3,
-                "Publicação controlada pelo teste"
+                "TEST_COMMERCIAL_PRESENTATION_V1"
             );
 
             statement.setString(
                 4,
-                "https://example.invalid/affiliate"
+                "TEST_AFFILIATE_LINK_V1"
             );
 
             statement.setString(
                 5,
+                "Publicação controlada pelo teste"
+            );
+
+            statement.setString(
+                6,
+                "https://example.invalid/affiliate"
+            );
+
+            statement.setString(
+                7,
                 status
             );
 
             statement.setObject(
-                6,
+                8,
                 OffsetDateTime.parse(
                     "2026-09-20T14:00:00-03:00"
                 )
