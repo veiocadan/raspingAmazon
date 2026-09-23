@@ -4,7 +4,6 @@ import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.port.DealCandidateRepositoryPort;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,6 +14,17 @@ import java.util.Optional;
 
 /**
  * Implementação JDBC da persistência de DealCandidate.
+ *
+ * <p>A identidade idempotente de um candidato dentro de uma
+ * ProcessingRun é:</p>
+ *
+ * <pre>
+ * processing_run_id + asin + source
+ * </pre>
+ *
+ * <p>collectedAt permanece sendo um fato da observação original,
+ * mas não participa da identidade. Assim, uma reentrada da mesma
+ * etapa com outro timestamp não cria um segundo candidato lógico.</p>
  */
 public final class JdbcDealCandidateRepositoryAdapter
     implements DealCandidateRepositoryPort {
@@ -86,7 +96,6 @@ public final class JdbcDealCandidateRepositoryAdapter
             ON CONFLICT (
                 processing_run_id,
                 asin,
-                collected_at,
                 source
             )
             DO UPDATE
