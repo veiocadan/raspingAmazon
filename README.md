@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, seleção e publicação de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
 
-> **Estado atual: FASE 11 concluída. O sistema possui elegibilidade estrutural Amazon, condições comerciais no fluxo vertical, filtros comerciais versionados, score versionado e reproduzível, fatores explicáveis persistidos, ranking determinístico, histórico por ASIN, evolução entre snapshots, MOMENTUM_V1 auditável, recorrência e detecção de publicação anterior. A validação local está verde com 422 testes. O Pull Request #2 foi integrado à `main` pelo merge commit `46d7e4c`, e o CI pós-merge da `main` (run #21) foi concluído com sucesso. O schema PostgreSQL/Flyway está na versão 10. A próxima fase planejada é a FASE 12 — Orquestração e processamento assíncrono.**
+> **Estado atual: implementação técnica local da FASE 12 concluída. O sistema preserva o motor de decisão consolidado até a FASE 11 e acrescenta orquestração por etapas, fila durável em PostgreSQL, reprocessamento seletivo, classificação de falhas, retry com backoff, leases, recuperação de jobs, worker genérico, preparação para múltiplos workers e reforços de idempotência/concorrência. A validação local está verde com 514 testes. O schema PostgreSQL/Flyway está na versão 13. O gate remoto da FASE 12 ainda depende de push, Pull Request, CI e merge. Após esse fechamento, a próxima fase planejada pelo roadmap da versão 1.0 é a FASE 13 — Geração de publicação e link de associado.**
 
 ## 1. Objetivo
 
@@ -38,7 +38,7 @@ seleção / publicação futura
 canais
 ```
 
-A ordem das fases deve ser preservada.
+A ordem vigente das fases é definida pelo roadmap versionado da versão 1.0 e deve ser preservada até que exista uma mudança deliberada de planejamento.
 
 Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
@@ -46,25 +46,42 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ## 2. Estado atual
 
-| Fase      | Descrição                                                | Status              |
-|-----------|----------------------------------------------------------|---------------------|
-| FASE 0    | Levantamento da fonte e regras                           | CONCLUÍDA           |
-| FASE 0 v2 | Semântica comercial de preços e pagamento                | CONCLUÍDA           |
-| FASE 1    | Fundação Java                                            | CONCLUÍDA           |
-| FASE 2    | PostgreSQL, schema e migrations                          | CONCLUÍDA           |
-| FASE 2 v2 | Evolução comercial da persistência                       | CONCLUÍDA           |
-| FASE 3    | Domínio e contratos internos                             | CONCLUÍDA           |
-| FASE 3 v2 | Revisão comercial e estrutural                           | CONCLUÍDA           |
-| FASE 4    | Configuração e segredos                                  | CONCLUÍDA           |
-| FASE 5    | Coleta da página de promoções                            | CONCLUÍDA           |
-| FASE 6    | Parser, ASIN e normalização                              | CONCLUÍDA           |
-| FASE 7    | Enriquecimento da página individual                      | CONCLUÍDA           |
-| FASE 8    | Validação estrutural Amazon                              | CONCLUÍDA           |
-| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão | CONCLUÍDA           |
-| FASE 9    | Motor de filtros comerciais configuráveis                | CONCLUÍDA           |
-| FASE 10   | Score, ranking e explicabilidade                         | CONCLUÍDA           |
-| FASE 11   | Histórico, evolução e momentum                           | CONCLUÍDA           |
-| FASE 12   | Orquestração e processamento assíncrono                  | PRÓXIMA             |
+| Fase      | Descrição                                                   | Status                         |
+|-----------|-------------------------------------------------------------|--------------------------------|
+| FASE 0    | Levantamento da fonte e regras                              | CONCLUÍDA                      |
+| FASE 0 v2 | Semântica comercial de preços e pagamento                   | CONCLUÍDA                      |
+| FASE 1    | Fundação Java                                               | CONCLUÍDA                      |
+| FASE 2    | PostgreSQL, schema e migrations                             | CONCLUÍDA                      |
+| FASE 2 v2 | Evolução comercial da persistência                          | CONCLUÍDA                      |
+| FASE 3    | Domínio e contratos internos                                | CONCLUÍDA                      |
+| FASE 3 v2 | Revisão comercial e estrutural                              | CONCLUÍDA                      |
+| FASE 4    | Configuração e segredos                                     | CONCLUÍDA                      |
+| FASE 5    | Coleta da página de promoções                               | CONCLUÍDA                      |
+| FASE 6    | Parser, ASIN e normalização                                 | CONCLUÍDA                      |
+| FASE 7    | Enriquecimento da página individual                         | CONCLUÍDA                      |
+| FASE 8    | Validação estrutural Amazon                                 | CONCLUÍDA                      |
+| FASE 8.5  | Consolidação do núcleo e preparação dos dados de decisão    | CONCLUÍDA                      |
+| FASE 9    | Motor de filtros comerciais configuráveis                   | CONCLUÍDA                      |
+| FASE 10   | Score, ranking e explicabilidade                            | CONCLUÍDA                      |
+| FASE 11   | Histórico, evolução e momentum                              | CONCLUÍDA                      |
+| FASE 12   | Orquestração e processamento assíncrono                     | GATE LOCAL FECHADO / PR PENDENTE |
+| FASE 13   | Geração de publicação e link de associado                   | PLANEJADA                      |
+| FASE 14   | Interface operacional                                       | PLANEJADA                      |
+| FASE 15   | Qualidade integrada e regressão de sistema                  | PLANEJADA                      |
+| FASE 16   | Observabilidade e auditoria operacional                     | PLANEJADA                      |
+| FASE 17   | Agendamento e execução contínua                             | PLANEJADA                      |
+| FASE 18   | Contrato de canais e outbox de publicação                   | PLANEJADA                      |
+| FASE 19   | Telegram e WhatsApp                                         | PLANEJADA                      |
+| FASE 20   | Resiliência, recuperação e falhas de produção               | PLANEJADA                      |
+| FASE 21   | Segurança, governança e fechamento da versão 1.0            | PLANEJADA                      |
+
+O planejamento das FASES 13 a 21 está consolidado em:
+
+```text
+docs/phases/ROADMAP_RASPING_AMAZON_V1.md
+```
+
+A FASE 12 está tecnicamente concluída no ambiente local, com 514 testes verdes. O fechamento formal ainda depende do gate remoto da branch.
 
 ---
 
@@ -95,7 +112,7 @@ src/
 Responsabilidades principais:
 
 - `domain`: conceitos, regras, normalização, evolução histórica, momentum, score, ranking e invariantes de negócio, sem dependência de infraestrutura;
-- `application`: contratos e coordenação dos casos de uso;
+- `application`: contratos, coordenação dos casos de uso e orquestração assíncrona por etapas;
 - `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e adapters tecnológicos;
 - `presentation`: interfaces de entrada e exposição operacional futura.
 
@@ -138,16 +155,25 @@ Linux/macOS/CI:
 
 A instalação global de Maven não é requisito do build versionado.
 
-Gate local final da FASE 11:
+Gate local técnico da FASE 12:
 
 ```text
-Tests run: 422
+Tests run: 514
 Failures: 0
 Errors: 0
 Skipped: 0
 
 BUILD SUCCESS
 ```
+
+Estado do gate:
+
+```text
+local  = FECHADO
+remoto = PENDENTE
+```
+
+O gate remoto será considerado fechado somente depois de push da branch, CI verde no Pull Request, merge em `main` e validação pós-merge.
 
 ---
 
@@ -2025,7 +2051,7 @@ A consulta utiliza `EXISTS`, evitando multiplicação indevida das linhas de sna
 
 ## 56. Persistência atual
 
-Estado principal:
+O estado de negócio continua organizado em torno de produtos, snapshots, avaliações e histórico:
 
 ```text
 product
@@ -2046,86 +2072,124 @@ offer_snapshot
              publication_attempt
 ```
 
-Configurações versionadas:
+A FASE 12 acrescentou o estado operacional durável da orquestração:
+
+```text
+processing_run
+      ↓
+deal_candidate
+      ↓
+processing_job
+```
+
+Responsabilidades:
+
+```text
+processing_run
+→ execução lógica de coleta
+
+
+deal_candidate
+→ resultado durável do parsing
+→ permite repetir enrichment sem repetir coleta
+
+
+processing_job
+→ fila persistente
+→ retry
+→ ownership
+→ lease
+→ recuperação
+```
+
+Configurações versionadas permanecem separadas:
 
 ```text
 filter_profile
 score_profile
 ```
 
-A unidade histórica continua sendo:
+A unidade histórica de negócio continua sendo:
 
 ```text
 OfferSnapshot
 ```
 
-Não existe uma cópia paralela do histórico.
+`processing_job` representa estado operacional e não substitui o histórico das ofertas.
 
 ---
 
-## 57. Fluxo vertical atual
+## 57. Fluxo vertical e orquestração atual
+
+O fluxo de negócio consolidado até a FASE 11 permanece válido, mas a FASE 12 separou sua execução operacional em estágios duráveis.
+
+Fluxo orquestrado:
 
 ```text
-CollectionRequest
-        ↓
+ProcessingRun
+      ↓
+COLLECT_DEALS
+      ↓
 coleta
-        ↓
+      ↓
 AmazonDealsParser
-        ↓
-ParsedDeal
-        ↓
+      ↓
+DealCandidate
+      ↓
+ENRICH_DEAL
+      ↓
 AmazonProductPageEnrichmentClient
-        ├── seller
-        ├── delivery
-        └── paymentConditions
-        ↓
+      ├── seller
+      ├── delivery
+      └── paymentConditions
+      ↓
 Product
-        ↓
+      ↓
 OfferSnapshot
-        ↓
-PaymentConditions
-        ↓
-Evidence
-        ↓
+      ├── PaymentConditions
+      └── Evidence
+      ↓
+EVALUATE_DEAL
+      ↓
 AmazonEligibilityValidator
-        ↓
+      ↓
 FilterProfileProvider
-        ↓
+      ↓
 CommercialFilterEngine
-        ↓
+      ↓
 aprovada?
-        ├── não
-        │    ↓
-        │ DealEvaluation sem score
-        │
-        └── sim
-             ↓
-        ScoreProfileProvider
-             ↓
-        ScoreEngine
-             ↓
-        SCORE_V1
+      ├── não
+      │    ↓
+      │ DealEvaluation sem score
+      │
+      └── sim
+           ↓
+      ScoreProfileProvider
+           ↓
+      ScoreEngine
+           ↓
+      SCORE_V1
 
 independentemente da elegibilidade
-        ↓
+      ↓
 OfferHistoryQueryPort
-        ↓
+      ↓
 snapshot anterior
-        ↓
+      ↓
 SnapshotEvolutionCalculator
-        ↓
+      ↓
 MomentumEngine
-        ↓
+      ↓
 MOMENTUM_V1
-        ↓
+      ↓
 DealEvaluation
-        ↓
+      ↓
 MomentumAudit
-        ↓
+      ↓
 PostgreSQL
 ```
 
-Separação:
+A separação semântica continua:
 
 ```text
 SCORE_V1
@@ -2135,11 +2199,23 @@ MOMENTUM_V1
 → evolução histórica entre observações
 ```
 
+A separação operacional adicionada pela FASE 12 é:
+
+```text
+COLLECT_DEALS
+≠
+ENRICH_DEAL
+≠
+EVALUATE_DEAL
+```
+
+Uma falha posterior não exige repetir automaticamente as etapas anteriores já persistidas.
+
 ---
 
 ## 58. Transações
 
-`JdbcTransactionAdapter` continua protegendo a unidade de trabalho.
+`JdbcTransactionAdapter` continua protegendo unidades de trabalho JDBC.
 
 Quando recebe `autoCommit=true`, controla:
 
@@ -2152,35 +2228,65 @@ restauração de autoCommit
 
 Quando recebe `autoCommit=false`, utiliza Savepoint e não interfere indevidamente na transação externa.
 
-A mesma `Connection` JDBC é compartilhada pelos componentes da unidade de trabalho.
+A mesma `Connection` JDBC é compartilhada pelos componentes pertencentes à mesma unidade de trabalho.
 
-Na FASE 11 isso inclui:
+Na avaliação de negócio isso continua permitindo persistir atomicamente, conforme o caso:
 
 ```text
-OfferSnapshot
-PaymentConditions
-Evidence
 DealEvaluation
++
 MomentumAudit
 ```
 
-Sequência relevante:
+A FASE 12 acrescentou novas fronteiras transacionais.
+
+Coleta:
 
 ```text
-persistir DealEvaluation
-        ↓
-obter deal_evaluation.id
-        ↓
-persistir MomentumAudit
+DealCandidate
++
+ENRICH_DEAL
++
+ProcessingRun COMPLETED
 ```
 
-Se a auditoria falhar, a unidade transacional pode sofrer rollback, evitando estado parcial.
+Enrichment:
+
+```text
+Product
++
+OfferSnapshot
++
+PaymentConditions
++
+Evidence
++
+EVALUATE_DEAL
+```
+
+Avaliação:
+
+```text
+lock do OfferSnapshot
++
+rechecagem idempotente
++
+DealEvaluation
++
+MomentumAudit
+```
+
+Chamadas HTTP de coleta e enrichment permanecem fora de transações JDBC longas.
 
 ---
 
 ## 59. Idempotência
 
-A identidade da observação de `OfferSnapshot` permanece:
+A idempotência é composta por várias proteções complementares.
+
+### `OfferSnapshot`
+
+A identidade da observação permanece:
 
 ```text
 product_id
@@ -2190,26 +2296,77 @@ collected_at
 source
 ```
 
-O PostgreSQL protege essa identidade.
+### `ProcessingRun`
 
-Quando uma observação já existe, o sistema não duplica indevidamente:
-
-```text
-PaymentConditions
-Evidence
-DealEvaluation
-EvaluationRuleResults
-ScoreFactors
-MomentumAudit
-```
-
-O teste vertical de momentum reprocessa a segunda observação e comprova que permanecem:
+Uma execução lógica de coleta possui:
 
 ```text
-2 OfferSnapshots
-2 DealEvaluations
-2 MomentumAudits
+run_key
 ```
+
+única no banco.
+
+Uma run já `COMPLETED` evita repetir coleta e parsing apenas porque o worker caiu antes do ACK.
+
+### `DealCandidate`
+
+A identidade final reforçada na revisão técnica da FASE 12 é:
+
+```text
+processing_run_id
++
+asin
++
+source
+```
+
+`collected_at` continua sendo fato da observação, mas não participa da identidade idempotente do candidato dentro da mesma run.
+
+### `ProcessingJob`
+
+A criação de trabalho é protegida por:
+
+```text
+job_type
++
+idempotency_key
+```
+
+Exemplos:
+
+```text
+enrich:<dealCandidateId>
+evaluate:<offerSnapshotId>
+```
+
+### `ENRICH_DEAL`
+
+Antes de executar nova chamada externa, o caso de uso verifica se o snapshot já foi persistido.
+
+Se já existir:
+
+```text
+não repete enrichment externo
+→ garante EVALUATE_DEAL
+→ retorna
+```
+
+### `EVALUATE_DEAL`
+
+A avaliação possui fast path por avaliação existente e uma segunda verificação dentro da transação.
+
+Para fechar a corrida entre workers concorrentes, a linha do snapshot é serializada com:
+
+```sql
+SELECT id
+FROM offer_snapshot
+WHERE id = ?
+FOR UPDATE
+```
+
+Depois do lock, o segundo lookup decide se a avaliação ainda precisa ser produzida.
+
+A constraint única da avaliação permanece como defesa adicional do schema.
 
 ---
 
@@ -2421,25 +2578,36 @@ Capturas completas não fazem parte da dependência normal da suíte.
 
 ## 63. Schema
 
-Estado local ao final da FASE 11:
+Estado local após a implementação técnica da FASE 12:
 
 ```text
 PostgreSQL: 18.6
 Flyway: OK
-Migrations: 10
-Schema: versão 10
+Migrations: 13
+Schema: versão 13
 ```
 
-Migrations relevantes:
+Migrations relevantes do motor de decisão e da orquestração:
 
 ```text
-V7__commercial_filter_profile.sql
-V8__score_profile_and_factors.sql
-V9__momentum_audit.sql
-V10__historical_read_indexes.sql
+V7  → commercial filter profile
+V8  → score profile and factors
+V9  → momentum audit
+V10 → historical read indexes
+V11 → processing orchestration
+V12 → idempotência da avaliação
+V13 → idempotência forte de deal_candidate
 ```
 
 As migrations anteriores não foram alteradas retroativamente.
+
+A V13 fortalece a identidade de `deal_candidate` para:
+
+```text
+processing_run_id + asin + source
+```
+
+sem remover silenciosamente dados incompatíveis.
 
 ---
 
@@ -2497,30 +2665,35 @@ pull_request
 push em main
 ```
 
-A FASE 10 permanece integrada à `main` com CI remoto aprovado.
-
-Estado final da FASE 11:
+Último gate remoto formalmente encerrado:
 
 ```text
-validação local = SUCCESS
-CI remoto do Pull Request #2 = SUCCESS
+FASE 11
 Pull Request #2 = MERGED
-merge em main = SUCCESS
 merge commit = 46d7e4c
 CI pós-merge da main = SUCCESS
 GitHub Actions run = #21
 ```
 
-A FASE 11 está formalmente encerrada.
+Estado da FASE 12 neste documento:
+
+```text
+gate local = SUCCESS
+514 testes verdes
+branch = fase-12-orquestracao-assincrona
+push/PR/CI/merge = PENDENTES
+```
+
+Nenhum sucesso remoto da FASE 12 é antecipado antes de acontecer.
 
 ---
 
 ## 66. Testes
 
-Gate local final da FASE 11:
+Gate local técnico da FASE 12:
 
 ```text
-Tests run: 422
+Tests run: 514
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -2528,16 +2701,38 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Baseline final da FASE 10:
+Baseline final da FASE 11:
 
 ```text
-391 testes
+422 testes
 ```
 
-Crescimento líquido:
+Crescimento líquido durante a FASE 12:
 
 ```text
-31 testes
+92 testes
+```
+
+Além da suíte completa, foram executados testes específicos para:
+
+```text
+fila JDBC
+persistência de ProcessingRun
+persistência de DealCandidate
+casos de uso de coleta
+enrichment assíncrono
+avaliação assíncrona
+classificação de falhas
+backoff
+failure handler
+lease recovery
+política de lease
+worker
+dispatcher
+integração worker + PostgreSQL
+claim com conexões independentes
+idempotência reforçada de DealCandidate
+lock de OfferSnapshot para avaliação
 ```
 
 Também foi executado:
@@ -2546,19 +2741,13 @@ Também foi executado:
 git diff --check
 ```
 
-sem erros.
-
-Estado do repositório após o gate:
-
-```text
-working tree clean
-```
+sem erros no gate técnico.
 
 ---
 
-## 67. Cobertura específica da FASE 11
+## 67. Cobertura específica das FASES 11 e 12
 
-A fase possui testes para:
+A cobertura histórica da FASE 11 permanece preservada para:
 
 ```text
 OfferHistoryJdbcRepository
@@ -2575,31 +2764,52 @@ OfferHistoryStatus
 OfferHistoryStatusJdbcRepository
 ```
 
+A FASE 12 acrescentou cobertura específica para:
+
+```text
+ProcessingRun
+DealCandidate
+ProcessingJob
+JdbcProcessingJobQueueAdapter
+JdbcProcessingRunRepositoryAdapter
+JdbcDealCandidateRepositoryAdapter
+CollectDealsUseCase
+EnrichDealUseCase
+EvaluateDealUseCase
+DefaultProcessingFailureClassifier
+ExponentialRetryBackoffPolicy
+ProcessingJobFailureHandler
+JdbcProcessingJobLeaseRecoveryAdapter
+ProcessingJobLeaseRecoveryService
+DefaultProcessingJobExecutor
+ProcessingWorker
+JdbcOfferSnapshotEvaluationLockAdapter
+```
+
 São cobertos, entre outros:
 
 ```text
-histórico por ASIN
-snapshot anterior
-primeiro snapshot
-último snapshot
-contagem
-delta positivo
-delta negativo
-delta zero
-soldPercentage ausente
-preço anterior zero
-desconto ausente
-intervalo temporal
-momentum positivo
-momentum negativo
-momentum zero
-primeira observação
-auditoria AVAILABLE
-auditoria UNAVAILABLE
-recorrência
-publicação READY
-publicação PUBLISHED
-idempotência vertical
+enqueue idempotente
+claim
+SUCCEEDED
+RETRY_WAIT
+DEAD
+retry transitório
+falha permanente
+backoff
+ownership do worker
+lease expirado
+recuperação com tentativas restantes
+recuperação com tentativas esgotadas
+worker idle
+worker success
+ACK separado de falha funcional
+múltiplas conexões JDBC
+reentrada de coleta
+reentrada de enrichment
+reentrada de avaliação
+candidate com timestamp diferente na mesma run
+lock antes do segundo lookup de avaliação
 ```
 
 ---
@@ -2658,10 +2868,16 @@ docs/phases/
 ├── FASE_8_5_RESULTADO.md
 ├── FASE_9_RESULTADO.md
 ├── FASE_10_RESULTADO.md
-└── FASE_11_RESULTADO.md
+├── FASE_11_RESULTADO.md
+├── FASE_12_RESULTADO.md
+└── ROADMAP_RASPING_AMAZON_V1.md
 ```
 
-A documentação de cada fase registra o estado verificável antes da passagem para a seguinte.
+Os relatórios de fase registram o que efetivamente foi implementado.
+
+O roadmap da versão 1.0 registra o planejamento deliberado para as FASES 13 a 21.
+
+Relatórios históricos não devem ser reescritos retroativamente apenas para acompanhar mudanças posteriores do planejamento.
 
 ---
 
@@ -2901,29 +3117,41 @@ detecção de publicação anterior
 
 ## 73. O que ainda não foi implementado
 
-Para preservar a separação entre fases, permanecem:
+Com a FASE 12 implementada tecnicamente, deixam de estar pendentes:
 
-- combinação entre `SCORE_V1` e momentum em uma nova regra de priorização;
-- aceleração histórica de segunda ordem;
-- previsão de vendas;
-- modelos estatísticos ou machine learning;
-- paginação do histórico para interface operacional;
-- execução assíncrona;
-- reprocessamento independente por etapa;
-- scheduler;
-- filas;
-- múltiplos workers;
-- interface operacional;
-- seleção final para publicação;
+```text
+execução assíncrona por etapas
+reprocessamento independente por etapa
+fila durável de processamento
+retry/backoff
+leases
+lease recovery
+worker genérico
+preparação para múltiplos workers
+```
+
+Permanecem para as fases posteriores do roadmap da versão 1.0:
+
+- seleção final orientada ao fluxo de publicação;
 - `PublicationGenerator`;
-- geração efetiva de link de associado;
-- publicação automática em canais;
-- WhatsApp/Telegram;
-- observabilidade completa;
-- resiliência de produção;
-- segurança e governança operacional;
-- Excel/CSV opcional;
-- mecanismos adicionais de escala guiados por métricas reais.
+- templates versionados de publicação;
+- política de apresentação de condições comerciais;
+- geração efetiva e encapsulada de link de associado;
+- interface operacional;
+- jornadas completas de regressão envolvendo publicação;
+- observabilidade operacional completa;
+- scheduler e execução contínua;
+- contrato de canais;
+- outbox de publicação;
+- aprovação/revisão operacional da publicação;
+- Telegram;
+- WhatsApp;
+- resiliência de produção ampliada;
+- taxonomia operacional de falhas mais rica;
+- segurança e governança do release;
+- backup e restauração documentados para a versão 1.0;
+- empacotamento operacional final;
+- mecanismos adicionais de escala somente quando justificados por métricas reais.
 
 Também permanece fora do `SCORE_V1`:
 
@@ -2933,75 +3161,225 @@ PRICE_ATTRACTIVENESS
 
 Esse fator somente deverá ser implementado quando houver uma fonte semântica independente e confiável.
 
-O histórico completo ainda não possui paginação porque essa necessidade pertence à interface operacional futura.
+Excel/CSV não possui fase própria no roadmap da versão 1.0 e, se necessário futuramente, deve permanecer apenas como funcionalidade auxiliar, nunca como fonte de estado operacional.
+
+Itens explicitamente pós-v1.0 incluem Amazon Creators API, Mercado Livre, hospedagem contínua em Raspberry Pi/servidor remoto e escala distribuída guiada por métricas.
 
 ---
 
-## 74. FASE 12
+## 74. FASE 12 — Orquestração e processamento assíncrono
 
-A próxima fase planejada é:
+A FASE 12 separou o processamento em unidades de trabalho duráveis e reexecutáveis.
 
-```text
-FASE 12 — Orquestração e processamento assíncrono
-```
-
-A FASE 12 deverá permitir separar etapas e repetir somente o que falhou.
-
-Responsabilidades previstas:
+Tipos de job:
 
 ```text
-casos de uso explícitos por etapa
-idempotência por etapa
-reprocessamento seguro
-separação entre falhas transitórias e permanentes
-jobs e/ou fila conforme necessidade
-preparação para múltiplos workers
+COLLECT_DEALS
+ENRICH_DEAL
+EVALUATE_DEAL
 ```
 
-A FASE 12 não deve misturar novamente os contratos já separados de:
+Fluxo:
 
 ```text
-coleta
-enriquecimento
-avaliação
-histórico
-momentum
-publicação
+ProcessingRun
+      ↓
+COLLECT_DEALS
+      ↓
+DealCandidate
+      ↓
+ENRICH_DEAL
+      ↓
+OfferSnapshot
+      ↓
+EVALUATE_DEAL
+      ↓
+DealEvaluation
 ```
 
-O início da FASE 12 deve ocorrer somente após o fechamento remoto da FASE 11.
+Persistência operacional:
+
+```text
+processing_run
+
+deal_candidate
+
+processing_job
+```
+
+Estados de job:
+
+```text
+PENDING
+RUNNING
+RETRY_WAIT
+SUCCEEDED
+DEAD
+```
+
+Claim concorrente:
+
+```text
+FOR UPDATE SKIP LOCKED
+```
+
+Idempotência de criação de job:
+
+```text
+job_type + idempotency_key
+```
+
+Falhas:
+
+```text
+TRANSIENT
+PERMANENT
+```
+
+Falhas transitórias podem retornar a `RETRY_WAIT` com backoff enquanto houver tentativas.
+
+Falhas permanentes ou tentativas esgotadas terminam em `DEAD`.
+
+O lease utiliza:
+
+```text
+locked_at
+locked_by
+```
+
+Jobs `RUNNING` abandonados podem ser recuperados quando o lease expira.
+
+O worker processa uma unidade por rodada e utiliza dispatcher explícito:
+
+```text
+COLLECT_DEALS → processingRunId
+ENRICH_DEAL   → dealCandidateId
+EVALUATE_DEAL → offerSnapshotId
+```
+
+Revisão técnica final da fase:
+
+```text
+DealCandidate
+→ UNIQUE(processing_run_id, asin, source)
+
+EVALUATE_DEAL
+→ lock transacional do OfferSnapshot
+→ segundo lookup
+→ persistência somente se ainda necessária
+```
+
+Baseline local final da implementação técnica:
+
+```text
+514 testes
+0 failures
+0 errors
+0 skipped
+```
+
+Relatório detalhado:
+
+```text
+docs/phases/FASE_12_RESULTADO.md
+```
+
+Commits técnicos principais da branch:
+
+```text
+05a3f9f feat: adiciona persistencia da orquestracao
+cab3194 feat: define contratos da orquestracao assincrona
+90d8637 feat: implementa fila JDBC de processamento
+47dbb30 feat: implementa fila JDBC de processamento1
+b9227d4 feat: persiste runs e candidatos de processamento
+45f41f5 feat: separa caso de uso de coleta assincrona
+2f057b3 feat: separa caso de uso de enriquecimento assincrono
+50e5d1f feat: prepara avaliacao assincrona idempotente
+c4f0523 feat: separa caso de uso de avaliacao assincrona
+3c7e401 feat: define politica de falhas e retry
+848cf46 feat: aplica politica de falhas aos jobs
+9a3e957 feat: recupera leases expirados de jobs
+1003975 feat: define politica de expiracao de leases
+ba25738 feat: implementa worker de processamento
+e791531 test: integra orquestracao assincrona
+30b8e93 fix: fortalece idempotencia de candidatos
+2a95e75 fix: serializa avaliacoes concorrentes
+```
+
+Estado neste momento:
+
+```text
+gate técnico local = FECHADO
+gate remoto = PENDENTE
+```
 
 ---
 
 ## 75. Roadmap
 
+O planejamento das FASES 13 a 21 é mantido em:
+
 ```text
-FASE 4   → Configuração e segredos                 [CONCLUÍDA]
-FASE 5   → Coleta                                  [CONCLUÍDA]
-FASE 6   → Parser, ASIN e normalização             [CONCLUÍDA]
-FASE 7   → Enriquecimento da página individual     [CONCLUÍDA]
-FASE 8   → Validação Amazon                        [CONCLUÍDA]
-FASE 8.5 → Consolidação do núcleo                  [CONCLUÍDA]
-FASE 9   → Filtros comerciais configuráveis        [CONCLUÍDA]
-FASE 10  → Score, ranking e explicabilidade        [CONCLUÍDA]
-FASE 11  → Histórico, evolução e momentum          [CONCLUÍDA]
-FASE 12  → Orquestração e processamento assíncrono [PRÓXIMA]
-FASE 13  → Interface operacional
-FASE 14  → Publicação
-FASE 15+ → qualidade integrada, observabilidade,
-            agendamento, canais, resiliência,
-            segurança, integrações opcionais e escala
+docs/phases/ROADMAP_RASPING_AMAZON_V1.md
 ```
+
+Esse documento representa o planejamento atual da versão 1.0.
+
+Os relatórios históricos de cada fase permanecem como registro do que efetivamente foi implementado.
+
+```text
+FASE 4   → Configuração e segredos                         [CONCLUÍDA]
+FASE 5   → Coleta                                          [CONCLUÍDA]
+FASE 6   → Parser, ASIN e normalização                     [CONCLUÍDA]
+FASE 7   → Enriquecimento da página individual             [CONCLUÍDA]
+FASE 8   → Validação Amazon                                [CONCLUÍDA]
+FASE 8.5 → Consolidação do núcleo                          [CONCLUÍDA]
+FASE 9   → Filtros comerciais configuráveis                [CONCLUÍDA]
+FASE 10  → Score, ranking e explicabilidade                [CONCLUÍDA]
+FASE 11  → Histórico, evolução e momentum                  [CONCLUÍDA]
+FASE 12  → Orquestração e processamento assíncrono         [GATE LOCAL FECHADO]
+FASE 13  → Geração de publicação e link de associado       [APÓS GATE REMOTO DA FASE 12]
+FASE 14  → Interface operacional
+FASE 15  → Qualidade integrada e regressão de sistema
+FASE 16  → Observabilidade e auditoria operacional
+FASE 17  → Agendamento e execução contínua
+FASE 18  → Contrato de canais e outbox de publicação
+FASE 19  → Telegram e WhatsApp
+FASE 20  → Resiliência, recuperação e falhas de produção
+FASE 21  → Segurança, governança e fechamento da versão 1.0
+          ↓
+        v1.0.0
+```
+
+A ordem atual coloca geração de publicação antes da interface operacional.
+
+A decisão arquitetural é:
+
+```text
+primeiro:
+casos de uso completos
+
+depois:
+interface consumindo esses casos de uso
+```
+
+A interface não deve se tornar o local onde regras de publicação são criadas.
 
 ---
 
 ## 76. Estado atual consolidado
 
 ```text
-FASE 11 — Histórico, evolução e momentum
+FASE 12 — Orquestração e processamento assíncrono
 
-STATUS:
-CONCLUÍDA
+STATUS TÉCNICO LOCAL:
+CONCLUÍDO
+
+STATUS REMOTO:
+PENDENTE
+
+
+Motor de decisão preservado:
 
 Elegibilidade estrutural:
 AMAZON_SELLER_DELIVERY_V1
@@ -3018,29 +3396,8 @@ MIN_CASH_DISCOUNT
 MIN_RATING
 MIN_REVIEW_COUNT
 
-Limites comerciais:
-cash discount >= 20%
-rating >= 4.3
-reviewCount >= 100
-
 Perfil de score:
 SCORE_V1
-
-Fatores do SCORE_V1:
-SOLD_PERCENTAGE = 30
-CASH_DISCOUNT   = 25
-RATING          = 20
-REVIEW_COUNT    = 15
-
-Peso ativo:
-90
-
-PRICE_ATTRACTIVENESS:
-10 pontos reservados
-NÃO IMPLEMENTADO NO SCORE_V1
-
-reviewCountFullScoreThreshold:
-1000
 
 Ranking:
 score DESC
@@ -3049,115 +3406,204 @@ ASIN ASC
 Histórico por ASIN:
 IMPLEMENTADO
 
-Snapshot anterior:
-IMPLEMENTADO
-
-Primeira observação:
-IMPLEMENTADA
-
-Última observação:
-IMPLEMENTADA
-
-Contagem de snapshots:
-IMPLEMENTADA
-
-Variação de vendidos:
-IMPLEMENTADA
-
-Variação absoluta de preço:
-IMPLEMENTADA
-
-Variação percentual de preço:
-IMPLEMENTADA
-
-Variação de desconto:
-IMPLEMENTADA
-
-Tempo desde primeira detecção:
-IMPLEMENTADO
-
-Tempo desde última atualização:
-IMPLEMENTADO
-
-Recorrência:
-IMPLEMENTADA
-
-Detecção de publicação anterior:
-IMPLEMENTADA
-
 Momentum:
 MOMENTUM_V1
 
-Fórmula:
-soldPercentageDelta × 3600 / elapsedSeconds
 
-Unidade:
-pontos percentuais por hora
+Orquestração:
 
-Matemática:
-BigDecimal
-scale = 4
-HALF_UP
+ProcessingRun:
+IMPLEMENTADO
 
-Momentum negativo:
-PERMITIDO
+DealCandidate:
+IMPLEMENTADO
 
-Ausência:
-DIFERENTE DE ZERO OBSERVADO
+ProcessingJob:
+IMPLEMENTADO
 
-Momentum altera elegibilidade:
-NÃO
+Fila durável:
+PostgreSQL
 
-Momentum altera SCORE_V1:
-NÃO
+Tipos de job:
+COLLECT_DEALS
+ENRICH_DEAL
+EVALUATE_DEAL
 
-Auditoria de momentum:
+Estados de job:
+PENDING
+RUNNING
+RETRY_WAIT
+SUCCEEDED
+DEAD
+
+Claim concorrente:
+FOR UPDATE SKIP LOCKED
+
+Idempotência de job:
+job_type + idempotency_key
+
+Reprocessamento por etapa:
+IMPLEMENTADO
+
+Separação coleta / enrichment / avaliação:
 IMPLEMENTADA
 
-Migration de auditoria:
-V9
 
-Índices históricos:
-V10
+COLLECT_DEALS:
 
-Fluxo vertical:
-OK
+ProcessingRun idempotente:
+IMPLEMENTADA
 
-Persistência:
-OK
+Persistência de DealCandidate:
+IMPLEMENTADA
 
-ScoreProfile:
-OK
+Criação de ENRICH_DEAL:
+IMPLEMENTADA
 
-ScoreFactors:
-OK
+Coleta repetida após run COMPLETED:
+EVITADA
 
-Ranking:
-OK
 
-Transações:
-OK
+DealCandidate:
+
+Identidade final:
+processing_run_id + asin + source
+
+collected_at:
+FATO DA OBSERVAÇÃO
+NÃO PARTICIPA DA IDENTIDADE IDEMPOTENTE
+
+
+ENRICH_DEAL:
+
+Caso de uso independente:
+IMPLEMENTADO
+
+Reutilização de snapshot já persistido:
+IMPLEMENTADA
+
+Nova chamada externa após enrichment já concluído:
+EVITADA
+
+Criação de EVALUATE_DEAL:
+IMPLEMENTADA
+
+
+EVALUATE_DEAL:
+
+Caso de uso independente:
+IMPLEMENTADO
+
+Fast path por avaliação existente:
+IMPLEMENTADO
+
+Segunda verificação transacional:
+IMPLEMENTADA
+
+Serialização concorrente por OfferSnapshot:
+SELECT ... FOR UPDATE
+
+Duplicação concorrente de DealEvaluation:
+PROTEGIDA
+
+
+Falhas:
+
+Classificação:
+TRANSIENT
+PERMANENT
+
+Retry:
+IMPLEMENTADO
+
+Backoff:
+EXPONENCIAL LIMITADO
+
+Tentativas máximas:
+IMPLEMENTADAS
+
+RETRY_WAIT:
+IMPLEMENTADO
+
+DEAD:
+IMPLEMENTADO
+
+Registro da última falha:
+IMPLEMENTADO
+
+
+Lease:
+
+locked_at:
+IMPLEMENTADO
+
+locked_by:
+IMPLEMENTADO
+
+Lease recovery:
+IMPLEMENTADO
+
+Recuperação em lote:
+IMPLEMENTADA
+
+Jobs expirados com tentativas restantes:
+RETRY_WAIT
+
+Jobs expirados sem tentativas restantes:
+DEAD
+
+Política de duração de lease:
+IMPLEMENTADA
+
+
+Worker:
+
+ProcessingWorker:
+IMPLEMENTADO
+
+Execução por rodada:
+IMPLEMENTADA
+
+Dispatcher:
+IMPLEMENTADO
+
+Mapeamento:
+COLLECT_DEALS  -> processingRunId
+ENRICH_DEAL    -> dealCandidateId
+EVALUATE_DEAL  -> offerSnapshotId
+
+ACK de sucesso:
+IMPLEMENTADO
+
+Falha funcional:
+ProcessingJobFailureHandler
+
+Falha de ownership durante ACK:
+NÃO CONVERTIDA EM RETRY FUNCIONAL
+
+
+Escala horizontal:
+
+Múltiplos workers:
+PREPARADOS
+
+Distribuição concorrente:
+FOR UPDATE SKIP LOCKED
+
+Ownership:
+IMPLEMENTADO
+
+Lease recovery:
+IMPLEMENTADO
 
 Idempotência:
-OK
+IMPLEMENTADA
 
-Auditabilidade:
-OK
+Testes com conexões JDBC independentes:
+IMPLEMENTADOS
 
-Teste vertical de score:
-OK
 
-Teste vertical de momentum:
-OK
-
-Suíte hermética:
-422 testes
-0 falhas
-0 erros
-0 ignorados
-
-Build local:
-SUCCESS
+Persistência:
 
 PostgreSQL:
 18.6
@@ -3166,73 +3612,190 @@ Flyway:
 OK
 
 Migrations:
-10
+13
 
 Schema:
-versão 10
+versão 13
 
-CI remoto da FASE 11:
+
+Testes:
+
+Suíte:
+514 testes
+
+Falhas:
+0
+
+Erros:
+0
+
+Ignorados:
+0
+
+Build local:
 SUCCESS
 
-Pull Request:
-#2 — MERGED
 
-Merge em main:
-SUCCESS — 46d7e4c
+Auditoria final da FASE 12:
 
-CI pós-merge:
-SUCCESS — run #21
+Idempotência de DealCandidate:
+REFORÇADA
 
-Gate local da FASE 11:
+Concorrência de DealEvaluation:
+SERIALIZADA
+
+Reprocessamento seguro:
+OK
+
+Retry seletivo:
+OK
+
+Recuperação de jobs:
+OK
+
+Múltiplos workers:
+OK
+
+Persistência durável:
+OK
+
+Gate local:
 FECHADO
 
-Gate remoto da FASE 11:
-FECHADO
+Gate remoto:
+PENDENTE
 
-Próxima fase:
-FASE 12 — Orquestração e processamento assíncrono
+
+Próxima fase após fechamento remoto:
+FASE 13 — Geração de publicação e link de associado
 ```
 
 ---
 
-## 77. Encerramento da FASE 11
+## 77. Encerramento técnico local da FASE 12
 
-A FASE 11 atingiu seus critérios técnicos locais e remotos.
+A implementação técnica local da FASE 12 atingiu os critérios definidos para orquestração e processamento assíncrono.
 
-O projeto passou de avaliações baseadas apenas na observação atual para um modelo capaz de explicar também a evolução temporal da oferta.
+O projeto passou a possuir:
 
-A separação central permanece:
+- processamento dividido em estágios duráveis;
+- fila persistente em PostgreSQL;
+- claim concorrente com `FOR UPDATE SKIP LOCKED`;
+- retries seletivos;
+- backoff;
+- classificação explícita entre falhas transitórias e permanentes;
+- ownership de jobs;
+- leases;
+- recuperação de leases expirados;
+- worker genérico;
+- dispatcher por tipo de job;
+- reprocessamento seguro;
+- idempotência por estágio;
+- proteção contra duplicidade em `deal_candidate`;
+- serialização concorrente da avaliação por `OfferSnapshot`.
+
+O gate local foi executado com:
 
 ```text
-SCORE_V1
-=
-qualidade/prioridade da observação atual
+Tests run: 514
+Failures: 0
+Errors: 0
+Skipped: 0
 
-MOMENTUM_V1
-=
-velocidade histórica do percentual vendido
+BUILD SUCCESS
 ```
 
-Os dois conceitos permanecem independentes.
-
-O ciclo remoto foi concluído:
+A revisão técnica final acrescentou duas proteções antes do fechamento documental:
 
 ```text
-branch fase-11-historico-momentum
+DealCandidate
+→ UNIQUE(processing_run_id, asin, source)
+
+EvaluateDealUseCase
+→ SELECT offer_snapshot ... FOR UPDATE
+→ segundo lookup
+→ avaliação idempotente sob concorrência
+```
+
+O resultado detalhado está em:
+
+```text
+docs/phases/FASE_12_RESULTADO.md
+```
+
+O planejamento posterior está em:
+
+```text
+docs/phases/ROADMAP_RASPING_AMAZON_V1.md
+```
+
+O gate remoto ainda precisa executar:
+
+```text
+branch fase-12-orquestracao-assincrona
         ↓
-Pull Request #2
+push
         ↓
-CI do PR verde
+Pull Request
+        ↓
+CI do PR
         ↓
 merge em main
         ↓
-46d7e4c
+CI pós-merge
         ↓
-CI da main verde
-        ↓
-GitHub Actions run #21
-        ↓
-FASE 11 CONCLUÍDA
+fechamento documental remoto da FASE 12
 ```
 
-Com esse fechamento, a FASE 12 está liberada para início.
+Até que essa sequência seja concluída, este README não declara PR, merge ou CI remoto da FASE 12 como realizados.
+
+---
+
+## 78. Próxima fase
+
+Após o fechamento remoto da FASE 12, o roadmap da versão 1.0 libera:
+
+```text
+FASE 13 — Geração de publicação e link de associado
+```
+
+Objetivo:
+
+```text
+DealEvaluation
+      ↓
+PublicationGenerator
+      ↓
+Publication persistida
+```
+
+A publicação deverá preservar relação reproduzível com os dados que a originaram, incluindo `Product`, `OfferSnapshot`, `DealEvaluation`, condição comercial apresentada, template/versionamento e link de associado.
+
+Conceitos previstos pelo roadmap:
+
+```text
+PublicationGenerator
+PublicationTemplate
+PublicationTemplateVersion
+AffiliateLinkGenerator
+Publication
+```
+
+A FASE 13 não deve antecipar:
+
+```text
+Telegram
+WhatsApp
+scheduler
+envio automático
+```
+
+A separação permanece:
+
+```text
+geração de conteúdo
+≠
+entrega em canal
+```
+
+A interface operacional passa para a FASE 14 e deverá consumir casos de uso já completos, sem incorporar regras de geração de publicação.
