@@ -118,7 +118,7 @@ class AmazonPublicationCompositionTest {
                 );
 
                 assertEquals(
-                    "AMAZON_AFFILIATE_LINK_V1",
+                    "AMAZON_AFFILIATE_LINK_V2",
                     first.affiliateLinkVersion()
                 );
 

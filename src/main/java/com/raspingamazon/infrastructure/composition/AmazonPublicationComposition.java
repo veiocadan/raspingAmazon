@@ -4,7 +4,7 @@ import com.raspingamazon.application.orchestration.port.OfferSnapshotEvaluationL
 import com.raspingamazon.application.publication.PublicationGenerator;
 import com.raspingamazon.application.publication.PublicationRepository;
 import com.raspingamazon.application.publication.affiliate.AffiliateLinkGenerator;
-import com.raspingamazon.application.publication.affiliate.AmazonAffiliateLinkGeneratorV1;
+import com.raspingamazon.application.publication.affiliate.AmazonAffiliateLinkGeneratorV2;
 import com.raspingamazon.application.publication.port.PublicationDataQueryPort;
 import com.raspingamazon.application.publication.presentation.AmazonCommercialPresentationV1;
 import com.raspingamazon.application.publication.presentation.CommercialPresentationPolicy;
@@ -101,9 +101,13 @@ public final class AmazonPublicationComposition {
          * ---------------------------------------------------------
          * LINK DE ASSOCIADO
          * ---------------------------------------------------------
+         *
+         * A V1 permanece disponível para leitura/reprodução histórica.
+         * Novas publicações usam V2, que preserva paths já
+         * percent-encoded sem dupla codificação.
          */
         AffiliateLinkGenerator affiliateLinkGenerator =
-            new AmazonAffiliateLinkGeneratorV1(
+            new AmazonAffiliateLinkGeneratorV2(
                 affiliateConfig.associateTag()
             );
 
