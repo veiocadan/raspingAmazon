@@ -9,33 +9,17 @@ import java.util.Objects;
  * Representa uma versão imutável da configuração dos filtros
  * comerciais aplicáveis às ofertas.
  *
- * O perfil define somente critérios comerciais eliminatórios.
+ * <p>Um perfil utiliza exatamente uma semântica de desconto:</p>
  *
- * Não pertencem a este perfil:
- *
- * - validação de vendedor Amazon;
- * - validação de entrega Amazon;
- * - soldPercentage;
- * - score;
- * - momentum;
- * - regras de apresentação/publicação.
- *
- * A validação de vendedor e entrega pertence à política estrutural
- * de elegibilidade.
- *
- * soldPercentage permanece disponível como dado da oferta, mas foi
- * reservado para uso futuro no score e não deve eliminar ofertas.
- *
- * O desconto mínimo representa exclusivamente desconto à vista
- * explicitamente informado em uma PaymentCondition reconhecida.
- *
- * Esta classe não define de onde a configuração é carregada.
- * Persistência, variáveis de ambiente ou outra fonte de configuração
- * pertencem às camadas externas ao domínio.
+ * <ul>
+ *     <li>minCashDiscountPercentage para COMMERCIAL_FILTER_V1;</li>
+ *     <li>minBasisDiscountPercentage para perfis da ADR-0005.</li>
+ * </ul>
  */
 public record FilterProfile(
     String version,
     Percentage minCashDiscountPercentage,
+    Percentage minBasisDiscountPercentage,
     BigDecimal minRating,
     long minReviewCount
 ) {
@@ -47,17 +31,25 @@ public record FilterProfile(
         new BigDecimal("5");
 
     /**
-     * Valida as invariantes estruturais do perfil.
-     *
-     * Todos os filtros existentes nesta versão possuem um limite
-     * explícito.
-     *
-     * Limites numéricos iguais a zero são válidos. Isso significa
-     * apenas que o limiar numérico da regra não é restritivo.
-     *
-     * A ausência do dado observado continua sendo semanticamente
-     * diferente de zero e será tratada pelas regras comerciais.
+     * Construtor compatível com COMMERCIAL_FILTER_V1.
      */
+    public FilterProfile(
+        String version,
+        Percentage minCashDiscountPercentage,
+        BigDecimal minRating,
+        long minReviewCount
+    ) {
+        this(
+            version,
+            requireLegacyCashThreshold(
+                minCashDiscountPercentage
+            ),
+            null,
+            minRating,
+            minReviewCount
+        );
+    }
+
     public FilterProfile {
 
         Objects.requireNonNull(
@@ -71,10 +63,17 @@ public record FilterProfile(
             );
         }
 
-        Objects.requireNonNull(
-            minCashDiscountPercentage,
-            "minCashDiscountPercentage must not be null"
-        );
+        boolean hasCashThreshold =
+            minCashDiscountPercentage != null;
+
+        boolean hasBasisThreshold =
+            minBasisDiscountPercentage != null;
+
+        if (hasCashThreshold == hasBasisThreshold) {
+            throw new IllegalArgumentException(
+                "FilterProfile must define exactly one discount threshold"
+            );
+        }
 
         Objects.requireNonNull(
             minRating,
@@ -98,5 +97,40 @@ public record FilterProfile(
                 "minReviewCount must not be negative"
             );
         }
+    }
+
+    public static FilterProfile forBasisDiscount(
+        String version,
+        Percentage minBasisDiscountPercentage,
+        BigDecimal minRating,
+        long minReviewCount
+    ) {
+        return new FilterProfile(
+            version,
+            null,
+            Objects.requireNonNull(
+                minBasisDiscountPercentage,
+                "minBasisDiscountPercentage must not be null"
+            ),
+            minRating,
+            minReviewCount
+        );
+    }
+
+    public boolean usesCashDiscountRule() {
+        return minCashDiscountPercentage != null;
+    }
+
+    public boolean usesBasisDiscountRule() {
+        return minBasisDiscountPercentage != null;
+    }
+
+    private static Percentage requireLegacyCashThreshold(
+        Percentage value
+    ) {
+        return Objects.requireNonNull(
+            value,
+            "minCashDiscountPercentage must not be null"
+        );
     }
 }
