@@ -15,22 +15,21 @@ import java.util.Optional;
  * Seleciona o maior desconto à vista explicitamente observado
  * entre as condições comerciais reconhecidas.
  *
- * São consideradas somente condições que:
+ * <p>São consideradas somente condições que:</p>
  *
- * - sejam do tipo CASH;
- * - possuam desconto explicitamente informado;
- * - estejam associadas a Pix e/ou NuPay.
+ * <ul>
+ *     <li>sejam do tipo CASH;</li>
+ *     <li>possuam desconto explicitamente informado;</li>
+ *     <li>estejam associadas a Pix e/ou NuPay.</li>
+ * </ul>
  *
- * Condições de cartão não participam desta seleção.
+ * <p>NuPay genérico e NuPay Limite Adicional permanecem
+ * semanticamente distintos, mas ambos são meios à vista
+ * reconhecidos.</p>
  *
- * O seletor não infere descontos pela diferença entre preços.
+ * <p>Condições de cartão não participam desta seleção.</p>
  *
- * Quando mais de um meio de pagamento possui o mesmo maior desconto,
- * todos os meios reconhecidos responsáveis por esse percentual são
- * preservados na observação.
- *
- * Isso garante resultado determinístico e mantém a informação
- * necessária para auditoria e decisões futuras de publicação.
+ * <p>O seletor não infere descontos pela diferença entre preços.</p>
  */
 public final class BestCashDiscountSelector {
 
@@ -44,19 +43,22 @@ public final class BestCashDiscountSelector {
     public Optional<CashDiscountObservation> select(
         List<PaymentCondition> paymentConditions
     ) {
+
         Objects.requireNonNull(
             paymentConditions,
             "paymentConditions must not be null"
         );
 
-        Percentage bestDiscount = null;
+        Percentage bestDiscount =
+            null;
 
         EnumSet<PaymentMethod> bestMethods =
             EnumSet.noneOf(
                 PaymentMethod.class
             );
 
-        for (PaymentCondition condition : paymentConditions) {
+        for (PaymentCondition condition
+            : paymentConditions) {
 
             Objects.requireNonNull(
                 condition,
@@ -87,9 +89,11 @@ public final class BestCashDiscountSelector {
 
             if (bestDiscount == null) {
 
-                bestDiscount = discount;
+                bestDiscount =
+                    discount;
 
                 bestMethods.clear();
+
                 bestMethods.addAll(
                     recognizedMethods
                 );
@@ -98,15 +102,18 @@ public final class BestCashDiscountSelector {
             }
 
             int comparison =
-                discount.value().compareTo(
-                    bestDiscount.value()
-                );
+                discount.value()
+                    .compareTo(
+                        bestDiscount.value()
+                    );
 
             if (comparison > 0) {
 
-                bestDiscount = discount;
+                bestDiscount =
+                    discount;
 
                 bestMethods.clear();
+
                 bestMethods.addAll(
                     recognizedMethods
                 );
@@ -123,6 +130,7 @@ public final class BestCashDiscountSelector {
         }
 
         if (bestDiscount == null) {
+
             return Optional.empty();
         }
 
@@ -137,12 +145,12 @@ public final class BestCashDiscountSelector {
     }
 
     /**
-     * Retém somente os meios de pagamento à vista reconhecidos
-     * pela política vigente.
+     * Retém somente os meios de pagamento à vista reconhecidos.
      */
     private EnumSet<PaymentMethod> recognizedCashMethods(
         PaymentCondition condition
     ) {
+
         EnumSet<PaymentMethod> recognized =
             EnumSet.noneOf(
                 PaymentMethod.class
@@ -152,6 +160,7 @@ public final class BestCashDiscountSelector {
             : condition.paymentMethods()) {
 
             if (paymentMethod == PaymentMethod.PIX
+                || paymentMethod == PaymentMethod.NUPAY
                 || paymentMethod
                 == PaymentMethod.NUPAY_ADDITIONAL_LIMIT) {
 

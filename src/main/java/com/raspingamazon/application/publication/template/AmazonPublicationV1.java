@@ -29,6 +29,7 @@ public final class AmazonPublicationV1
 
     @Override
     public String version() {
+
         return VERSION;
     }
 
@@ -78,10 +79,6 @@ public final class AmazonPublicationV1
             presentation.installmentCondition()
         );
 
-        /*
-         * A identificação permanece imediatamente junto do link,
-         * de forma clara para quem receber o conteúdo.
-         */
         appendLine(
             text,
             "Link patrocinado: "
@@ -96,7 +93,8 @@ public final class AmazonPublicationV1
         CommercialPresentation presentation
     ) {
 
-        if (presentation.basisPrice() != null) {
+        if (presentation.basisPrice()
+            != null) {
 
             appendLine(
                 text,
@@ -107,7 +105,8 @@ public final class AmazonPublicationV1
             );
         }
 
-        if (presentation.previousPrice() != null) {
+        if (presentation.previousPrice()
+            != null) {
 
             appendLine(
                 text,
@@ -124,7 +123,8 @@ public final class AmazonPublicationV1
         CommercialPresentation presentation
     ) {
 
-        if (presentation.primaryCashCondition() != null) {
+        if (presentation.primaryCashCondition()
+            != null) {
 
             appendCashCondition(
                 text,
@@ -132,7 +132,8 @@ public final class AmazonPublicationV1
             );
         }
 
-        if (presentation.secondaryCashCondition() != null) {
+        if (presentation.secondaryCashCondition()
+            != null) {
 
             appendCashCondition(
                 text,
@@ -177,7 +178,8 @@ public final class AmazonPublicationV1
             );
         }
 
-        if (condition.discountPercentage() != null) {
+        if (condition.discountPercentage()
+            != null) {
 
             line.append(
                 " ("
@@ -206,6 +208,7 @@ public final class AmazonPublicationV1
     ) {
 
         if (condition == null) {
+
             return;
         }
 
@@ -238,7 +241,8 @@ public final class AmazonPublicationV1
                 " sem juros"
             );
 
-        } else if (condition.interest() != null) {
+        } else if (condition.interest()
+            != null) {
 
             line.append(
                 " com "
@@ -270,7 +274,8 @@ public final class AmazonPublicationV1
             case PIX ->
                 "Pix";
 
-            case NUPAY_ADDITIONAL_LIMIT ->
+            case NUPAY,
+                 NUPAY_ADDITIONAL_LIMIT ->
                 "NuPay";
 
             case CREDIT_CARD ->
@@ -284,7 +289,8 @@ public final class AmazonPublicationV1
         PaymentCondition condition
     ) {
 
-        return condition.interest() != null
+        return condition.interest()
+            != null
             && condition.interest()
             .value()
             .compareTo(
@@ -386,6 +392,7 @@ public final class AmazonPublicationV1
     ) {
 
         if (!builder.isEmpty()) {
+
             builder.append(
                 '\n'
             );

@@ -18,10 +18,6 @@
 
     <properties>
 
-        <!--
-            Versão Java definida explicitamente para tornar o build
-            reproduzível entre ambiente local e CI.
-        -->
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
 
@@ -33,23 +29,12 @@
             UTF-8
         </project.reporting.outputEncoding>
 
-        <!--
-            Dependências.
-        -->
         <junit.version>5.12.2</junit.version>
         <jackson.version>2.20.0</jackson.version>
+        <jsoup.version>1.18.3</jsoup.version>
 
-        <!--
-            Dependência exclusiva do profile external-probe.
-
-            Playwright não pertence ao runtime de produção e não participa
-            da suíte hermética padrão.
-        -->
         <playwright.version>1.63.0</playwright.version>
 
-        <!--
-            Plugins Maven.
-        -->
         <maven.compiler.plugin.version>
             3.15.0
         </maven.compiler.plugin.version>
@@ -70,9 +55,6 @@
 
     <dependencies>
 
-        <!--
-            JUnit 5.
-        -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -80,9 +62,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!--
-            Flyway.
-        -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -95,22 +74,28 @@
             <version>11.14.1</version>
         </dependency>
 
-        <!--
-            PostgreSQL JDBC.
-        -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.8</version>
         </dependency>
 
-        <!--
-            JSON.
-        -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
+        </dependency>
+
+        <!--
+            Parsing estrutural do HTML Amazon.
+
+            O objetivo é localizar elementos reais por id e interpretar
+            tabelas/atributos sem depender de offsets arbitrários do HTML.
+        -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
         </dependency>
 
     </dependencies>
@@ -119,9 +104,6 @@
 
         <plugins>
 
-            <!--
-                Compilação Java.
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -134,27 +116,12 @@
                 </configuration>
             </plugin>
 
-            <!--
-                Suíte hermética padrão.
-
-                O Surefire executa os padrões convencionais:
-                    **/Test*.java
-                    **/*Test.java
-                    **/*Tests.java
-                    **/*TestCase.java
-
-                Portanto classes terminadas em ExternalProbeIT
-                não entram automaticamente em "mvn test".
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven.surefire.plugin.version}</version>
             </plugin>
 
-            <!--
-                Empacotamento.
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -165,25 +132,8 @@
 
     </build>
 
-    <!--
-        =============================================================
-        PROFILES
-        =============================================================
-    -->
     <profiles>
 
-        <!--
-            Probe deliberadamente externa.
-
-            Este profile:
-
-            1. adiciona src/external-probe/java como test source;
-            2. disponibiliza Playwright somente para esse profile;
-            3. executa somente classes terminadas em ExternalProbeIT.
-
-            A suíte padrão continua sem navegador e sem acesso
-            deliberado à Amazon real.
-        -->
         <profile>
 
             <id>external-probe</id>
@@ -203,10 +153,6 @@
 
                 <plugins>
 
-                    <!--
-                        A árvore external-probe não participa do build
-                        padrão. Ela é adicionada somente neste profile.
-                    -->
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>

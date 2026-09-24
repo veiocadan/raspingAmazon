@@ -11,24 +11,39 @@ class PaymentMethodTest {
 
     @Test
     void shouldContainExpectedPaymentMethods() {
+
         assertEquals(
-                3,
-                PaymentMethod.values().length
+            4,
+            PaymentMethod.values()
+                .length
         );
 
         assertEquals(
-                PaymentMethod.PIX,
-                PaymentMethod.valueOf("PIX")
+            PaymentMethod.PIX,
+            PaymentMethod.valueOf(
+                "PIX"
+            )
         );
 
         assertEquals(
-                PaymentMethod.NUPAY_ADDITIONAL_LIMIT,
-                PaymentMethod.valueOf("NUPAY_ADDITIONAL_LIMIT")
+            PaymentMethod.NUPAY,
+            PaymentMethod.valueOf(
+                "NUPAY"
+            )
         );
 
         assertEquals(
-                PaymentMethod.CREDIT_CARD,
-                PaymentMethod.valueOf("CREDIT_CARD")
+            PaymentMethod.NUPAY_ADDITIONAL_LIMIT,
+            PaymentMethod.valueOf(
+                "NUPAY_ADDITIONAL_LIMIT"
+            )
+        );
+
+        assertEquals(
+            PaymentMethod.CREDIT_CARD,
+            PaymentMethod.valueOf(
+                "CREDIT_CARD"
+            )
         );
     }
 }
