@@ -8,14 +8,24 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class CommercialFilterRuleCodeTest {
 
     @Test
-    void shouldContainMinimumCashDiscountRule() {
+    void shouldPreserveHistoricalMinimumCashDiscountRule() {
+
         assertNotNull(
             CommercialFilterRuleCode.MIN_CASH_DISCOUNT
         );
     }
 
     @Test
+    void shouldContainMinimumBasisDiscountRule() {
+
+        assertNotNull(
+            CommercialFilterRuleCode.MIN_BASIS_DISCOUNT
+        );
+    }
+
+    @Test
     void shouldContainMinimumRatingRule() {
+
         assertNotNull(
             CommercialFilterRuleCode.MIN_RATING
         );
@@ -23,16 +33,19 @@ class CommercialFilterRuleCodeTest {
 
     @Test
     void shouldContainMinimumReviewCountRule() {
+
         assertNotNull(
             CommercialFilterRuleCode.MIN_REVIEW_COUNT
         );
     }
 
     @Test
-    void shouldContainExactlyThreeCommercialFilterRules() {
+    void shouldContainExactlyFourCommercialFilterRules() {
+
         assertEquals(
-            3,
-            CommercialFilterRuleCode.values().length
+            4,
+            CommercialFilterRuleCode.values()
+                .length
         );
     }
 }

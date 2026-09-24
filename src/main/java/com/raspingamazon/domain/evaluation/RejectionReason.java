@@ -1,94 +1,83 @@
 package com.raspingamazon.domain.evaluation;
 
 /**
- * Representa os motivos controlados pelos quais uma oferta pode
- * ser considerada inelegível ou rejeitada pelo domínio.
+ * Vocabulário controlado dos motivos pelos quais uma oferta pode
+ * ser rejeitada.
  *
- * A intenção desta enumeração é evitar que o sistema espalhe textos
- * livres como "vendedor errado", "sem desconto", "rating baixo" etc.
- *
- * O motivo passa a ser um código estável do domínio, utilizado por:
- *
- * - DealEvaluation;
- * - regras de elegibilidade;
- * - filtros comerciais;
- * - auditoria;
- * - persistência;
- * - relatórios;
- * - testes automatizados.
- *
- * Importante:
- * esta enumeração não conhece Amazon, PostgreSQL, HTML, Excel ou
- * qualquer canal de publicação. Ela representa somente o vocabulário
- * controlado de rejeições do domínio.
+ * <p>Os códigos podem ser persistidos e, portanto, valores históricos
+ * não devem ser removidos ou receber nova semântica.</p>
  */
 public enum RejectionReason {
 
     /**
-     * A oferta não possui evidência suficiente sobre o vendedor.
-     *
-     * A política estrutural é fail closed: quando não é possível
-     * confirmar o vendedor, a oferta não deve ser considerada elegível.
+     * Não existe evidência suficiente sobre o vendedor.
      */
     SELLER_UNKNOWN,
 
     /**
-     * A oferta é vendida por um terceiro.
+     * A oferta é vendida por terceiro.
      */
     SELLER_THIRD_PARTY,
 
     /**
-     * Não foi possível determinar com segurança quem realiza a entrega.
+     * Não foi possível determinar quem realiza a entrega.
      */
     DELIVERY_UNKNOWN,
 
     /**
-     * A entrega é realizada por um terceiro.
+     * A entrega é realizada por terceiro.
      */
     DELIVERY_THIRD_PARTY,
 
     /**
-     * Motivo genérico preservado para situações em que a avaliação não
-     * dispõe dos dados mínimos necessários e não existe um motivo mais
-     * específico no vocabulário do domínio.
-     *
-     * Os filtros comerciais da FASE 9 devem preferir seus motivos
-     * específicos de indisponibilidade.
+     * Não existem dados mínimos suficientes e não existe um motivo
+     * mais específico.
      */
     INSUFFICIENT_DATA,
 
     /**
-     * Não existe desconto à vista explicitamente informado em uma
-     * condição de pagamento reconhecida pelo filtro.
+     * Motivo histórico do COMMERCIAL_FILTER_V1.
+     *
+     * Não existe desconto CASH explícito reconhecido.
      */
     CASH_DISCOUNT_UNAVAILABLE,
 
     /**
-     * Existe desconto à vista explicitamente informado, mas o maior
-     * desconto elegível está abaixo do mínimo configurado.
+     * Motivo histórico do COMMERCIAL_FILTER_V1.
+     *
+     * O desconto CASH explícito existe, mas está abaixo do mínimo.
      */
     CASH_DISCOUNT_BELOW_MINIMUM,
 
     /**
-     * A avaliação agregada do produto não está disponível.
+     * Não existem dados consistentes suficientes para calcular o
+     * desconto entre basisPrice e effectivePrice.
+     */
+    BASIS_DISCOUNT_UNAVAILABLE,
+
+    /**
+     * O desconto derivado entre basisPrice e effectivePrice existe,
+     * mas está abaixo do mínimo configurado.
+     */
+    BASIS_DISCOUNT_BELOW_MINIMUM,
+
+    /**
+     * O rating agregado não está disponível.
      */
     RATING_UNAVAILABLE,
 
     /**
-     * A avaliação agregada está disponível, mas abaixo do mínimo
-     * configurado.
+     * O rating está abaixo do mínimo.
      */
     RATING_BELOW_MINIMUM,
 
     /**
-     * A quantidade agregada de avaliações do produto não está
-     * disponível.
+     * A quantidade de avaliações não está disponível.
      */
     REVIEW_COUNT_UNAVAILABLE,
 
     /**
-     * A quantidade agregada de avaliações está disponível, mas abaixo
-     * do mínimo configurado.
+     * A quantidade de avaliações está abaixo do mínimo.
      */
     REVIEW_COUNT_BELOW_MINIMUM
 }

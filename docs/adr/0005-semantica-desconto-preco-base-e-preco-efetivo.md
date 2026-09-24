@@ -255,7 +255,7 @@ DISCOUNT=52.5368|BASIS=3599.00|EFFECTIVE=1708.20|SOURCE=CASH_CONDITION
 ou, quando não houver preço CASH diferenciado:
 
 ```text
-DISCOUNT=40.0073|BASIS=5499.00|EFFECTIVE=3298.99|SOURCE=CURRENT_PRICE
+DISCOUNT=40.0075|BASIS=5499.00|EFFECTIVE=3298.99|SOURCE=CURRENT_PRICE
 ```
 
 O formato faz parte da explicabilidade da regra, não da apresentação ao usuário final.
