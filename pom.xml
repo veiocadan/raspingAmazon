@@ -40,6 +40,14 @@
         <jackson.version>2.20.0</jackson.version>
 
         <!--
+            Dependência exclusiva do profile external-probe.
+
+            Playwright não pertence ao runtime de produção e não participa
+            da suíte hermética padrão.
+        -->
+        <playwright.version>1.63.0</playwright.version>
+
+        <!--
             Plugins Maven.
         -->
         <maven.compiler.plugin.version>
@@ -53,6 +61,10 @@
         <maven.jar.plugin.version>
             3.5.0
         </maven.jar.plugin.version>
+
+        <build.helper.maven.plugin.version>
+            3.6.2
+        </build.helper.maven.plugin.version>
 
     </properties>
 
@@ -131,8 +143,8 @@
                     **/*Tests.java
                     **/*TestCase.java
 
-                Portanto AmazonDealsExternalProbeIT NÃO entra
-                automaticamente em "mvn test".
+                Portanto classes terminadas em ExternalProbeIT
+                não entram automaticamente em "mvn test".
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -163,22 +175,80 @@
         <!--
             Probe deliberadamente externa.
 
-            Execução:
+            Este profile:
 
-                mvn -Pexternal-probe test
+            1. adiciona src/external-probe/java como test source;
+            2. disponibiliza Playwright somente para esse profile;
+            3. executa somente classes terminadas em ExternalProbeIT.
 
-            Este profile inclui somente classes terminadas em
-            ExternalProbeIT.
-
-            A suíte padrão continua sem acesso à Amazon real.
+            A suíte padrão continua sem navegador e sem acesso
+            deliberado à Amazon real.
         -->
         <profile>
 
             <id>external-probe</id>
 
+            <dependencies>
+
+                <dependency>
+                    <groupId>com.microsoft.playwright</groupId>
+                    <artifactId>playwright</artifactId>
+                    <version>${playwright.version}</version>
+                    <scope>test</scope>
+                </dependency>
+
+            </dependencies>
+
             <build>
 
                 <plugins>
+
+                    <!--
+                        A árvore external-probe não participa do build
+                        padrão. Ela é adicionada somente neste profile.
+                    -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>
+                            ${build.helper.maven.plugin.version}
+                        </version>
+
+                        <executions>
+
+                            <execution>
+
+                                <id>
+                                    add-external-probe-test-source
+                                </id>
+
+                                <phase>
+                                    generate-test-sources
+                                </phase>
+
+                                <goals>
+                                    <goal>
+                                        add-test-source
+                                    </goal>
+                                </goals>
+
+                                <configuration>
+
+                                    <sources>
+
+                                        <source>
+                                            src/external-probe/java
+                                        </source>
+
+                                    </sources>
+
+                                </configuration>
+
+                            </execution>
+
+                        </executions>
+
+                    </plugin>
 
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
