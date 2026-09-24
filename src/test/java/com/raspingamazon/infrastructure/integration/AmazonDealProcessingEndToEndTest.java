@@ -25,6 +25,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -244,12 +247,13 @@ class AmazonDealProcessingEndToEndTest {
                 )
             );
 
-            assertEquals(
-                2L,
-                countEvidence(
-                    connection,
-                    snapshotId
-                )
+            /*
+             * O enrichment persiste quatro evidências auditáveis:
+             * SELLER, DELIVERY, RATING e REVIEW_COUNT.
+             */
+            assertEvidenceTypes(
+                connection,
+                snapshotId
             );
 
             assertEquals(
@@ -350,12 +354,14 @@ class AmazonDealProcessingEndToEndTest {
                 )
             );
 
-            assertEquals(
-                2L,
-                countEvidence(
-                    connection,
-                    snapshotId
-                )
+            /*
+             * O replay idempotente não pode duplicar evidências.
+             * Os mesmos quatro tipos devem continuar presentes
+             * exatamente uma vez cada.
+             */
+            assertEvidenceTypes(
+                connection,
+                snapshotId
             );
 
             assertEquals(
@@ -807,23 +813,80 @@ class AmazonDealProcessingEndToEndTest {
         );
     }
 
-    private long countEvidence(
+    /**
+     * Confirma a provenance persistida pelo enrichment.
+     *
+     * <p>Não basta validar somente COUNT(*) = 4, porque quatro linhas
+     * poderiam conter tipos duplicados e esconder a ausência de uma
+     * evidência esperada.</p>
+     *
+     * <p>O contrato atual exige exatamente uma evidência de cada tipo:</p>
+     *
+     * <ul>
+     *     <li>SELLER;</li>
+     *     <li>DELIVERY;</li>
+     *     <li>RATING;</li>
+     *     <li>REVIEW_COUNT.</li>
+     * </ul>
+     *
+     * <p>A combinação de tamanho da lista e igualdade do conjunto detecta
+     * tanto duplicações quanto ausência de qualquer tipo esperado.</p>
+     */
+    private void assertEvidenceTypes(
         Connection connection,
         long snapshotId
     ) throws Exception {
 
-        return count(
-            connection,
-            """
-            SELECT COUNT(*)
+        String sql = """
+            SELECT evidence_type
             FROM offer_evidence
             WHERE offer_snapshot_id = ?
-            """,
-            statement ->
-                statement.setLong(
-                    1,
-                    snapshotId
-                )
+            """;
+
+        List<String> evidenceTypes =
+            new ArrayList<>();
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                snapshotId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                while (resultSet.next()) {
+
+                    evidenceTypes.add(
+                        resultSet.getString(
+                            "evidence_type"
+                        )
+                    );
+                }
+            }
+        }
+
+        assertEquals(
+            4,
+            evidenceTypes.size(),
+            "Exactly four enrichment evidence rows must exist"
+        );
+
+        assertEquals(
+            Set.of(
+                "SELLER",
+                "DELIVERY",
+                "RATING",
+                "REVIEW_COUNT"
+            ),
+            Set.copyOf(
+                evidenceTypes
+            ),
+            "Enrichment evidence types must be complete and non-duplicated"
         );
     }
 

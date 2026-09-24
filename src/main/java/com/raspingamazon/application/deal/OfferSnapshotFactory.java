@@ -20,19 +20,26 @@ import java.util.Objects;
  * <ul>
  *     <li>transportar dados do ParsedDeal;</li>
  *     <li>transportar seller e delivery do enrichment;</li>
+ *     <li>aplicar a precedência de fonte para rating e reviewCount;</li>
  *     <li>converter tipos de aplicação em value objects de domínio;</li>
  *     <li>preservar ausência de dados como null.</li>
  * </ul>
  *
- * <p>Esta classe não:</p>
+ * <p>Para rating e reviewCount a precedência é independente por campo:</p>
  *
- * <ul>
- *     <li>faz HTTP;</li>
- *     <li>persiste dados;</li>
- *     <li>aplica elegibilidade;</li>
- *     <li>aplica filtros;</li>
- *     <li>calcula score ou momentum.</li>
- * </ul>
+ * <pre>
+ * ParsedDeal possui valor
+ *     -> preserva /deals
+ *
+ * ParsedDeal não possui valor
+ *     -> utiliza evidência normalizada da página individual, se houver
+ *
+ * nenhuma fonte possui valor
+ *     -> null
+ * </pre>
+ *
+ * <p>Esta classe não faz HTTP, não persiste dados, não aplica
+ * elegibilidade, não aplica filtros e não calcula score ou momentum.</p>
  */
 public final class OfferSnapshotFactory {
 
@@ -40,15 +47,16 @@ public final class OfferSnapshotFactory {
      * Constrói um snapshot sem condições comerciais adicionais.
      */
     public OfferSnapshot create(
-            Product product,
-            ParsedDeal parsedDeal,
-            ProductEnrichmentResult enrichmentResult
+        Product product,
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult
     ) {
+
         return create(
-                product,
-                parsedDeal,
-                enrichmentResult,
-                List.of()
+            product,
+            parsedDeal,
+            enrichmentResult,
+            List.of()
         );
     }
 
@@ -57,126 +65,152 @@ public final class OfferSnapshotFactory {
      * já observadas anteriormente no pipeline.
      */
     public OfferSnapshot create(
-            Product product,
-            ParsedDeal parsedDeal,
-            ProductEnrichmentResult enrichmentResult,
-            List<PaymentCondition> paymentConditions
+        Product product,
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult,
+        List<PaymentCondition> paymentConditions
     ) {
+
         Objects.requireNonNull(
-                product,
-                "product must not be null"
+            product,
+            "product must not be null"
         );
 
         Objects.requireNonNull(
-                parsedDeal,
-                "parsedDeal must not be null"
+            parsedDeal,
+            "parsedDeal must not be null"
         );
 
         Objects.requireNonNull(
-                enrichmentResult,
-                "enrichmentResult must not be null"
+            enrichmentResult,
+            "enrichmentResult must not be null"
         );
 
         Objects.requireNonNull(
-                paymentConditions,
-                "paymentConditions must not be null"
+            paymentConditions,
+            "paymentConditions must not be null"
         );
 
-        /*
-         * O snapshot só pode combinar informações do mesmo ASIN.
-         *
-         * Isso evita montar uma oferta usando o produto A e evidências
-         * de seller/delivery do produto B.
-         */
         validateSameAsin(
-                product,
-                parsedDeal,
-                enrichmentResult
+            product,
+            parsedDeal,
+            enrichmentResult
         );
 
         return new OfferSnapshot(
-                null,
+            null,
 
-                product,
+            product,
 
-                parsedDeal.collectedAt(),
+            parsedDeal.collectedAt(),
 
-                toMoney(
-                        parsedDeal.currentPrice()
-                ),
+            toMoney(
+                parsedDeal.currentPrice()
+            ),
 
-                toMoney(
-                        parsedDeal.basisPrice()
-                ),
+            toMoney(
+                parsedDeal.basisPrice()
+            ),
 
-                toMoney(
-                        parsedDeal.previousPrice()
-                ),
+            toMoney(
+                parsedDeal.previousPrice()
+            ),
 
-                toPercentage(
-                        parsedDeal.soldPercentage()
-                ),
+            toPercentage(
+                parsedDeal.soldPercentage()
+            ),
 
-                /*
-                 * D3:
-                 * rating e reviewCount agora atravessam explicitamente
-                 * ParsedDeal -> OfferSnapshot.
-                 */
-                parsedDeal.rating(),
-
-                parsedDeal.reviewCount(),
-
-                /*
-                 * O valor textual bruto continua preservado no snapshot
-                 * para compatibilidade e leitura humana.
-                 */
+            resolveRating(
+                parsedDeal,
                 enrichmentResult
-                        .sellerEvidence()
-                        .rawValue(),
+            ),
 
+            resolveReviewCount(
+                parsedDeal,
                 enrichmentResult
-                        .deliveryEvidence()
-                        .rawValue(),
+            ),
 
-                /*
-                 * A classificação normalizada é utilizada pelas regras
-                 * estruturais de elegibilidade.
-                 */
-                enrichmentResult
-                        .sellerEvidence()
-                        .sellerType(),
+            enrichmentResult
+                .sellerEvidence()
+                .rawValue(),
 
-                enrichmentResult
-                        .deliveryEvidence()
-                        .deliveryType(),
+            enrichmentResult
+                .deliveryEvidence()
+                .rawValue(),
 
-                parsedDeal.source(),
+            enrichmentResult
+                .sellerEvidence()
+                .sellerType(),
 
-                paymentConditions
+            enrichmentResult
+                .deliveryEvidence()
+                .deliveryType(),
+
+            parsedDeal.source(),
+
+            paymentConditions
         );
     }
 
-    private void validateSameAsin(
-            Product product,
-            ParsedDeal parsedDeal,
-            ProductEnrichmentResult enrichmentResult
+    /**
+     * /deals é a fonte primária. A página individual somente preenche
+     * ausência explícita.
+     */
+    private Double resolveRating(
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult
     ) {
+
+        if (parsedDeal.rating() != null) {
+            return parsedDeal.rating();
+        }
+
+        return enrichmentResult
+            .ratingEvidence()
+            .rating();
+    }
+
+    /**
+     * A precedência de reviewCount é independente da precedência de rating.
+     */
+    private Long resolveReviewCount(
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult
+    ) {
+
+        if (parsedDeal.reviewCount() != null) {
+            return parsedDeal.reviewCount();
+        }
+
+        return enrichmentResult
+            .reviewCountEvidence()
+            .reviewCount();
+    }
+
+    private void validateSameAsin(
+        Product product,
+        ParsedDeal parsedDeal,
+        ProductEnrichmentResult enrichmentResult
+    ) {
+
         String productAsin =
-                product.asin().value();
+            product.asin().value();
 
         if (!productAsin.equals(
-                parsedDeal.asin()
+            parsedDeal.asin()
         )) {
+
             throw new IllegalArgumentException(
-                    "Product ASIN and ParsedDeal ASIN must match"
+                "Product ASIN and ParsedDeal ASIN must match"
             );
         }
 
         if (!productAsin.equals(
-                enrichmentResult.asin()
+            enrichmentResult.asin()
         )) {
+
             throw new IllegalArgumentException(
-                    "Product ASIN and enrichment ASIN must match"
+                "Product ASIN and enrichment ASIN must match"
             );
         }
     }
@@ -187,14 +221,15 @@ public final class OfferSnapshotFactory {
      * <p>null continua null.</p>
      */
     private Money toMoney(
-            java.math.BigDecimal value
+        java.math.BigDecimal value
     ) {
+
         if (value == null) {
             return null;
         }
 
         return new Money(
-                value
+            value
         );
     }
 
@@ -204,14 +239,15 @@ public final class OfferSnapshotFactory {
      * <p>null continua null.</p>
      */
     private Percentage toPercentage(
-            java.math.BigDecimal value
+        java.math.BigDecimal value
     ) {
+
         if (value == null) {
             return null;
         }
 
         return new Percentage(
-                value
+            value
         );
     }
 }

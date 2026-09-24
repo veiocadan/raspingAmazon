@@ -11,16 +11,21 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Cliente de enriquecimento baseado na página individual do produto.
+ * Cliente de enrichment baseado na página individual do produto.
  *
  * <p>A responsabilidade deste adaptador é:</p>
  *
  * <ol>
  *     <li>solicitar o conteúdo da página a um provider;</li>
  *     <li>interpretar seller e delivery;</li>
+ *     <li>interpretar rating e reviewCount;</li>
  *     <li>interpretar condições comerciais;</li>
- *     <li>montar o contrato normalizado de enriquecimento.</li>
+ *     <li>montar o contrato normalizado de enrichment.</li>
  * </ol>
+ *
+ * <p>Todos os parsers recebem exatamente o mesmo HTML adquirido pelo
+ * ProductPageContentProvider. Não existe segunda chamada HTTP para
+ * rating/reviewCount.</p>
  *
  * <p>O mecanismo utilizado para adquirir o conteúdo da página fica
  * deliberadamente separado desta classe. Assim, HTTP bruto e DOM
@@ -39,79 +44,98 @@ public final class AmazonProductPageEnrichmentClient
     private final ProductPageContentProvider
         contentProvider;
 
-    private final AmazonProductPageParser parser;
+    private final AmazonProductPageParser
+        parser;
 
     private final AmazonPaymentConditionParser
         paymentConditionParser;
 
+    private final AmazonCustomerReviewParser
+        customerReviewParser;
+
     /**
      * Construtor padrão utilizado pela aplicação.
-     *
-     * <p>Enquanto não houver uma estratégia renderizada habilitada
-     * na composition, o comportamento padrão continua utilizando
-     * HTTP convencional.</p>
      */
     public AmazonProductPageEnrichmentClient() {
+
         this(
             new HttpProductPageContentProvider(),
             new AmazonProductPageParser(),
-            new AmazonPaymentConditionParser()
+            new AmazonPaymentConditionParser(),
+            new AmazonCustomerReviewParser()
         );
     }
 
     /**
      * Construtor de compatibilidade utilizado pela composition e
      * pelos testes existentes.
-     *
-     * <p>Preserva a API anterior enquanto delega a aquisição HTTP
-     * ao novo HttpProductPageContentProvider.</p>
      */
     public AmazonProductPageEnrichmentClient(
         HttpClient httpClient,
         AmazonProductPageParser parser
     ) {
+
         this(
             new HttpProductPageContentProvider(
                 httpClient
             ),
             parser,
-            new AmazonPaymentConditionParser()
+            new AmazonPaymentConditionParser(),
+            new AmazonCustomerReviewParser()
         );
     }
 
     /**
-     * Construtor completo de compatibilidade utilizado por testes
-     * que precisam injetar explicitamente ambos os parsers.
+     * Construtor de compatibilidade para consumidores que injetam
+     * explicitamente os parsers já existentes.
      */
     public AmazonProductPageEnrichmentClient(
         HttpClient httpClient,
         AmazonProductPageParser parser,
         AmazonPaymentConditionParser paymentConditionParser
     ) {
+
         this(
             new HttpProductPageContentProvider(
                 httpClient
             ),
             parser,
-            paymentConditionParser
+            paymentConditionParser,
+            new AmazonCustomerReviewParser()
         );
     }
 
     /**
-     * Novo construtor estrutural.
-     *
-     * <p>Permite substituir apenas o mecanismo de aquisição da página
-     * mantendo os mesmos parsers e o mesmo contrato de enrichment.</p>
-     *
-     * @param contentProvider provider responsável por adquirir o
-     *                        conteúdo observado
-     * @param parser parser de seller/delivery
-     * @param paymentConditionParser parser das condições comerciais
+     * Construtor estrutural de compatibilidade para providers
+     * alternativos já existentes.
      */
     public AmazonProductPageEnrichmentClient(
         ProductPageContentProvider contentProvider,
         AmazonProductPageParser parser,
         AmazonPaymentConditionParser paymentConditionParser
+    ) {
+
+        this(
+            contentProvider,
+            parser,
+            paymentConditionParser,
+            new AmazonCustomerReviewParser()
+        );
+    }
+
+    /**
+     * Construtor completo.
+     *
+     * @param contentProvider provider responsável por adquirir o conteúdo
+     * @param parser parser de seller/delivery
+     * @param paymentConditionParser parser das condições comerciais
+     * @param customerReviewParser parser estrutural de rating/reviewCount
+     */
+    public AmazonProductPageEnrichmentClient(
+        ProductPageContentProvider contentProvider,
+        AmazonProductPageParser parser,
+        AmazonPaymentConditionParser paymentConditionParser,
+        AmazonCustomerReviewParser customerReviewParser
     ) {
 
         this.contentProvider =
@@ -131,11 +155,16 @@ public final class AmazonProductPageEnrichmentClient
                 paymentConditionParser,
                 "paymentConditionParser must not be null"
             );
+
+        this.customerReviewParser =
+            Objects.requireNonNull(
+                customerReviewParser,
+                "customerReviewParser must not be null"
+            );
     }
 
     /**
-     * Enriquece uma oferta previamente interpretada pela etapa
-     * de Deals.
+     * Enriquece uma oferta previamente interpretada pela etapa de Deals.
      */
     @Override
     public ProductEnrichmentResult enrich(
@@ -200,6 +229,13 @@ public final class AmazonProductPageEnrichmentClient
                 html
             );
 
+        AmazonCustomerReviewParser.ParsedCustomerReviews
+            customerReviews =
+            customerReviewParser.parse(
+                html,
+                parsedDeal.asin()
+            );
+
         List<PaymentCondition> paymentConditions =
             paymentConditionParser.parse(
                 html
@@ -209,6 +245,8 @@ public final class AmazonProductPageEnrichmentClient
             parsedDeal.asin(),
             parsed.sellerEvidence(),
             parsed.deliveryEvidence(),
+            customerReviews.ratingEvidence(),
+            customerReviews.reviewCountEvidence(),
             paymentConditions,
             SOURCE,
             productUrl,
@@ -217,7 +255,7 @@ public final class AmazonProductPageEnrichmentClient
     }
 
     /**
-     * Erro específico da operação de enriquecimento.
+     * Erro específico da operação de enrichment.
      */
     public static final class ProductEnrichmentException
         extends RuntimeException {
@@ -225,6 +263,7 @@ public final class AmazonProductPageEnrichmentClient
         public ProductEnrichmentException(
             String message
         ) {
+
             super(
                 message
             );
@@ -234,6 +273,7 @@ public final class AmazonProductPageEnrichmentClient
             String message,
             Throwable cause
         ) {
+
             super(
                 message,
                 cause

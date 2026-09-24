@@ -9,20 +9,22 @@ import java.util.Objects;
 /**
  * Resultado normalizado do enriquecimento de uma oferta.
  *
- * Este contrato representa fatos observados durante o enriquecimento
- * da página individual do produto.
+ * <p>Este contrato representa fatos observados durante o enrichment
+ * da página individual do produto.</p>
  *
- * Ele deliberadamente não contém decisões de:
+ * <p>Ele deliberadamente não contém decisões de:</p>
  *
- * - elegibilidade;
- * - filtros;
- * - score;
- * - publicação.
+ * <ul>
+ *     <li>elegibilidade;</li>
+ *     <li>filtros;</li>
+ *     <li>score;</li>
+ *     <li>publicação.</li>
+ * </ul>
  *
- * Seller e delivery são representados por objetos tipados.
- *
- * As condições comerciais são transportadas como objetos de domínio
- * já normalizados, mas sem decisão sobre qual delas é melhor.
+ * <p>Seller, delivery, rating e reviewCount são transportados como
+ * evidências tipadas. As condições comerciais continuam sendo
+ * transportadas como objetos de domínio já normalizados, sem decisão
+ * sobre qual condição é melhor.</p>
  */
 public record ProductEnrichmentResult(
 
@@ -42,14 +44,19 @@ public record ProductEnrichmentResult(
     DeliveryEvidence deliveryEvidence,
 
     /**
+     * Evidência de rating observada na página individual.
+     */
+    RatingEvidence ratingEvidence,
+
+    /**
+     * Evidência de reviewCount observada na página individual.
+     */
+    ReviewCountEvidence reviewCountEvidence,
+
+    /**
      * Condições comerciais explicitamente observadas na página.
      *
-     * Pode conter, por exemplo:
-     *
-     * - pagamento à vista via Pix/NuPay;
-     * - parcelamento no cartão.
-     *
-     * Ausência é representada por lista vazia.
+     * <p>Ausência é representada por lista vazia.</p>
      */
     List<PaymentCondition> paymentConditions,
 
@@ -87,6 +94,16 @@ public record ProductEnrichmentResult(
         Objects.requireNonNull(
             deliveryEvidence,
             "Enrichment delivery evidence must not be null"
+        );
+
+        Objects.requireNonNull(
+            ratingEvidence,
+            "Enrichment rating evidence must not be null"
+        );
+
+        Objects.requireNonNull(
+            reviewCountEvidence,
+            "Enrichment review-count evidence must not be null"
         );
 
         Objects.requireNonNull(
@@ -134,19 +151,37 @@ public record ProductEnrichmentResult(
     }
 
     /**
+     * Construtor de compatibilidade para consumidores que já fornecem
+     * PaymentCondition, mas ainda não fornecem rating/reviewCount.
+     *
+     * <p>Nenhum valor é inventado. As duas novas evidências permanecem
+     * explicitamente indisponíveis.</p>
+     */
+    public ProductEnrichmentResult(
+        String asin,
+        SellerEvidence sellerEvidence,
+        DeliveryEvidence deliveryEvidence,
+        List<PaymentCondition> paymentConditions,
+        String source,
+        String productUrl,
+        OffsetDateTime enrichedAt
+    ) {
+        this(
+            asin,
+            sellerEvidence,
+            deliveryEvidence,
+            RatingEvidence.unavailable(),
+            ReviewCountEvidence.unavailable(),
+            paymentConditions,
+            source,
+            productUrl,
+            enrichedAt
+        );
+    }
+
+    /**
      * Construtor de compatibilidade para consumidores que ainda não
-     * fornecem condições comerciais.
-     *
-     * Ele preserva o contrato anterior utilizando lista vazia,
-     * sem inventar qualquer condição.
-     *
-     * Isso permite evoluir o pipeline incrementalmente:
-     *
-     * FASE 9-C1.5-A:
-     * enrichment passa a suportar PaymentCondition.
-     *
-     * FASE 9-C1.5-B:
-     * o fluxo vertical passa efetivamente a consumi-las.
+     * fornecem condições comerciais nem rating/reviewCount.
      */
     public ProductEnrichmentResult(
         String asin,
@@ -160,6 +195,8 @@ public record ProductEnrichmentResult(
             asin,
             sellerEvidence,
             deliveryEvidence,
+            RatingEvidence.unavailable(),
+            ReviewCountEvidence.unavailable(),
             List.of(),
             source,
             productUrl,
