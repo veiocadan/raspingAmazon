@@ -4,7 +4,11 @@ import com.raspingamazon.application.enrichment.contract.DeliveryEvidence;
 import com.raspingamazon.application.enrichment.contract.SellerEvidence;
 import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -18,8 +22,39 @@ import java.util.Objects;
  * <p>O parser não decide se a oferta é elegível. Ele somente extrai
  * evidências e as normaliza para tipos estáveis utilizados pelo restante
  * da aplicação.</p>
+ *
+ * <p>A extração é deliberadamente estrutural. Seller e delivery são
+ * procurados apenas dentro dos respectivos feature blocks da oferta
+ * principal. Isso evita que labels ou valores presentes em recomendações,
+ * ofertas secundárias ou outros blocos da página contaminem a evidência
+ * principal.</p>
  */
 public final class AmazonProductPageParser {
+
+    private static final String MERCHANT_FEATURE =
+        "merchantInfoFeature";
+
+    private static final String FULFILLER_FEATURE =
+        "fulfillerInfoFeature";
+
+    private static final String OFFER_DISPLAY_VALUE_CLASS =
+        "offer-display-feature-text-message";
+
+    private static final List<String> SELLER_LABELS =
+        List.of(
+            "Vendido por",
+            "Enviado / Vendido"
+        );
+
+    private static final List<String> DELIVERY_LABELS =
+        List.of(
+            "Enviado por"
+        );
+
+    private static final List<String> COMBINED_LABELS =
+        List.of(
+            "Enviado / Vendido"
+        );
 
     /**
      * Interpreta o HTML de uma página individual de produto.
@@ -27,439 +62,439 @@ public final class AmazonProductPageParser {
      * @param html conteúdo HTML da página da Amazon
      * @return evidências normalizadas da oferta principal
      */
-    public ParsedProductOffer parse(String html) {
+    public ParsedProductOffer parse(
+        String html
+    ) {
+
         Objects.requireNonNull(
-                html,
-                "HTML must not be null"
+            html,
+            "HTML must not be null"
         );
 
         if (html.isBlank()) {
+
             throw new IllegalArgumentException(
-                    "HTML must not be blank"
+                "HTML must not be blank"
             );
         }
 
+        Document document =
+            Jsoup.parse(
+                html
+            );
+
         /*
-         * Extraímos seller e delivery independentemente.
+         * Seller e delivery são extraídos de forma independente.
          *
-         * Isso é indispensável porque "Enviado pela Amazon"
-         * não significa necessariamente "Vendido pela Amazon".
+         * "Enviado pela Amazon" não implica "Vendido pela Amazon".
          */
         Evidence rawSellerEvidence =
-                extractSellerEvidence(html);
+            extractSellerEvidence(
+                document
+            );
 
         Evidence rawDeliveryEvidence =
-                extractDeliveryEvidence(html);
+            extractDeliveryEvidence(
+                document
+            );
 
         SellerEvidence sellerEvidence =
-                new SellerEvidence(
-                        rawSellerEvidence.value(),
-                        normalizeSellerType(
-                                rawSellerEvidence.value()
-                        ),
-                        rawSellerEvidence.source()
-                );
+            new SellerEvidence(
+                rawSellerEvidence.value(),
+                normalizeSellerType(
+                    rawSellerEvidence.value()
+                ),
+                rawSellerEvidence.source()
+            );
 
         DeliveryEvidence deliveryEvidence =
-                new DeliveryEvidence(
-                        rawDeliveryEvidence.value(),
-                        normalizeDeliveryType(
-                                rawDeliveryEvidence.value()
-                        ),
-                        rawDeliveryEvidence.source()
-                );
+            new DeliveryEvidence(
+                rawDeliveryEvidence.value(),
+                normalizeDeliveryType(
+                    rawDeliveryEvidence.value()
+                ),
+                rawDeliveryEvidence.source()
+            );
 
         return new ParsedProductOffer(
-                sellerEvidence,
-                deliveryEvidence
+            sellerEvidence,
+            deliveryEvidence
         );
     }
 
     /**
      * Extrai a evidência do vendedor da oferta principal.
+     *
+     * <p>Somente o bloco merchantInfoFeature selecionado como principal
+     * pode fornecer essa evidência.</p>
      */
-    private Evidence extractSellerEvidence(String html) {
-        int featureStart =
-                findFeatureStart(
-                        html,
-                        "merchantInfoFeature"
-                );
+    private Evidence extractSellerEvidence(
+        Document document
+    ) {
 
-        if (featureStart < 0) {
+        Element merchantFeature =
+            findPrimaryFeature(
+                document,
+                MERCHANT_FEATURE
+            );
+
+        if (merchantFeature == null) {
+
             return Evidence.empty();
         }
-
-        String featureHtml =
-                html.substring(featureStart);
-
-        int sellerLabelIndex =
-                featureHtml.indexOf(
-                        "Vendido por"
-                );
-
-        int combinedLabelIndex =
-                featureHtml.indexOf(
-                        "Enviado / Vendido"
-                );
-
-        int labelIndex;
-
-        if (sellerLabelIndex >= 0
-                && combinedLabelIndex >= 0) {
-
-            labelIndex =
-                    Math.min(
-                            sellerLabelIndex,
-                            combinedLabelIndex
-                    );
-
-        } else if (sellerLabelIndex >= 0) {
-
-            labelIndex = sellerLabelIndex;
-
-        } else {
-
-            labelIndex = combinedLabelIndex;
-        }
-
-        if (labelIndex < 0) {
-            return Evidence.empty();
-        }
-
-        String afterLabel =
-                featureHtml.substring(labelIndex);
 
         String value =
-                extractOfferDisplayFeatureText(
-                        afterLabel
-                );
+            extractLabeledValue(
+                merchantFeature,
+                SELLER_LABELS
+            );
 
-        if (value == null
-                || value.isBlank()) {
+        if (value == null) {
 
             return Evidence.empty();
         }
 
         return new Evidence(
-                value,
-                "merchantInfoFeature"
+            value,
+            MERCHANT_FEATURE
         );
     }
 
     /**
      * Extrai a evidência responsável pela entrega.
+     *
+     * <p>A fonte principal é fulfillerInfoFeature. Somente quando esse
+     * bloco não fornece evidência confiável é utilizado o fallback
+     * combinado de merchantInfoFeature.</p>
      */
     private Evidence extractDeliveryEvidence(
-            String html
+        Document document
     ) {
-        int featureStart =
-                findFeatureStart(
-                        html,
-                        "fulfillerInfoFeature"
+
+        Element fulfillerFeature =
+            findPrimaryFeature(
+                document,
+                FULFILLER_FEATURE
+            );
+
+        if (fulfillerFeature != null) {
+
+            String explicitDelivery =
+                extractLabeledValue(
+                    fulfillerFeature,
+                    DELIVERY_LABELS
                 );
 
-        if (featureStart >= 0) {
+            if (explicitDelivery != null) {
 
-            String featureHtml =
-                    html.substring(featureStart);
-
-            int deliveryLabelIndex =
-                    featureHtml.indexOf(
-                            "Enviado por"
-                    );
-
-            if (deliveryLabelIndex >= 0) {
-
-                String afterLabel =
-                        featureHtml.substring(
-                                deliveryLabelIndex
-                        );
-
-                String explicitDelivery =
-                        extractOfferDisplayFeatureText(
-                                afterLabel
-                        );
-
-                if (explicitDelivery != null
-                        && !explicitDelivery.isBlank()) {
-
-                    return new Evidence(
-                            explicitDelivery,
-                            "fulfillerInfoFeature"
-                    );
-                }
+                return new Evidence(
+                    explicitDelivery,
+                    FULFILLER_FEATURE
+                );
             }
         }
 
-        /*
-         * Fallback controlado para a estrutura combinada
-         * "Enviado / Vendido".
-         */
         return extractCombinedDeliveryEvidence(
-                html
+            document
         );
     }
 
     /**
-     * Extrai delivery da estrutura combinada.
+     * Extrai delivery da estrutura combinada "Enviado / Vendido".
      */
     private Evidence extractCombinedDeliveryEvidence(
-            String html
+        Document document
     ) {
-        int featureStart =
-                findFeatureStart(
-                        html,
-                        "merchantInfoFeature"
-                );
 
-        if (featureStart < 0) {
+        Element merchantFeature =
+            findPrimaryFeature(
+                document,
+                MERCHANT_FEATURE
+            );
+
+        if (merchantFeature == null) {
+
             return Evidence.empty();
         }
-
-        String featureHtml =
-                html.substring(featureStart);
-
-        int combinedLabelIndex =
-                featureHtml.indexOf(
-                        "Enviado / Vendido"
-                );
-
-        if (combinedLabelIndex < 0) {
-            return Evidence.empty();
-        }
-
-        String afterLabel =
-                featureHtml.substring(
-                        combinedLabelIndex
-                );
 
         String combinedValue =
-                extractOfferDisplayFeatureText(
-                        afterLabel
-                );
+            extractLabeledValue(
+                merchantFeature,
+                COMBINED_LABELS
+            );
 
-        if (combinedValue == null
-                || combinedValue.isBlank()) {
+        if (combinedValue == null) {
 
             return Evidence.empty();
         }
 
         /*
-         * A fonte pode utilizar diferentes representações textuais
-         * para a própria Amazon.
+         * A estrutura combinada pode representar a própria Amazon como:
          *
-         * Para delivery, normalizamos essas representações para
-         * "Amazon", preservando depois a classificação tipada.
+         * Amazon
+         * Amazon.com.br
+         * Amazon Global
+         *
+         * Para delivery, essas representações continuam sendo
+         * normalizadas para o valor textual estável "Amazon", como já
+         * ocorria no contrato anterior.
          */
         String normalized =
-                combinedValue
-                        .trim()
-                        .toLowerCase(Locale.ROOT);
+            combinedValue
+                .trim()
+                .toLowerCase(
+                    Locale.ROOT
+                );
 
         String normalizedValue =
-                switch (normalized) {
+            switch (normalized) {
 
-                    case "amazon",
-                         "amazon.com.br",
-                         "amazon global" ->
-                            "Amazon";
+                case "amazon",
+                     "amazon.com.br",
+                     "amazon global" ->
+                    "Amazon";
 
-                    default ->
-                            combinedValue;
-                };
+                default ->
+                    combinedValue;
+            };
 
         return new Evidence(
-                normalizedValue,
-                "merchantInfoFeature"
+            normalizedValue,
+            MERCHANT_FEATURE
         );
     }
 
     /**
-     * Localiza o início da feature procurada.
+     * Localiza o feature block da oferta principal.
      *
-     * <p>São suportadas a representação de view-source e a
-     * representação HTML direta encontradas durante a investigação.</p>
+     * <p>Quando existe o id canônico da Amazon, ele tem precedência.
+     * Isso é importante porque páginas reais podem conter estruturas
+     * repetidas para ofertas secundárias ou componentes auxiliares.</p>
+     *
+     * <p>Fixtures mínimas e algumas variações de HTML podem não trazer
+     * o id canônico. Nesse caso é utilizado o primeiro elemento cujo
+     * data-feature-name corresponde exatamente à feature procurada.</p>
      */
-    private int findFeatureStart(
-            String html,
-            String featureName
+    private Element findPrimaryFeature(
+        Document document,
+        String featureName
     ) {
-        String viewSourceMarker =
-                "data-feature-name</span>=\"<a class=\"attribute-value\">"
-                        + featureName;
 
-        int viewSourceIndex =
-                html.indexOf(
-                        viewSourceMarker
-                );
+        String canonicalId =
+            featureName
+                + "_feature_div";
 
-        if (viewSourceIndex >= 0) {
-            return viewSourceIndex;
+        Element canonicalFeature =
+            document.getElementById(
+                canonicalId
+            );
+
+        if (canonicalFeature != null) {
+
+            return canonicalFeature;
         }
 
-        String rawHtmlMarker =
-                "data-feature-name=\""
-                        + featureName
-                        + "\"";
-
-        return html.indexOf(
-                rawHtmlMarker
-        );
+        return document
+            .selectFirst(
+                "[data-feature-name=\""
+                    + featureName
+                    + "\"]"
+            );
     }
 
     /**
-     * Extrai o texto associado a seller/delivery.
+     * Extrai o valor associado a um dos labels esperados, sempre dentro
+     * do feature block recebido.
+     *
+     * <p>A busca percorre os elementos em ordem de documento. Primeiro
+     * localiza o label e, somente depois dele, aceita o primeiro elemento
+     * com a classe offer-display-feature-text-message.</p>
+     *
+     * <p>O uso de {@link Element#text()} remove markup interno de anchors,
+     * spans e outras estruturas de apresentação. Assim o rawValue
+     * auditável representa o texto visível observado, e não fragmentos
+     * de HTML.</p>
      */
-    private String extractOfferDisplayFeatureText(
-            String html
+    private String extractLabeledValue(
+        Element feature,
+        List<String> expectedLabels
     ) {
-        String viewSourceMarker =
-                "offer-display-feature-text-message</a>\"&gt;</span><span>";
 
-        int viewSourceMarkerIndex =
-                html.indexOf(
-                        viewSourceMarker
-                );
+        List<Element> elements =
+            feature.getAllElements();
 
-        if (viewSourceMarkerIndex >= 0) {
-
-            int valueStart =
-                    viewSourceMarkerIndex
-                            + viewSourceMarker.length();
-
-            return extractViewSourceValue(
-                    html,
-                    valueStart
+        int labelIndex =
+            findLabelIndex(
+                elements,
+                expectedLabels
             );
+
+        if (labelIndex < 0) {
+
+            return null;
         }
 
-        String rawHtmlMarker =
-                "offer-display-feature-text-message\">";
+        for (int index = labelIndex + 1;
+             index < elements.size();
+             index++) {
 
-        int rawHtmlMarkerIndex =
-                html.indexOf(
-                        rawHtmlMarker
+            Element element =
+                elements.get(
+                    index
                 );
 
-        if (rawHtmlMarkerIndex >= 0) {
+            if (!element.hasClass(
+                OFFER_DISPLAY_VALUE_CLASS
+            )) {
 
-            int valueStart =
-                    rawHtmlMarkerIndex
-                            + rawHtmlMarker.length();
-
-            int valueEnd =
-                    html.indexOf(
-                            "</span>",
-                            valueStart
-                    );
-
-            if (valueEnd < 0) {
-                return null;
+                continue;
             }
 
             String value =
-                    html.substring(
-                            valueStart,
-                            valueEnd
-                    ).trim();
+                normalizeVisibleText(
+                    element.text()
+                );
 
-            return value.isBlank()
-                    ? null
-                    : value;
+            if (value != null) {
+
+                return value;
+            }
         }
 
         return null;
     }
 
     /**
-     * Extrai o valor presente na representação view-source.
+     * Localiza o primeiro label esperado usando somente o texto próprio
+     * de cada elemento.
+     *
+     * <p>ownText evita que um container ancestral seja confundido com o
+     * label apenas porque contém, em seus descendentes, tanto o label
+     * quanto o valor.</p>
      */
-    private String extractViewSourceValue(
-            String html,
-            int valueStart
+    private int findLabelIndex(
+        List<Element> elements,
+        List<String> expectedLabels
     ) {
-        int valueEnd =
-                findViewSourceValueEnd(
-                        html,
-                        valueStart
+
+        for (int index = 0;
+             index < elements.size();
+             index++) {
+
+            String ownText =
+                normalizeVisibleText(
+                    elements.get(
+                        index
+                    ).ownText()
                 );
 
-        if (valueEnd < 0) {
-            return null;
-        }
+            if (ownText == null) {
 
-        String value =
-                html.substring(
-                        valueStart,
-                        valueEnd
-                ).trim();
+                continue;
+            }
 
-        return value.isBlank()
-                ? null
-                : value;
-    }
+            for (String expectedLabel :
+                expectedLabels) {
 
-    /**
-     * Localiza o marcador mais próximo que encerra o valor.
-     */
-    private int findViewSourceValueEnd(
-            String html,
-            int valueStart
-    ) {
-        String[] possibleEndMarkers = {
-                "</span><span>",
-                "&lt;/span&gt;&lt;span&gt;",
-                "&lt;/<span class=\"end-tag\">span</span>&gt;"
-        };
+                if (containsNormalizedLabel(
+                    ownText,
+                    expectedLabel
+                )) {
 
-        int nearestEnd = -1;
-
-        for (String endMarker :
-                possibleEndMarkers) {
-
-            int candidate =
-                    html.indexOf(
-                            endMarker,
-                            valueStart
-                    );
-
-            if (candidate >= 0
-                    && (nearestEnd < 0
-                    || candidate < nearestEnd)) {
-
-                nearestEnd = candidate;
+                    return index;
+                }
             }
         }
 
-        return nearestEnd;
+        return -1;
+    }
+
+    /**
+     * Mantém compatibilidade com labels que possam conter dois-pontos ou
+     * pequenas variações de espaços sem fazer busca global na página.
+     */
+    private boolean containsNormalizedLabel(
+        String observedText,
+        String expectedLabel
+    ) {
+
+        String normalizedObserved =
+            observedText.toLowerCase(
+                Locale.ROOT
+            );
+
+        String normalizedExpected =
+            expectedLabel.toLowerCase(
+                Locale.ROOT
+            );
+
+        return normalizedObserved.contains(
+            normalizedExpected
+        );
+    }
+
+    /**
+     * Normaliza somente apresentação textual.
+     *
+     * <p>Não altera o significado do vendedor ou entregador. A função
+     * remove non-breaking spaces, compacta sequências de whitespace e
+     * retorna null para ausência efetiva de texto.</p>
+     */
+    private String normalizeVisibleText(
+        String value
+    ) {
+
+        if (value == null) {
+
+            return null;
+        }
+
+        String normalized =
+            value
+                .replace(
+                    '\u00A0',
+                    ' '
+                )
+                .replaceAll(
+                    "\\s+",
+                    " "
+                )
+                .trim();
+
+        return normalized.isEmpty()
+            ? null
+            : normalized;
     }
 
     /**
      * Converte a evidência textual de seller para o tipo de domínio.
      */
     private SellerType normalizeSellerType(
-            String rawSellerValue
+        String rawSellerValue
     ) {
+
         if (rawSellerValue == null
-                || rawSellerValue.isBlank()) {
+            || rawSellerValue.isBlank()) {
 
             return SellerType.UNKNOWN;
         }
 
         String normalized =
-                rawSellerValue
-                        .trim()
-                        .toLowerCase(Locale.ROOT);
+            rawSellerValue
+                .trim()
+                .toLowerCase(
+                    Locale.ROOT
+                );
 
         return switch (normalized) {
 
             case "amazon",
                  "amazon.com.br",
                  "amazon global" ->
-                    SellerType.AMAZON;
+                SellerType.AMAZON;
 
             default ->
-                    SellerType.THIRD_PARTY;
+                SellerType.THIRD_PARTY;
         };
     }
 
@@ -467,26 +502,29 @@ public final class AmazonProductPageParser {
      * Converte a evidência textual de delivery para o tipo de domínio.
      */
     private DeliveryType normalizeDeliveryType(
-            String rawDeliveryValue
+        String rawDeliveryValue
     ) {
+
         if (rawDeliveryValue == null
-                || rawDeliveryValue.isBlank()) {
+            || rawDeliveryValue.isBlank()) {
 
             return DeliveryType.UNKNOWN;
         }
 
         String normalized =
-                rawDeliveryValue
-                        .trim()
-                        .toLowerCase(Locale.ROOT);
+            rawDeliveryValue
+                .trim()
+                .toLowerCase(
+                    Locale.ROOT
+                );
 
         return switch (normalized) {
 
             case "amazon" ->
-                    DeliveryType.AMAZON;
+                DeliveryType.AMAZON;
 
             default ->
-                    DeliveryType.THIRD_PARTY;
+                DeliveryType.THIRD_PARTY;
         };
     }
 
@@ -494,22 +532,23 @@ public final class AmazonProductPageParser {
      * Resultado interno do parser da página individual.
      *
      * <p>Seller e delivery são transportados como conceitos tipados,
-     * e não mais como uma sequência de Strings posicionais.</p>
+     * e não como uma sequência de Strings posicionais.</p>
      */
     public record ParsedProductOffer(
-            SellerEvidence sellerEvidence,
-            DeliveryEvidence deliveryEvidence
+        SellerEvidence sellerEvidence,
+        DeliveryEvidence deliveryEvidence
     ) {
 
         public ParsedProductOffer {
+
             Objects.requireNonNull(
-                    sellerEvidence,
-                    "Seller evidence must not be null"
+                sellerEvidence,
+                "Seller evidence must not be null"
             );
 
             Objects.requireNonNull(
-                    deliveryEvidence,
-                    "Delivery evidence must not be null"
+                deliveryEvidence,
+                "Delivery evidence must not be null"
             );
         }
     }
@@ -519,17 +558,18 @@ public final class AmazonProductPageParser {
      * a interpretação do HTML.
      */
     private record Evidence(
-            String value,
-            String source
+        String value,
+        String source
     ) {
 
         /**
          * Representa ausência de evidência.
          */
         private static Evidence empty() {
+
             return new Evidence(
-                    null,
-                    null
+                null,
+                null
             );
         }
     }
