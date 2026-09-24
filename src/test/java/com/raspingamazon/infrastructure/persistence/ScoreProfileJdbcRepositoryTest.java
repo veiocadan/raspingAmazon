@@ -10,8 +10,17 @@ import java.math.BigDecimal;
 import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Integração entre Flyway, PostgreSQL e o provider do ScoreProfile
+ * ativo.
+ *
+ * <p>A partir da V16 o perfil operacional esperado é SCORE_V2.</p>
+ */
 class ScoreProfileJdbcRepositoryTest {
 
     @Test
@@ -22,7 +31,8 @@ class ScoreProfileJdbcRepositoryTest {
             EnvironmentConfigProvider.load();
 
         /*
-         * Garante que a V8 tenha sido aplicada antes da leitura.
+         * Garante que todas as migrations, inclusive V16,
+         * tenham sido aplicadas.
          */
         DatabaseMigration.migrate(
             config
@@ -46,7 +56,7 @@ class ScoreProfileJdbcRepositoryTest {
             );
 
             assertEquals(
-                "SCORE_V1",
+                "SCORE_V2",
                 profile.version()
             );
 
@@ -55,9 +65,24 @@ class ScoreProfileJdbcRepositoryTest {
                 profile.soldPercentageWeight()
             );
 
+            /*
+             * CASH_DISCOUNT permanece histórico no SCORE_V1.
+             */
+            assertNull(
+                profile.cashDiscountWeight()
+            );
+
             assertBigDecimalEquals(
                 "25.0000",
-                profile.cashDiscountWeight()
+                profile.basisDiscountWeight()
+            );
+
+            assertFalse(
+                profile.usesCashDiscountFactor()
+            );
+
+            assertTrue(
+                profile.usesBasisDiscountFactor()
             );
 
             assertBigDecimalEquals(
@@ -86,9 +111,18 @@ class ScoreProfileJdbcRepositoryTest {
         String expected,
         BigDecimal actual
     ) {
+
+        assertNotNull(
+            actual
+        );
+
         assertEquals(
             0,
-            new BigDecimal(expected).compareTo(actual)
+            new BigDecimal(
+                expected
+            ).compareTo(
+                actual
+            )
         );
     }
 }
