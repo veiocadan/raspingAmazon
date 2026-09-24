@@ -37,7 +37,9 @@ class AmazonPaymentConditionParserTest {
         );
 
         PaymentCondition cash =
-            conditions.get(0);
+            conditions.get(
+                0
+            );
 
         assertEquals(
             PaymentConditionType.CASH,
@@ -45,12 +47,16 @@ class AmazonPaymentConditionParserTest {
         );
 
         assertEquals(
-            Money.of("79.90"),
+            Money.of(
+                "79.90"
+            ),
             cash.price()
         );
 
         assertEquals(
-            Percentage.of("25"),
+            Percentage.of(
+                "25"
+            ),
             cash.discountPercentage()
         );
 
@@ -67,7 +73,9 @@ class AmazonPaymentConditionParserTest {
         );
 
         PaymentCondition credit =
-            conditions.get(1);
+            conditions.get(
+                1
+            );
 
         assertEquals(
             PaymentConditionType.CREDIT_INSTALLMENT,
@@ -80,17 +88,23 @@ class AmazonPaymentConditionParserTest {
         );
 
         assertEquals(
-            Money.of("9.99"),
+            Money.of(
+                "9.99"
+            ),
             credit.installmentAmount()
         );
 
         assertEquals(
-            Money.of("99.90"),
+            Money.of(
+                "99.90"
+            ),
             credit.installmentTotal()
         );
 
         assertEquals(
-            Percentage.of("0"),
+            Percentage.of(
+                "0"
+            ),
             credit.interest()
         );
 
@@ -103,17 +117,163 @@ class AmazonPaymentConditionParserTest {
     }
 
     @Test
+    void shouldParseCurrentRenderedCommercialStructure()
+        throws Exception {
+
+        List<PaymentCondition> conditions =
+            parser.parse(
+                loadFixture(
+                    "amazon-rendered-commercial-current.html"
+                )
+            );
+
+        /*
+         * 1 condição CASH
+         * +
+         * 11 condições de cartão, de 2x até 12x.
+         */
+        assertEquals(
+            12,
+            conditions.size()
+        );
+
+        PaymentCondition cash =
+            conditions.getFirst();
+
+        assertEquals(
+            PaymentConditionType.CASH,
+            cash.type()
+        );
+
+        assertEquals(
+            Money.of(
+                "1708.20"
+            ),
+            cash.price()
+        );
+
+        assertEquals(
+            Percentage.of(
+                "10"
+            ),
+            cash.discountPercentage()
+        );
+
+        assertEquals(
+            List.of(
+                PaymentMethod.PIX,
+                PaymentMethod.NUPAY
+            ),
+            cash.paymentMethods()
+        );
+
+        /*
+         * O texto "Limite Adicional" existe mais tarde dentro do
+         * widget, mas não pertence ao segmento da promoção à vista.
+         */
+        assertTrue(
+            !cash.paymentMethods()
+                .contains(
+                    PaymentMethod.NUPAY_ADDITIONAL_LIMIT
+                )
+        );
+
+        PaymentCondition firstInstallment =
+            conditions.get(
+                1
+            );
+
+        assertEquals(
+            2,
+            firstInstallment.installmentCount()
+        );
+
+        assertEquals(
+            Money.of(
+                "949.00"
+            ),
+            firstInstallment.installmentAmount()
+        );
+
+        assertEquals(
+            Money.of(
+                "1898.00"
+            ),
+            firstInstallment.installmentTotal()
+        );
+
+        assertEquals(
+            Percentage.of(
+                "0"
+            ),
+            firstInstallment.interest()
+        );
+
+        PaymentCondition lastInstallment =
+            conditions.getLast();
+
+        assertEquals(
+            12,
+            lastInstallment.installmentCount()
+        );
+
+        assertEquals(
+            Money.of(
+                "158.24"
+            ),
+            lastInstallment.installmentAmount()
+        );
+
+        assertEquals(
+            Money.of(
+                "1898.00"
+            ),
+            lastInstallment.installmentTotal()
+        );
+
+        assertEquals(
+            Percentage.of(
+                "0"
+            ),
+            lastInstallment.interest()
+        );
+
+        for (int index = 1;
+             index < conditions.size();
+             index++) {
+
+            PaymentCondition installment =
+                conditions.get(
+                    index
+                );
+
+            assertEquals(
+                PaymentConditionType.CREDIT_INSTALLMENT,
+                installment.type()
+            );
+
+            assertEquals(
+                List.of(
+                    PaymentMethod.CREDIT_CARD
+                ),
+                installment.paymentMethods()
+            );
+        }
+    }
+
+    @Test
     void shouldPreserveCashConditionWhenDiscountIsMissing() {
 
-        String html = """
-                <html>
-                <body>
-                    <div id="promotionMessageInsideBuyBox_feature_div">
-                        Pagamento à vista no Pix
-                    </div>
-                </body>
-                </html>
-                """;
+        String html =
+            """
+            <html>
+            <body>
+                <div id="promotionMessageInsideBuyBox_feature_div">
+                    Pagamento à vista no Pix
+                </div>
+            </body>
+            </html>
+            """;
 
         List<PaymentCondition> conditions =
             parser.parse(
@@ -152,15 +312,16 @@ class AmazonPaymentConditionParserTest {
     @Test
     void shouldIgnoreUnrelatedPromotionWithoutRecognizedCashMethod() {
 
-        String html = """
-                <html>
-                <body>
-                    <div id="promotionMessageInsideBuyBox_feature_div">
-                        30% off para membros Prime
-                    </div>
-                </body>
-                </html>
-                """;
+        String html =
+            """
+            <html>
+            <body>
+                <div id="promotionMessageInsideBuyBox_feature_div">
+                    30% off para membros Prime
+                </div>
+            </body>
+            </html>
+            """;
 
         List<PaymentCondition> conditions =
             parser.parse(
@@ -175,19 +336,22 @@ class AmazonPaymentConditionParserTest {
     @Test
     void shouldNotInferDiscountFromCustomerVisiblePrice() {
 
-        String html = """
-                <html>
-                <body>
-                    <input
-                        name="items[0].base][customerVisiblePrice][amount]"
-                        value="80.00">
+        String html =
+            """
+            <html>
+            <body>
 
-                    <div id="promotionMessageInsideBuyBox_feature_div">
-                        à vista no Pix
-                    </div>
-                </body>
-                </html>
-                """;
+                <input
+                    name="items[0].base][customerVisiblePrice][amount]"
+                    value="80.00">
+
+                <div id="promotionMessageInsideBuyBox_feature_div">
+                    à vista no Pix
+                </div>
+
+            </body>
+            </html>
+            """;
 
         List<PaymentCondition> conditions =
             parser.parse(
@@ -203,7 +367,9 @@ class AmazonPaymentConditionParserTest {
             conditions.getFirst();
 
         assertEquals(
-            Money.of("80.00"),
+            Money.of(
+                "80.00"
+            ),
             cash.price()
         );
 
@@ -220,7 +386,9 @@ class AmazonPaymentConditionParserTest {
                 """
                 <html>
                 <body>
-                    <p>Produto sem condição comercial observável.</p>
+                    <p>
+                        Produto sem condição comercial observável.
+                    </p>
                 </body>
                 </html>
                 """
@@ -268,6 +436,7 @@ class AmazonPaymentConditionParserTest {
                      )) {
 
             if (inputStream == null) {
+
                 throw new IllegalStateException(
                     "Fixture not found: "
                         + resourcePath

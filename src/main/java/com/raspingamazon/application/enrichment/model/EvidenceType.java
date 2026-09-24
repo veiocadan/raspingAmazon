@@ -1,11 +1,11 @@
 package com.raspingamazon.application.enrichment.model;
 
 /**
- * Tipos de evidência atualmente produzidos durante o enriquecimento.
+ * Tipos semânticos de evidência produzidos durante o enrichment.
  *
- * <p>Este enum evita espalhar Strings como "SELLER" e "DELIVERY"
- * pelo código. Dessa forma, erros de digitação passam a ser detectados
- * pelo compilador.</p>
+ * <p>O enum evita Strings livres na aplicação. A tabela
+ * offer_evidence utiliza TEXT deliberadamente para permitir evolução
+ * incremental dos tipos sem reescrever migrations históricas.</p>
  */
 public enum EvidenceType {
 
@@ -17,5 +17,15 @@ public enum EvidenceType {
     /**
      * Evidência referente ao responsável pela entrega.
      */
-    DELIVERY
+    DELIVERY,
+
+    /**
+     * Evidência de rating observada na página individual.
+     */
+    RATING,
+
+    /**
+     * Evidência da quantidade de avaliações observada na página individual.
+     */
+    REVIEW_COUNT
 }

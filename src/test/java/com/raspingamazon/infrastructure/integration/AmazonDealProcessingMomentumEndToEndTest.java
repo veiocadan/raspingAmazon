@@ -39,44 +39,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Teste vertical específico da FASE 11.
+ * Teste vertical do histórico e momentum.
  *
- * <p>Exercita duas observações temporais do mesmo ASIN pelo fluxo
- * completo de produção:</p>
+ * <p>O momentum permanece MOMENTUM_V1 e continua auditando a evolução
+ * do desconto CASH explícito. A ativação do SCORE_V2 não altera essa
+ * semântica histórica.</p>
  *
- * <pre>
- * primeira coleta
- *     ↓
- * OfferSnapshot 62%
- *     ↓
- * DealEvaluation
- *     ↓
- * momentum indisponível
- *     ↓
- * audit = NO_PREVIOUS_SNAPSHOT
- *
- * segunda coleta, três horas depois
- *     ↓
- * OfferSnapshot 68%
- *     ↓
- * histórico anterior
- *     ↓
- * SnapshotEvolution
- *     ↓
- * delta vendido = +6 p.p.
- *     ↓
- * MOMENTUM_V1 = 2.0000 p.p./h
- *     ↓
- * DealEvaluation
- *     ↓
- * MomentumAudit
- *     ↓
- * PostgreSQL
- * </pre>
- *
- * <p>O teste também reprocessa a segunda observação para garantir
- * que a integração de momentum preserva a identidade idempotente
- * do snapshot e não duplica avaliações ou auditorias.</p>
+ * <p>O score, porém, passa a utilizar BASIS_DISCOUNT.</p>
  */
 class AmazonDealProcessingMomentumEndToEndTest {
 
@@ -89,17 +58,11 @@ class AmazonDealProcessingMomentumEndToEndTest {
     private static final String PRODUCT_FIXTURE =
         "amazon/fixtures/product/amazon-commercial.html";
 
-    /*
-     * 13:00 UTC = 10:00 no horário -03:00.
-     */
     private static final Instant FIRST_COLLECTION_INSTANT =
         Instant.parse(
             "2026-09-20T13:00:00Z"
         );
 
-    /*
-     * Três horas depois.
-     */
     private static final Instant SECOND_COLLECTION_INSTANT =
         Instant.parse(
             "2026-09-20T16:00:00Z"
@@ -171,15 +134,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                     )
                 );
 
-            /*
-             * =====================================================
-             * PRIMEIRA COLETA
-             * =====================================================
-             *
-             * soldPercentage = 62
-             *
-             * Não existe histórico anterior.
-             */
             AmazonDealProcessingService firstService =
                 AmazonDealProcessingComposition.create(
                     connection,
@@ -200,16 +154,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 firstResult.size()
             );
 
-            /*
-             * =====================================================
-             * SEGUNDA COLETA
-             * =====================================================
-             *
-             * soldPercentage = 68
-             *
-             * O servidor passa a devolver a segunda versão do
-             * mesmo negócio.
-             */
             server.setDealsHtml(
                 secondDealsHtml
             );
@@ -234,17 +178,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 secondResult.size()
             );
 
-            /*
-             * =====================================================
-             * REPROCESSAMENTO DA SEGUNDA OBSERVAÇÃO
-             * =====================================================
-             *
-             * Mesmo ASIN
-             * mesmo collectedAt
-             * mesma source
-             *
-             * Portanto deve reutilizar o OfferSnapshot existente.
-             */
             var repeatedSecondResult =
                 secondService.process(
                     request
@@ -267,9 +200,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                     productId
                 );
 
-            /*
-             * O reprocessamento não cria terceiro snapshot.
-             */
             assertEquals(
                 2,
                 evaluations.size()
@@ -310,37 +240,34 @@ class AmazonDealProcessingMomentumEndToEndTest {
             );
 
             assertEquals(
-                "SCORE_V1",
+                "SCORE_V2",
                 first.scoreVersion()
             );
 
             /*
-             * SCORE_V1:
+             * SCORE_V2:
              *
              * sold:
              * 62 / 100 * 30 = 18.6000
              *
-             * cash:
-             * 25 / 100 * 25 = 6.2500
+             * basisDiscount:
+             * ((99.90 - 79.90) / 99.90) * 100 = 20.0200
+             * 20.0200 / 100 * 25 = 5.0050
              *
              * rating:
-             * 4.6 / 5 * 100 = 92
-             * 92 / 100 * 20 = 18.4000
+             * 18.4000
              *
              * reviews:
              * 15.0000
              *
              * total:
-             * 58.2500
+             * 57.0050
              */
             assertBigDecimalEquals(
-                "58.2500",
+                "57.0050",
                 first.score()
             );
 
-            /*
-             * Primeira observação não possui momentum agregado.
-             */
             assertNull(
                 first.momentum()
             );
@@ -349,9 +276,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 first.momentumVersion()
             );
 
-            /*
-             * Porém existe auditoria da tentativa.
-             */
             assertEquals(
                 "MOMENTUM_V1",
                 first.auditCalculationVersion()
@@ -411,9 +335,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 second.soldPercentage()
             );
 
-            /*
-             * Momentum não altera a elegibilidade.
-             */
             assertTrue(
                 second.eligible()
             );
@@ -422,22 +343,19 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 second.rejectionReason()
             );
 
-            /*
-             * Momentum também não altera a versão do score.
-             */
             assertEquals(
-                "SCORE_V1",
+                "SCORE_V2",
                 second.scoreVersion()
             );
 
             /*
-             * SCORE_V1 da segunda observação:
+             * SCORE_V2:
              *
              * sold:
              * 68 / 100 * 30 = 20.4000
              *
-             * cash:
-             * 6.2500
+             * basisDiscount:
+             * 5.0050
              *
              * rating:
              * 18.4000
@@ -446,26 +364,16 @@ class AmazonDealProcessingMomentumEndToEndTest {
              * 15.0000
              *
              * total:
-             * 60.0500
+             * 58.8050
              *
-             * A diferença para o primeiro score ocorre apenas porque
-             * o fato atual soldPercentage mudou de 62 para 68.
-             * Momentum não participa do SCORE_V1.
+             * A diferença entre os dois scores continua vindo somente
+             * de soldPercentage.
              */
             assertBigDecimalEquals(
-                "60.0500",
+                "58.8050",
                 second.score()
             );
 
-            /*
-             * 62 -> 68
-             *
-             * +6 p.p.
-             *
-             * 3 horas
-             *
-             * 6 / 3 = 2 p.p./h
-             */
             assertBigDecimalEquals(
                 "2.0000",
                 second.momentum()
@@ -476,9 +384,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 second.momentumVersion()
             );
 
-            /*
-             * Auditoria completa do cálculo.
-             */
             assertEquals(
                 "MOMENTUM_V1",
                 second.auditCalculationVersion()
@@ -508,9 +413,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 second.soldPercentageDelta()
             );
 
-            /*
-             * O preço permaneceu 79.90 nas duas observações.
-             */
             assertBigDecimalEquals(
                 "0",
                 second.currentPriceDelta()
@@ -522,7 +424,9 @@ class AmazonDealProcessingMomentumEndToEndTest {
             );
 
             /*
-             * O desconto comercial explícito permaneceu 25%.
+             * SnapshotEvolutionCalculator continua medindo a evolução
+             * do desconto CASH explícito. A fixture mantém 25% nas
+             * duas observações, portanto o delta continua zero.
              */
             assertBigDecimalEquals(
                 "0",
@@ -534,14 +438,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 second.auditMomentum()
             );
 
-            /*
-             * =====================================================
-             * SCORE CONTINUA AUDITÁVEL
-             * =====================================================
-             *
-             * Cada avaliação continua possuindo os quatro fatores
-             * da FASE 10.
-             */
             assertEquals(
                 4L,
                 countScoreFactors(
@@ -558,11 +454,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
                 )
             );
 
-            /*
-             * =====================================================
-             * IDEMPOTÊNCIA
-             * =====================================================
-             */
             assertEquals(
                 2L,
                 countSnapshots(
@@ -602,17 +493,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
         }
     }
 
-    /**
-     * Produz uma versão controlada do fixture de Deals.
-     *
-     * <p>Reutilizamos a estrutura validada pela FASE 10 e alteramos
-     * apenas:</p>
-     *
-     * <ul>
-     *     <li>ASIN;</li>
-     *     <li>percentClaimed.</li>
-     * </ul>
-     */
     private String dealsHtml(
         String baseHtml,
         int soldPercentage
@@ -677,10 +557,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
         }
     }
 
-    /**
-     * Carrega snapshot, avaliação e auditoria de momentum em ordem
-     * cronológica.
-     */
     private List<PersistedHistoricalEvaluation>
     loadHistoricalEvaluations(
         Connection connection,
@@ -936,12 +812,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
         }
     }
 
-    /**
-     * Limpa todos os dados produzidos pelo ASIN de teste.
-     *
-     * <p>deal_evaluation_momentum_audit é removida pelo
-     * ON DELETE CASCADE existente em sua FK para deal_evaluation.</p>
-     */
     private void cleanupByAsin(
         Connection connection,
         String asin
@@ -983,13 +853,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
             asin
         );
 
-        /*
-         * deal_evaluation_rule_result,
-         * deal_evaluation_score_factor e
-         * deal_evaluation_momentum_audit
-         *
-         * são removidos por ON DELETE CASCADE.
-         */
         executeDelete(
             connection,
             """
@@ -1171,12 +1034,6 @@ class AmazonDealProcessingMomentumEndToEndTest {
     ) {
     }
 
-    /**
-     * Servidor Amazon local controlado pelo teste.
-     *
-     * <p>O HTML da página Deals pode mudar durante a execução.
-     * A página individual do produto permanece estável.</p>
-     */
     private static final class LocalAmazonServer
         implements AutoCloseable {
 

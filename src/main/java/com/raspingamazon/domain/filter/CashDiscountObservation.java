@@ -11,34 +11,24 @@ import java.util.stream.Collectors;
  * Representa a melhor observação de desconto à vista encontrada
  * nas condições comerciais de uma oferta.
  *
- * A observação preserva:
+ * <p>A observação preserva:</p>
  *
- * - o percentual de desconto;
- * - todos os meios de pagamento reconhecidos que atingem esse
- *   mesmo melhor percentual.
+ * <ul>
+ *     <li>o percentual de desconto;</li>
+ *     <li>todos os meios de pagamento reconhecidos que atingem esse
+ *         mesmo melhor percentual.</li>
+ * </ul>
  *
- * Exemplo:
+ * <p>São reconhecidos como meios à vista:</p>
  *
- * Pix   = 10%
- * NuPay = 15%
+ * <ul>
+ *     <li>Pix;</li>
+ *     <li>NuPay;</li>
+ *     <li>NuPay Limite Adicional.</li>
+ * </ul>
  *
- * Resultado:
- *
- * discountPercentage = 15%
- * paymentMethods      = [NUPAY_ADDITIONAL_LIMIT]
- *
- * Outro exemplo:
- *
- * Pix   = 15%
- * NuPay = 15%
- *
- * Resultado:
- *
- * discountPercentage = 15%
- * paymentMethods      = [PIX, NUPAY_ADDITIONAL_LIMIT]
- *
- * Esta classe não decide o que será publicado. Ela representa
- * somente o fato comercial observado.
+ * <p>Esta classe não decide o que será publicado. Ela representa
+ * somente o fato comercial observado.</p>
  */
 public record CashDiscountObservation(
     Percentage discountPercentage,
@@ -63,14 +53,16 @@ public record CashDiscountObservation(
             );
         }
 
-        paymentMethods = List.copyOf(
-            paymentMethods
-        );
+        paymentMethods =
+            List.copyOf(
+                paymentMethods
+            );
 
         for (PaymentMethod paymentMethod : paymentMethods) {
 
-            if (paymentMethod != PaymentMethod.PIX
-                && paymentMethod != PaymentMethod.NUPAY_ADDITIONAL_LIMIT) {
+            if (!isRecognizedCashMethod(
+                paymentMethod
+            )) {
 
                 throw new IllegalArgumentException(
                     "Cash discount observation supports only recognized cash payment methods"
@@ -82,13 +74,14 @@ public record CashDiscountObservation(
     /**
      * Produz uma representação textual estável para auditoria.
      *
-     * Exemplos:
+     * <p>Exemplos:</p>
      *
+     * <pre>
      * 15|PIX
-     *
+     * 15|NUPAY
      * 15|NUPAY_ADDITIONAL_LIMIT
-     *
-     * 15|PIX,NUPAY_ADDITIONAL_LIMIT
+     * 15|PIX,NUPAY
+     * </pre>
      */
     public String auditValue() {
 
@@ -101,11 +94,29 @@ public record CashDiscountObservation(
         String methods =
             paymentMethods
                 .stream()
-                .map(Enum::name)
+                .map(
+                    Enum::name
+                )
                 .collect(
-                    Collectors.joining(",")
+                    Collectors.joining(
+                        ","
+                    )
                 );
 
-        return discount + "|" + methods;
+        return discount
+            + "|"
+            + methods;
+    }
+
+    private static boolean isRecognizedCashMethod(
+        PaymentMethod paymentMethod
+    ) {
+
+        return paymentMethod
+            == PaymentMethod.PIX
+            || paymentMethod
+            == PaymentMethod.NUPAY
+            || paymentMethod
+            == PaymentMethod.NUPAY_ADDITIONAL_LIMIT;
     }
 }

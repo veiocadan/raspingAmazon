@@ -7,27 +7,10 @@ import java.util.Objects;
 /**
  * Motor determinístico responsável pelo cálculo do score.
  *
- * <p>O ScoreEngine combina:</p>
- *
- * <ul>
- *     <li>fatos observados em ScoreInput;</li>
- *     <li>pesos e parâmetros versionados em ScoreProfile;</li>
- *     <li>normalizações matemáticas de ScoreNormalizer;</li>
- * </ul>
- *
- * <p>O resultado contém tanto a pontuação agregada quanto todos
- * os fatores necessários para explicar e reproduzir o cálculo.</p>
- *
- * <p>Esta classe não conhece persistência, SQL, elegibilidade,
- * filtros comerciais ou ranking. O motor pressupõe que a camada
- * de aplicação somente o invoque para ofertas que já tenham
- * passado pelas etapas anteriores.</p>
+ * <p>O fator de desconto é escolhido pelo ScoreProfile.</p>
  */
 public final class ScoreEngine {
 
-    /**
-     * Calcula o score de forma completamente determinística.
-     */
     public ScoreResult calculate(
         ScoreProfile profile,
         ScoreInput input
@@ -42,14 +25,19 @@ public final class ScoreEngine {
             "ScoreInput must not be null"
         );
 
+        validateDiscountCompatibility(
+            profile,
+            input
+        );
+
         ScoreFactorResult soldPercentageFactor =
             calculateSoldPercentageFactor(
                 profile,
                 input
             );
 
-        ScoreFactorResult cashDiscountFactor =
-            calculateCashDiscountFactor(
+        ScoreFactorResult discountFactor =
+            calculateDiscountFactor(
                 profile,
                 input
             );
@@ -70,20 +58,40 @@ public final class ScoreEngine {
             profile.version(),
             List.of(
                 soldPercentageFactor,
-                cashDiscountFactor,
+                discountFactor,
                 ratingFactor,
                 reviewCountFactor
             )
         );
     }
 
+    private void validateDiscountCompatibility(
+        ScoreProfile profile,
+        ScoreInput input
+    ) {
+        if (profile.usesCashDiscountFactor()
+            && !input.usesCashDiscount()) {
+            throw new IllegalArgumentException(
+                "Cash-discount ScoreProfile requires cash-discount ScoreInput"
+            );
+        }
+
+        if (profile.usesBasisDiscountFactor()
+            && !input.usesBasisDiscount()) {
+            throw new IllegalArgumentException(
+                "Basis-discount ScoreProfile requires basis-discount ScoreInput"
+            );
+        }
+    }
+
     private ScoreFactorResult calculateSoldPercentageFactor(
         ScoreProfile profile,
         ScoreInput input
     ) {
-        BigDecimal weight = profile.weightFor(
-            ScoreFactorCode.SOLD_PERCENTAGE
-        );
+        BigDecimal weight =
+            profile.weightFor(
+                ScoreFactorCode.SOLD_PERCENTAGE
+            );
 
         if (!input.hasSoldPercentage()) {
             return ScoreFactorResult.unavailable(
@@ -109,22 +117,42 @@ public final class ScoreEngine {
         );
     }
 
-    private ScoreFactorResult calculateCashDiscountFactor(
+    private ScoreFactorResult calculateDiscountFactor(
         ScoreProfile profile,
         ScoreInput input
     ) {
-        BigDecimal weight = profile.weightFor(
-            ScoreFactorCode.CASH_DISCOUNT
-        );
+        if (profile.usesBasisDiscountFactor()) {
+            return calculateAvailablePercentageFactor(
+                ScoreFactorCode.BASIS_DISCOUNT,
+                input.basisDiscountPercentage(),
+                profile.weightFor(
+                    ScoreFactorCode.BASIS_DISCOUNT
+                )
+            );
+        }
 
+        return calculateAvailablePercentageFactor(
+            ScoreFactorCode.CASH_DISCOUNT,
+            input.cashDiscountPercentage(),
+            profile.weightFor(
+                ScoreFactorCode.CASH_DISCOUNT
+            )
+        );
+    }
+
+    private ScoreFactorResult calculateAvailablePercentageFactor(
+        ScoreFactorCode factorCode,
+        BigDecimal rawValue,
+        BigDecimal weight
+    ) {
         BigDecimal normalized =
             ScoreNormalizer.normalizePercentage(
-                input.cashDiscountPercentage()
+                rawValue
             );
 
         return ScoreFactorResult.available(
-            ScoreFactorCode.CASH_DISCOUNT,
-            input.cashDiscountPercentage(),
+            factorCode,
+            rawValue,
             normalized,
             weight,
             ScoreNormalizer.calculateContribution(
@@ -138,9 +166,10 @@ public final class ScoreEngine {
         ScoreProfile profile,
         ScoreInput input
     ) {
-        BigDecimal weight = profile.weightFor(
-            ScoreFactorCode.RATING
-        );
+        BigDecimal weight =
+            profile.weightFor(
+                ScoreFactorCode.RATING
+            );
 
         BigDecimal normalized =
             ScoreNormalizer.normalizeRating(
@@ -163,9 +192,10 @@ public final class ScoreEngine {
         ScoreProfile profile,
         ScoreInput input
     ) {
-        BigDecimal weight = profile.weightFor(
-            ScoreFactorCode.REVIEW_COUNT
-        );
+        BigDecimal weight =
+            profile.weightFor(
+                ScoreFactorCode.REVIEW_COUNT
+            );
 
         BigDecimal normalized =
             ScoreNormalizer.normalizeReviewCount(
@@ -175,7 +205,9 @@ public final class ScoreEngine {
 
         return ScoreFactorResult.available(
             ScoreFactorCode.REVIEW_COUNT,
-            BigDecimal.valueOf(input.reviewCount()),
+            BigDecimal.valueOf(
+                input.reviewCount()
+            ),
             normalized,
             weight,
             ScoreNormalizer.calculateContribution(

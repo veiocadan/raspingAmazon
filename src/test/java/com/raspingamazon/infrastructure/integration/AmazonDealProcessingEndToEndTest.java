@@ -25,12 +25,16 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -57,7 +61,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *     ↓
  * elegibilidade estrutural
  *     ↓
- * filtros comerciais
+ * COMMERCIAL_FILTER_V2
+ *     ↓
+ * SCORE_V2
  *     ↓
  * DealEvaluation
  *     ↓
@@ -65,11 +71,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </pre>
  *
  * <p>A fixture individual utilizada por este teste contém seller e
- * delivery Amazon, mas deliberadamente não contém condição comercial
- * Pix/NuPay.</p>
+ * delivery Amazon, mas deliberadamente não contém condição CASH.</p>
  *
- * <p>Portanto, a partir da FASE 9, a oferta deve falhar de forma
- * conservadora em MIN_CASH_DISCOUNT com CASH_DISCOUNT_UNAVAILABLE.</p>
+ * <p>Isso não torna mais o desconto indisponível. Pela ADR-0005,
+ * quando não existe preço CASH explicitamente diferenciado,
+ * currentPrice é utilizado como effectivePrice para comparação com
+ * basisPrice.</p>
+ *
+ * <p>Nesta fixture:</p>
+ *
+ * <pre>
+ * basisPrice     = 99.90
+ * effectivePrice = 79.90
+ * source         = CURRENT_PRICE
+ * desconto       = 20.0200%
+ * </pre>
+ *
+ * <p>Como o limiar do COMMERCIAL_FILTER_V2 é 20%, a oferta passa.</p>
  *
  * <p>O mesmo evento é processado duas vezes com o mesmo Clock fixo.
  * O teste comprova que a decisão permanece reproduzível sem duplicar
@@ -83,10 +101,6 @@ class AmazonDealProcessingEndToEndTest {
     private static final String DEALS_FIXTURE =
         "amazon/fixtures/deals/end-to-end-deal.html";
 
-    /*
-     * Esta fixture possui seller/delivery, mas não possui condições
-     * comerciais. Isso é deliberado para validar fail-closed.
-     */
     private static final String PRODUCT_FIXTURE =
         "amazon/fixtures/product/amazon-amazon.html";
 
@@ -194,20 +208,11 @@ class AmazonDealProcessingEndToEndTest {
                     snapshotId
                 );
 
-            /*
-             * Seller e delivery passam.
-             *
-             * Rating e reviewCount também passam.
-             *
-             * Porém não existe PaymentCondition CASH explícita na
-             * fixture individual.
-             */
-            assertFalse(
+            assertTrue(
                 firstDecision.eligible()
             );
 
-            assertEquals(
-                "CASH_DISCOUNT_UNAVAILABLE",
+            assertNull(
                 firstDecision.rejectionReason()
             );
 
@@ -217,8 +222,13 @@ class AmazonDealProcessingEndToEndTest {
             );
 
             assertEquals(
-                "COMMERCIAL_FILTER_V1",
+                "COMMERCIAL_FILTER_V2",
                 firstDecision.filterProfileVersion()
+            );
+
+            assertEquals(
+                "SCORE_V2",
+                firstDecision.scoreVersion()
             );
 
             assertEquals(
@@ -237,12 +247,13 @@ class AmazonDealProcessingEndToEndTest {
                 )
             );
 
-            assertEquals(
-                2L,
-                countEvidence(
-                    connection,
-                    snapshotId
-                )
+            /*
+             * O enrichment persiste quatro evidências auditáveis:
+             * SELLER, DELIVERY, RATING e REVIEW_COUNT.
+             */
+            assertEvidenceTypes(
+                connection,
+                snapshotId
             );
 
             assertEquals(
@@ -254,17 +265,27 @@ class AmazonDealProcessingEndToEndTest {
             );
 
             /*
-             * A partir da FASE 9 temos:
-             *
              * 1. SELLER_IS_AMAZON
              * 2. DELIVERY_IS_AMAZON
-             * 3. MIN_CASH_DISCOUNT
+             * 3. MIN_BASIS_DISCOUNT
              * 4. MIN_RATING
              * 5. MIN_REVIEW_COUNT
              */
             assertEquals(
                 5L,
                 countEvaluationRuleResults(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            /*
+             * A oferta agora é elegível, logo SCORE_V2 persiste
+             * quatro fatores auditáveis.
+             */
+            assertEquals(
+                4L,
+                countScoreFactors(
                     connection,
                     snapshotId
                 )
@@ -284,13 +305,6 @@ class AmazonDealProcessingEndToEndTest {
              * ---------------------------------------------------------
              * SEGUNDO PROCESSAMENTO DA MESMA OBSERVAÇÃO
              * ---------------------------------------------------------
-             *
-             * O Clock fixo mantém collected_at igual.
-             * A URL/source também é a mesma.
-             *
-             * Portanto, a identidade de OfferSnapshot deve ser a mesma:
-             *
-             * product_id + collected_at + source
              */
             var secondResult =
                 service.process(
@@ -314,25 +328,16 @@ class AmazonDealProcessingEndToEndTest {
                     snapshotIdAfterReplay
                 );
 
-            /*
-             * A mesma observação deve apontar para o mesmo snapshot.
-             */
             assertEquals(
                 snapshotId,
                 snapshotIdAfterReplay
             );
 
-            /*
-             * A decisão persistida precisa permanecer reproduzível.
-             */
             assertEquals(
                 firstDecision,
                 secondDecision
             );
 
-            /*
-             * Nenhum estado dependente pode ser duplicado.
-             */
             assertEquals(
                 1L,
                 countProducts(
@@ -349,12 +354,14 @@ class AmazonDealProcessingEndToEndTest {
                 )
             );
 
-            assertEquals(
-                2L,
-                countEvidence(
-                    connection,
-                    snapshotId
-                )
+            /*
+             * O replay idempotente não pode duplicar evidências.
+             * Os mesmos quatro tipos devem continuar presentes
+             * exatamente uma vez cada.
+             */
+            assertEvidenceTypes(
+                connection,
+                snapshotId
             );
 
             assertEquals(
@@ -368,6 +375,14 @@ class AmazonDealProcessingEndToEndTest {
             assertEquals(
                 5L,
                 countEvaluationRuleResults(
+                    connection,
+                    snapshotId
+                )
+            );
+
+            assertEquals(
+                4L,
+                countScoreFactors(
                     connection,
                     snapshotId
                 )
@@ -389,8 +404,7 @@ class AmazonDealProcessingEndToEndTest {
     }
 
     /**
-     * Confirma o resultado comercial persistido para a fixture sem
-     * condição explícita Pix/NuPay.
+     * Confirma a auditoria da nova regra comercial.
      */
     private void assertCommercialRuleAudit(
         Connection connection,
@@ -408,7 +422,7 @@ class AmazonDealProcessingEndToEndTest {
             JOIN deal_evaluation de
               ON de.id = derr.deal_evaluation_id
             WHERE de.offer_snapshot_id = ?
-              AND derr.rule_code = 'MIN_CASH_DISCOUNT'
+              AND derr.rule_code = 'MIN_BASIS_DISCOUNT'
             """;
 
         try (PreparedStatement statement =
@@ -429,20 +443,20 @@ class AmazonDealProcessingEndToEndTest {
                 );
 
                 assertEquals(
-                    "MIN_CASH_DISCOUNT",
+                    "MIN_BASIS_DISCOUNT",
                     resultSet.getString(
                         "rule_code"
                     )
                 );
 
-                assertFalse(
+                assertTrue(
                     resultSet.getBoolean(
                         "passed"
                     )
                 );
 
                 assertEquals(
-                    "UNAVAILABLE",
+                    "DISCOUNT=20.0200|BASIS=99.90|EFFECTIVE=79.90|SOURCE=CURRENT_PRICE",
                     resultSet.getString(
                         "observed_value"
                     )
@@ -455,8 +469,7 @@ class AmazonDealProcessingEndToEndTest {
                     )
                 );
 
-                assertEquals(
-                    "CASH_DISCOUNT_UNAVAILABLE",
+                assertNull(
                     resultSet.getString(
                         "reason_code"
                     )
@@ -469,9 +482,6 @@ class AmazonDealProcessingEndToEndTest {
         }
     }
 
-    /**
-     * Confirma que os dados materiais da observação foram persistidos.
-     */
     private void assertSnapshotAuditData(
         Connection connection,
         long snapshotId
@@ -559,9 +569,6 @@ class AmazonDealProcessingEndToEndTest {
         }
     }
 
-    /**
-     * Compara BigDecimal por valor numérico, não por escala.
-     */
     private void assertBigDecimalEquals(
         String expected,
         BigDecimal actual
@@ -588,10 +595,6 @@ class AmazonDealProcessingEndToEndTest {
         );
     }
 
-    /**
-     * Compara um número persistido como texto de auditoria sem depender
-     * de escala ou zeros finais.
-     */
     private void assertBigDecimalTextEquals(
         String expected,
         String actual
@@ -708,9 +711,6 @@ class AmazonDealProcessingEndToEndTest {
         }
     }
 
-    /**
-     * Carrega a decisão persistida para o snapshot.
-     */
     private DecisionState loadDecision(
         Connection connection,
         long snapshotId
@@ -721,7 +721,8 @@ class AmazonDealProcessingEndToEndTest {
                     eligible,
                     rejection_reason,
                     eligibility_policy_version,
-                    filter_profile_version
+                    filter_profile_version,
+                    score_version
                 FROM deal_evaluation
                 WHERE offer_snapshot_id = ?
                 ORDER BY id
@@ -757,6 +758,9 @@ class AmazonDealProcessingEndToEndTest {
                         ),
                         resultSet.getString(
                             "filter_profile_version"
+                        ),
+                        resultSet.getString(
+                            "score_version"
                         )
                     );
 
@@ -809,23 +813,80 @@ class AmazonDealProcessingEndToEndTest {
         );
     }
 
-    private long countEvidence(
+    /**
+     * Confirma a provenance persistida pelo enrichment.
+     *
+     * <p>Não basta validar somente COUNT(*) = 4, porque quatro linhas
+     * poderiam conter tipos duplicados e esconder a ausência de uma
+     * evidência esperada.</p>
+     *
+     * <p>O contrato atual exige exatamente uma evidência de cada tipo:</p>
+     *
+     * <ul>
+     *     <li>SELLER;</li>
+     *     <li>DELIVERY;</li>
+     *     <li>RATING;</li>
+     *     <li>REVIEW_COUNT.</li>
+     * </ul>
+     *
+     * <p>A combinação de tamanho da lista e igualdade do conjunto detecta
+     * tanto duplicações quanto ausência de qualquer tipo esperado.</p>
+     */
+    private void assertEvidenceTypes(
         Connection connection,
         long snapshotId
     ) throws Exception {
 
-        return count(
-            connection,
-            """
-            SELECT COUNT(*)
+        String sql = """
+            SELECT evidence_type
             FROM offer_evidence
             WHERE offer_snapshot_id = ?
-            """,
-            statement ->
-                statement.setLong(
-                    1,
-                    snapshotId
-                )
+            """;
+
+        List<String> evidenceTypes =
+            new ArrayList<>();
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                snapshotId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                while (resultSet.next()) {
+
+                    evidenceTypes.add(
+                        resultSet.getString(
+                            "evidence_type"
+                        )
+                    );
+                }
+            }
+        }
+
+        assertEquals(
+            4,
+            evidenceTypes.size(),
+            "Exactly four enrichment evidence rows must exist"
+        );
+
+        assertEquals(
+            Set.of(
+                "SELLER",
+                "DELIVERY",
+                "RATING",
+                "REVIEW_COUNT"
+            ),
+            Set.copyOf(
+                evidenceTypes
+            ),
+            "Enrichment evidence types must be complete and non-duplicated"
         );
     }
 
@@ -871,6 +932,28 @@ class AmazonDealProcessingEndToEndTest {
         );
     }
 
+    private long countScoreFactors(
+        Connection connection,
+        long snapshotId
+    ) throws Exception {
+
+        return count(
+            connection,
+            """
+            SELECT COUNT(*)
+            FROM deal_evaluation_score_factor desf
+            JOIN deal_evaluation de
+              ON de.id = desf.deal_evaluation_id
+            WHERE de.offer_snapshot_id = ?
+            """,
+            statement ->
+                statement.setLong(
+                    1,
+                    snapshotId
+                )
+        );
+    }
+
     private long count(
         Connection connection,
         String sql,
@@ -900,10 +983,6 @@ class AmazonDealProcessingEndToEndTest {
         }
     }
 
-    /**
-     * Remove somente os registros pertencentes ao ASIN exclusivo
-     * deste teste.
-     */
     private void cleanupByAsin(
         Connection connection,
         String asin
@@ -1097,7 +1176,8 @@ class AmazonDealProcessingEndToEndTest {
         boolean eligible,
         String rejectionReason,
         String eligibilityPolicyVersion,
-        String filterProfileVersion
+        String filterProfileVersion,
+        String scoreVersion
     ) {
     }
 
@@ -1109,9 +1189,6 @@ class AmazonDealProcessingEndToEndTest {
         ) throws Exception;
     }
 
-    /**
-     * Servidor local que simula as duas fronteiras HTTP do fluxo.
-     */
     private static final class LocalAmazonServer
         implements AutoCloseable {
 

@@ -1,9 +1,12 @@
 package com.raspingamazon.infrastructure.composition;
 
+import com.raspingamazon.application.collection.contract.CollectionCollector;
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.application.deal.OfferSnapshotFactory;
+import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.evaluation.AmazonDealEvaluationApplicationService;
 import com.raspingamazon.application.momentum.MomentumCalculationService;
+import com.raspingamazon.application.parsing.contract.DealsParser;
 import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
 import com.raspingamazon.domain.history.SnapshotEvolutionCalculator;
@@ -43,14 +46,27 @@ import java.util.Objects;
  * aplicação.</p>
  *
  * <p>A mesma Connection JDBC é compartilhada por todos os repositories
- * e pelo JdbcTransactionAdapter. Essa característica é fundamental:
- * somente assim Product, OfferSnapshot, PaymentConditions, Evidence,
- * FilterProfile, ScoreProfile, histórico, DealEvaluation e auditoria
- * de momentum podem participar de uma composição consistente.</p>
+ * e pelo JdbcTransactionAdapter. Dessa forma Product, OfferSnapshot,
+ * PaymentConditions, Evidence, avaliação, histórico e auditorias
+ * participam da mesma unidade de trabalho.</p>
  *
- * <p>A classe não possui regras de negócio e não executa o fluxo.
- * Ela apenas conecta implementações concretas aos contratos da
- * aplicação.</p>
+ * <p>O composition root possui duas formas de montagem:</p>
+ *
+ * <ol>
+ *     <li>
+ *         composição padrão de produção, que cria coleta, parser e
+ *         enrichment HTTP;
+ *     </li>
+ *     <li>
+ *         composição com fronteiras externas injetadas, útil quando
+ *         outro mecanismo de aquisição precisa reutilizar exatamente
+ *         o mesmo pipeline persistente e de decisão.
+ *     </li>
+ * </ol>
+ *
+ * <p>A variante injetável não altera regras de negócio e não cria
+ * um pipeline alternativo. Ela somente permite substituir as
+ * fronteiras anteriores à persistência.</p>
  */
 public final class AmazonDealProcessingComposition {
 
@@ -65,8 +81,8 @@ public final class AmazonDealProcessingComposition {
     /**
      * Monta o serviço utilizando dependências padrão de produção.
      *
-     * @param connection conexão JDBC que será compartilhada por toda
-     *                   a unidade de trabalho
+     * @param connection conexão JDBC compartilhada pela unidade
+     *                   de trabalho
      * @return serviço vertical pronto para execução
      */
     public static AmazonDealProcessingService create(
@@ -81,10 +97,16 @@ public final class AmazonDealProcessingComposition {
     }
 
     /**
-     * Variante injetável da composição.
+     * Variante padrão com Clock e HttpClient injetáveis.
      *
-     * <p>Clock e HttpClient são argumentos para manter o composition
-     * root testável e evitar estado global.</p>
+     * <p>Esta continua sendo a composição HTTP convencional da
+     * aplicação. Ela cria:</p>
+     *
+     * <ul>
+     *     <li>HttpCollectionCollector;</li>
+     *     <li>AmazonDealsParser;</li>
+     *     <li>AmazonProductPageEnrichmentClient baseado em HTTP.</li>
+     * </ul>
      */
     public static AmazonDealProcessingService create(
         Connection connection,
@@ -107,41 +129,95 @@ public final class AmazonDealProcessingComposition {
             "httpClient must not be null"
         );
 
-        /*
-         * ---------------------------------------------------------
-         * COLETA
-         * ---------------------------------------------------------
-         */
         JavaHttpTransport httpTransport =
             new JavaHttpTransport(
                 httpClient,
                 HTTP_TIMEOUT
             );
 
-        HttpCollectionCollector collectionCollector =
+        CollectionCollector collectionCollector =
             new HttpCollectionCollector(
                 httpTransport,
                 clock
             );
 
-        /*
-         * ---------------------------------------------------------
-         * PARSER
-         * ---------------------------------------------------------
-         */
-        AmazonDealsParser dealsParser =
+        DealsParser dealsParser =
             new AmazonDealsParser();
 
-        /*
-         * ---------------------------------------------------------
-         * ENRICHMENT
-         * ---------------------------------------------------------
-         */
-        AmazonProductPageEnrichmentClient enrichmentClient =
+        ProductEnrichmentClient enrichmentClient =
             new AmazonProductPageEnrichmentClient(
                 httpClient,
                 new AmazonProductPageParser()
             );
+
+        return create(
+            connection,
+            clock,
+            collectionCollector,
+            dealsParser,
+            enrichmentClient
+        );
+    }
+
+    /**
+     * Monta o mesmo pipeline persistente e de decisão utilizando
+     * fronteiras externas fornecidas pelo chamador.
+     *
+     * <p>Este método existe para que mecanismos alternativos de
+     * aquisição possam reutilizar o pipeline verdadeiro sem copiar
+     * a composição de repositories, filtros, score, histórico,
+     * momentum e avaliação.</p>
+     *
+     * <p>Exemplos de fronteiras substituíveis:</p>
+     *
+     * <ul>
+     *     <li>coleta previamente realizada;</li>
+     *     <li>parser limitado a um candidato diagnóstico;</li>
+     *     <li>enrichment baseado em DOM renderizado.</li>
+     * </ul>
+     *
+     * <p>A partir de ProductPersistencePort, a composição é
+     * exatamente a mesma usada pelo fluxo padrão.</p>
+     *
+     * @param connection conexão JDBC compartilhada
+     * @param clock relógio da execução
+     * @param collectionCollector coletor de origem
+     * @param dealsParser parser das ofertas
+     * @param enrichmentClient enrichment da página individual
+     * @return serviço vertical pronto para execução
+     */
+    public static AmazonDealProcessingService create(
+        Connection connection,
+        Clock clock,
+        CollectionCollector collectionCollector,
+        DealsParser dealsParser,
+        ProductEnrichmentClient enrichmentClient
+    ) {
+
+        Objects.requireNonNull(
+            connection,
+            "connection must not be null"
+        );
+
+        Objects.requireNonNull(
+            clock,
+            "clock must not be null"
+        );
+
+        Objects.requireNonNull(
+            collectionCollector,
+            "collectionCollector must not be null"
+        );
+
+        Objects.requireNonNull(
+            dealsParser,
+            "dealsParser must not be null"
+        );
+
+        Objects.requireNonNull(
+            enrichmentClient,
+            "enrichmentClient must not be null"
+        );
 
         /*
          * ---------------------------------------------------------
@@ -223,9 +299,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * SCORE PROFILE
          * ---------------------------------------------------------
-         *
-         * O perfil de score ativo é lido da configuração persistida
-         * e versionada.
          */
         ScoreProfileJdbcRepository scoreProfileRepository =
             new ScoreProfileJdbcRepository(
@@ -252,10 +325,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * CASH DISCOUNT SELECTOR
          * ---------------------------------------------------------
-         *
-         * O mesmo conceito de melhor desconto à vista reconhecido
-         * pelos filtros e score também é reutilizado no cálculo
-         * histórico da evolução do desconto.
          */
         BestCashDiscountSelector bestCashDiscountSelector =
             new BestCashDiscountSelector();
@@ -264,12 +333,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * HISTÓRICO
          * ---------------------------------------------------------
-         *
-         * O repository de histórico é somente leitura.
-         *
-         * Ele usa a mesma Connection porque a avaliação precisa
-         * enxergar o snapshot recém-inserido e os dados históricos
-         * dentro da mesma unidade de trabalho.
          */
         OfferHistoryJdbcRepository offerHistoryRepository =
             new OfferHistoryJdbcRepository(
@@ -280,9 +343,6 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          * SNAPSHOT EVOLUTION
          * ---------------------------------------------------------
-         *
-         * O cálculo é puro e reutiliza a mesma semântica de desconto
-         * à vista empregada pelo restante do domínio.
          */
         SnapshotEvolutionCalculator snapshotEvolutionCalculator =
             new SnapshotEvolutionCalculator(
@@ -347,22 +407,12 @@ public final class AmazonDealProcessingComposition {
          * TRANSACTION BOUNDARY
          * ---------------------------------------------------------
          *
-         * Todos os repositories acima e o transaction adapter usam
+         * Todos os repositories e o transaction adapter utilizam
          * exatamente a mesma Connection.
          *
-         * Assim:
-         *
-         * Product
-         * Snapshot
-         * PaymentConditions
-         * Evidence
-         * DealEvaluation
-         * MomentumAudit
-         *
-         * pertencem à mesma unidade atômica de persistência.
-         *
-         * FilterProfile, ScoreProfile e histórico são somente lidos
-         * durante a avaliação.
+         * Quando o chamador já tiver aberto uma transação externa
+         * com autoCommit=false, JdbcTransactionAdapter utilizará
+         * savepoint e não fará commit da transação externa.
          */
         JdbcTransactionAdapter transactionAdapter =
             new JdbcTransactionAdapter(
@@ -390,7 +440,8 @@ public final class AmazonDealProcessingComposition {
     }
 
     /**
-     * Cria o HttpClient compartilhado pelas chamadas HTTP do fluxo.
+     * Cria o HttpClient compartilhado pelas chamadas HTTP do fluxo
+     * padrão.
      */
     private static HttpClient createHttpClient() {
 

@@ -9,55 +9,51 @@ import java.util.Objects;
 /**
  * Motor de filtros comerciais configuráveis.
  *
- * Aplica todas as regras comerciais da FASE 9 em ordem estável
- * e retorna os resultados individuais para auditoria.
+ * <p>A primeira regra é escolhida pela semântica do FilterProfile:</p>
  *
- * Ordem atual:
+ * <ul>
+ *     <li>MIN_CASH_DISCOUNT para o perfil histórico V1;</li>
+ *     <li>MIN_BASIS_DISCOUNT para perfis definidos pela ADR-0005.</li>
+ * </ul>
  *
- * 1. desconto mínimo à vista;
- * 2. rating mínimo;
- * 3. quantidade mínima de avaliações.
- *
- * A ordem é deliberadamente estável e não representa score,
- * peso ou prioridade comercial.
- *
- * O motor não utiliza short-circuit. Todas as regras são executadas
- * mesmo quando uma regra anterior falha, permitindo preservar a
- * explicação completa da avaliação.
- *
- * Não pertencem a este motor:
- *
- * - elegibilidade de vendedor Amazon;
- * - elegibilidade de entrega Amazon;
- * - score;
- * - momentum;
- * - política de publicação.
+ * <p>Rating e quantidade de avaliações permanecem nas posições
+ * seguintes e todas as regras são avaliadas sem short-circuit.</p>
  */
 public final class CommercialFilterEngine {
 
     private final MinCashDiscountRule minCashDiscountRule;
+    private final MinBasisDiscountRule minBasisDiscountRule;
     private final MinRatingRule minRatingRule;
     private final MinReviewCountRule minReviewCountRule;
 
-    /**
-     * Cria o motor com as implementações padrão das regras comerciais.
-     */
     public CommercialFilterEngine() {
         this(
             new MinCashDiscountRule(),
+            new MinBasisDiscountRule(),
             new MinRatingRule(),
             new MinReviewCountRule()
         );
     }
 
     /**
-     * Construtor explícito utilizado para composição e testes.
-     *
-     * A ordem dos parâmetros também documenta a ordem estável
-     * atualmente adotada pelo motor.
+     * Construtor histórico preservado.
      */
     public CommercialFilterEngine(
         MinCashDiscountRule minCashDiscountRule,
+        MinRatingRule minRatingRule,
+        MinReviewCountRule minReviewCountRule
+    ) {
+        this(
+            minCashDiscountRule,
+            new MinBasisDiscountRule(),
+            minRatingRule,
+            minReviewCountRule
+        );
+    }
+
+    public CommercialFilterEngine(
+        MinCashDiscountRule minCashDiscountRule,
+        MinBasisDiscountRule minBasisDiscountRule,
         MinRatingRule minRatingRule,
         MinReviewCountRule minReviewCountRule
     ) {
@@ -65,6 +61,12 @@ public final class CommercialFilterEngine {
             Objects.requireNonNull(
                 minCashDiscountRule,
                 "minCashDiscountRule must not be null"
+            );
+
+        this.minBasisDiscountRule =
+            Objects.requireNonNull(
+                minBasisDiscountRule,
+                "minBasisDiscountRule must not be null"
             );
 
         this.minRatingRule =
@@ -80,14 +82,6 @@ public final class CommercialFilterEngine {
             );
     }
 
-    /**
-     * Aplica todas as regras comerciais em ordem determinística.
-     *
-     * @param snapshot oferta observada
-     * @param profile versão da configuração de filtros
-     * @return lista imutável contendo exatamente um resultado
-     *         para cada regra comercial vigente
-     */
     public List<EvaluationRuleResult> evaluate(
         OfferSnapshot snapshot,
         FilterProfile profile
@@ -102,8 +96,8 @@ public final class CommercialFilterEngine {
             "profile must not be null"
         );
 
-        EvaluationRuleResult cashDiscountResult =
-            minCashDiscountRule.evaluate(
+        EvaluationRuleResult discountResult =
+            evaluateDiscount(
                 snapshot,
                 profile
             );
@@ -121,9 +115,32 @@ public final class CommercialFilterEngine {
             );
 
         return List.of(
-            cashDiscountResult,
+            discountResult,
             ratingResult,
             reviewCountResult
+        );
+    }
+
+    private EvaluationRuleResult evaluateDiscount(
+        OfferSnapshot snapshot,
+        FilterProfile profile
+    ) {
+        if (profile.usesBasisDiscountRule()) {
+            return minBasisDiscountRule.evaluate(
+                snapshot,
+                profile.minBasisDiscountPercentage()
+            );
+        }
+
+        if (profile.usesCashDiscountRule()) {
+            return minCashDiscountRule.evaluate(
+                snapshot,
+                profile
+            );
+        }
+
+        throw new IllegalStateException(
+            "FilterProfile does not define a supported discount rule"
         );
     }
 }

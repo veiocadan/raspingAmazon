@@ -24,6 +24,8 @@ import java.util.Objects;
  *     <li>Pix é preferido quando empata com NuPay;</li>
  *     <li>NuPay é principal somente quando seu desconto é
  *         explicitamente maior que o desconto Pix;</li>
+ *     <li>NuPay genérico e NuPay Limite Adicional permanecem
+ *         métodos distintos no domínio;</li>
  *     <li>quando NuPay é comprovadamente melhor, Pix continua
  *         disponível como alternativa;</li>
  *     <li>ausência de desconto nunca é interpretada como zero;</li>
@@ -33,116 +35,109 @@ import java.util.Objects;
  * </ul>
  */
 public final class AmazonCommercialPresentationV1
-    implements CommercialPresentationPolicy {
+        implements CommercialPresentationPolicy {
 
     public static final String VERSION =
-        "AMAZON_COMMERCIAL_PRESENTATION_V1";
+            "AMAZON_COMMERCIAL_PRESENTATION_V1";
 
     @Override
     public String version() {
+
         return VERSION;
     }
 
     @Override
     public CommercialPresentation present(
-        PublicationData publicationData
+            PublicationData publicationData
     ) {
 
         Objects.requireNonNull(
-            publicationData,
-            "publicationData must not be null"
+                publicationData,
+                "publicationData must not be null"
         );
 
         List<PaymentCondition> conditions =
-            publicationData.paymentConditions();
+                publicationData.paymentConditions();
 
         PaymentCondition pixCondition =
-            selectBestCashCondition(
-                conditions,
-                PaymentMethod.PIX
-            );
+                selectBestCashCondition(
+                        conditions,
+                        PaymentMethod.PIX
+                );
 
-        PaymentCondition nuPayCondition =
-            selectBestCashCondition(
-                conditions,
-                PaymentMethod.NUPAY_ADDITIONAL_LIMIT
-            );
+        PresentedCashCondition nuPayPresentation =
+                selectBestNuPayPresentation(
+                        conditions
+                );
 
         CashPresentation cashPresentation =
-            selectCashPresentation(
-                pixCondition,
-                nuPayCondition
-            );
+                selectCashPresentation(
+                        pixCondition,
+                        nuPayPresentation
+                );
 
         PaymentCondition installmentCondition =
-            selectBestInstallmentCondition(
-                conditions
-            );
+                selectBestInstallmentCondition(
+                        conditions
+                );
 
         return new CommercialPresentation(
-            VERSION,
-            publicationData.offerSnapshot()
-                .currentPrice(),
-            publicationData.offerSnapshot()
-                .basisPrice(),
-            publicationData.offerSnapshot()
-                .previousPrice(),
-            cashPresentation.primary(),
-            cashPresentation.secondary(),
-            installmentCondition
+                VERSION,
+                publicationData.offerSnapshot()
+                        .currentPrice(),
+                publicationData.offerSnapshot()
+                        .basisPrice(),
+                publicationData.offerSnapshot()
+                        .previousPrice(),
+                cashPresentation.primary(),
+                cashPresentation.secondary(),
+                installmentCondition
         );
     }
 
     /**
      * Seleciona a melhor condição observada para um método à vista.
-     *
-     * <p>Quando houver mais de uma condição do mesmo método,
-     * uma condição com desconto explícito é preferida sobre outra
-     * sem desconto explícito.</p>
-     *
-     * <p>Quando ambas possuem desconto explícito, vence o maior
-     * percentual.</p>
-     *
-     * <p>Empates preservam a primeira condição observada. Isso
-     * mantém comportamento determinístico sem introduzir um
-     * critério comercial adicional não definido.</p>
      */
     private PaymentCondition selectBestCashCondition(
-        List<PaymentCondition> conditions,
-        PaymentMethod paymentMethod
+            List<PaymentCondition> conditions,
+            PaymentMethod paymentMethod
     ) {
 
         PaymentCondition best =
-            null;
+                null;
 
-        for (PaymentCondition condition : conditions) {
+        for (PaymentCondition condition
+                : conditions) {
 
             if (condition.type()
-                != PaymentConditionType.CASH) {
+                    != PaymentConditionType.CASH) {
+
                 continue;
             }
 
             if (!condition.paymentMethods()
-                .contains(
-                    paymentMethod
-                )) {
+                    .contains(
+                            paymentMethod
+                    )) {
+
                 continue;
             }
 
             if (best == null) {
+
                 best =
-                    condition;
+                        condition;
 
                 continue;
             }
 
             if (isBetterCashCondition(
-                condition,
-                best
+                    condition,
+                    best
             )) {
 
                 best =
-                    condition;
+                        condition;
             }
         }
 
@@ -150,145 +145,212 @@ public final class AmazonCommercialPresentationV1
     }
 
     /**
-     * Compara duas condições do mesmo método.
+     * Seleciona a melhor condição pertencente à família NuPay.
      *
-     * <p>null não representa zero. Uma condição sem percentual
-     * explícito nunca é considerada superior a outra somente por
-     * ausência de dado.</p>
+     * <p>NUPAY e NUPAY_ADDITIONAL_LIMIT permanecem fatos distintos.
+     * Esta etapa somente permite que a política comercial trate ambos
+     * como alternativas NuPay para fins de apresentação.</p>
+     *
+     * <p>Empates preservam a primeira condição observada.</p>
+     */
+    private PresentedCashCondition selectBestNuPayPresentation(
+            List<PaymentCondition> conditions
+    ) {
+
+        PresentedCashCondition best =
+                null;
+
+        for (PaymentCondition condition
+                : conditions) {
+
+            if (condition.type()
+                    != PaymentConditionType.CASH) {
+
+                continue;
+            }
+
+            PaymentMethod method =
+                    observedNuPayMethod(
+                            condition
+                    );
+
+            if (method == null) {
+                continue;
+            }
+
+            PresentedCashCondition candidate =
+                    new PresentedCashCondition(
+                            method,
+                            condition
+                    );
+
+            if (best == null) {
+
+                best =
+                        candidate;
+
+                continue;
+            }
+
+            if (isBetterCashCondition(
+                    condition,
+                    best.condition()
+            )) {
+
+                best =
+                        candidate;
+            }
+        }
+
+        return best;
+    }
+
+    /**
+     * Determina qual variante NuPay foi explicitamente observada.
+     *
+     * <p>Quando uma condição excepcionalmente carregar os dois
+     * métodos, NUPAY genérico é preservado como apresentação por ser
+     * a descrição menos específica. A condição original continua
+     * preservando ambos os métodos.</p>
+     */
+    private PaymentMethod observedNuPayMethod(
+            PaymentCondition condition
+    ) {
+
+        if (condition.paymentMethods()
+                .contains(
+                        PaymentMethod.NUPAY
+                )) {
+
+            return PaymentMethod.NUPAY;
+        }
+
+        if (condition.paymentMethods()
+                .contains(
+                        PaymentMethod.NUPAY_ADDITIONAL_LIMIT
+                )) {
+
+            return PaymentMethod.NUPAY_ADDITIONAL_LIMIT;
+        }
+
+        return null;
+    }
+
+    /**
+     * Compara duas condições do mesmo grupo comercial.
+     *
+     * <p>null não representa zero.</p>
      */
     private boolean isBetterCashCondition(
-        PaymentCondition candidate,
-        PaymentCondition current
+            PaymentCondition candidate,
+            PaymentCondition current
     ) {
 
         Percentage candidateDiscount =
-            candidate.discountPercentage();
+                candidate.discountPercentage();
 
         Percentage currentDiscount =
-            current.discountPercentage();
+                current.discountPercentage();
 
         if (candidateDiscount == null) {
+
             return false;
         }
 
         if (currentDiscount == null) {
+
             return true;
         }
 
         return candidateDiscount.value()
-            .compareTo(
-                currentDiscount.value()
-            ) > 0;
+                .compareTo(
+                        currentDiscount.value()
+                ) > 0;
     }
 
     /**
      * Aplica a política Pix/NuPay.
-     *
-     * <p>NuPay somente assume o papel principal quando existe
-     * evidência comparável de que seu desconto é estritamente
-     * maior que o desconto Pix.</p>
-     *
-     * <p>Quando os percentuais não são comparáveis porque um deles
-     * está ausente, não inventamos um resultado. Pix permanece
-     * como condição principal por sua maior abrangência e NuPay
-     * pode permanecer como condição secundária.</p>
      */
     private CashPresentation selectCashPresentation(
-        PaymentCondition pixCondition,
-        PaymentCondition nuPayCondition
+            PaymentCondition pixCondition,
+            PresentedCashCondition nuPayPresentation
     ) {
 
         if (pixCondition == null
-            && nuPayCondition == null) {
+                && nuPayPresentation == null) {
 
             return CashPresentation.empty();
         }
 
         if (pixCondition != null
-            && nuPayCondition == null) {
+                && nuPayPresentation == null) {
 
             return CashPresentation.primaryOnly(
-                new PresentedCashCondition(
-                    PaymentMethod.PIX,
-                    pixCondition
-                )
+                    new PresentedCashCondition(
+                            PaymentMethod.PIX,
+                            pixCondition
+                    )
             );
         }
 
         if (pixCondition == null) {
 
             return CashPresentation.primaryOnly(
-                new PresentedCashCondition(
-                    PaymentMethod.NUPAY_ADDITIONAL_LIMIT,
-                    nuPayCondition
-                )
+                    nuPayPresentation
             );
         }
 
+        PaymentCondition nuPayCondition =
+                nuPayPresentation.condition();
+
         Percentage pixDiscount =
-            pixCondition.discountPercentage();
+                pixCondition.discountPercentage();
 
         Percentage nuPayDiscount =
-            nuPayCondition.discountPercentage();
+                nuPayCondition.discountPercentage();
 
         if (pixDiscount != null
-            && nuPayDiscount != null) {
+                && nuPayDiscount != null) {
 
             int comparison =
-                nuPayDiscount.value()
-                    .compareTo(
-                        pixDiscount.value()
-                    );
+                    nuPayDiscount.value()
+                            .compareTo(
+                                    pixDiscount.value()
+                            );
 
             if (comparison > 0) {
 
                 return new CashPresentation(
-                    new PresentedCashCondition(
-                        PaymentMethod.NUPAY_ADDITIONAL_LIMIT,
-                        nuPayCondition
-                    ),
-                    new PresentedCashCondition(
-                        PaymentMethod.PIX,
-                        pixCondition
-                    )
+                        nuPayPresentation,
+                        new PresentedCashCondition(
+                                PaymentMethod.PIX,
+                                pixCondition
+                        )
                 );
             }
 
             /*
-             * Pix maior ou empate:
-             *
-             * ADR-0001 determina que Pix seja apresentado e
-             * NuPay não precisa ser destacado.
+             * Pix maior ou empate.
              */
             return CashPresentation.primaryOnly(
-                new PresentedCashCondition(
-                    PaymentMethod.PIX,
-                    pixCondition
-                )
+                    new PresentedCashCondition(
+                            PaymentMethod.PIX,
+                            pixCondition
+                    )
             );
         }
 
         /*
-         * Os descontos não são diretamente comparáveis porque
-         * pelo menos um deles está ausente.
+         * Pelo menos um desconto está ausente.
          *
-         * Ausência não é convertida para zero.
-         *
-         * Dessa forma não podemos afirmar que NuPay é
-         * economicamente superior.
-         *
-         * Mantemos Pix como principal e NuPay como alternativa,
-         * sem alegar vantagem inexistente.
+         * Ausência não é convertida em zero.
          */
         return new CashPresentation(
-            new PresentedCashCondition(
-                PaymentMethod.PIX,
-                pixCondition
-            ),
-            new PresentedCashCondition(
-                PaymentMethod.NUPAY_ADDITIONAL_LIMIT,
-                nuPayCondition
-            )
+                new PresentedCashCondition(
+                        PaymentMethod.PIX,
+                        pixCondition
+                ),
+                nuPayPresentation
         );
     }
 
@@ -301,42 +363,39 @@ public final class AmazonCommercialPresentationV1
      *     <li>condições explicitamente sem juros;</li>
      *     <li>maior quantidade de parcelas.</li>
      * </ol>
-     *
-     * <p>Uma condição somente é considerada explicitamente
-     * sem juros quando interest está presente e vale zero.</p>
-     *
-     * <p>interest == null permanece ausência de informação e
-     * não é convertido implicitamente em zero.</p>
      */
     private PaymentCondition selectBestInstallmentCondition(
-        List<PaymentCondition> conditions
+            List<PaymentCondition> conditions
     ) {
 
         PaymentCondition best =
-            null;
+                null;
 
-        for (PaymentCondition condition : conditions) {
+        for (PaymentCondition condition
+                : conditions) {
 
             if (condition.type()
-                != PaymentConditionType.CREDIT_INSTALLMENT) {
+                    != PaymentConditionType.CREDIT_INSTALLMENT) {
+
                 continue;
             }
 
             if (!condition.paymentMethods()
-                .contains(
-                    PaymentMethod.CREDIT_CARD
-                )) {
+                    .contains(
+                            PaymentMethod.CREDIT_CARD
+                    )) {
+
                 continue;
             }
 
             if (best == null
-                || isBetterInstallment(
-                condition,
-                best
+                    || isBetterInstallment(
+                    condition,
+                    best
             )) {
 
                 best =
-                    condition;
+                        condition;
             }
         }
 
@@ -344,71 +403,72 @@ public final class AmazonCommercialPresentationV1
     }
 
     private boolean isBetterInstallment(
-        PaymentCondition candidate,
-        PaymentCondition current
+            PaymentCondition candidate,
+            PaymentCondition current
     ) {
 
         boolean candidateInterestFree =
-            isExplicitlyInterestFree(
-                candidate
-            );
+                isExplicitlyInterestFree(
+                        candidate
+                );
 
         boolean currentInterestFree =
-            isExplicitlyInterestFree(
-                current
-            );
+                isExplicitlyInterestFree(
+                        current
+                );
 
         if (candidateInterestFree
-            && !currentInterestFree) {
+                && !currentInterestFree) {
 
             return true;
         }
 
         if (!candidateInterestFree
-            && currentInterestFree) {
+                && currentInterestFree) {
 
             return false;
         }
 
         return candidate.installmentCount()
-            > current.installmentCount();
+                > current.installmentCount();
     }
 
     private boolean isExplicitlyInterestFree(
-        PaymentCondition condition
+            PaymentCondition condition
     ) {
 
         if (condition.interest() == null) {
+
             return false;
         }
 
         return condition.interest()
-            .value()
-            .compareTo(
-                BigDecimal.ZERO
-            ) == 0;
+                .value()
+                .compareTo(
+                        BigDecimal.ZERO
+                ) == 0;
     }
 
     private record CashPresentation(
-        PresentedCashCondition primary,
-        PresentedCashCondition secondary
+            PresentedCashCondition primary,
+            PresentedCashCondition secondary
     ) {
 
         private static CashPresentation empty() {
 
             return new CashPresentation(
-                null,
-                null
+                    null,
+                    null
             );
         }
 
         private static CashPresentation primaryOnly(
-            PresentedCashCondition primary
+                PresentedCashCondition primary
         ) {
 
             return new CashPresentation(
-                primary,
-                null
+                    primary,
+                    null
             );
         }
     }

@@ -7,117 +7,170 @@ import com.raspingamazon.domain.commercial.PaymentCondition;
 
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Cliente de enriquecimento baseado na página individual do produto.
+ * Cliente de enrichment baseado na página individual do produto.
  *
- * A responsabilidade deste adaptador é:
+ * <p>A responsabilidade deste adaptador é:</p>
  *
- * 1. acessar a página individual;
- * 2. obter o HTML;
- * 3. interpretar seller/delivery;
- * 4. interpretar condições comerciais;
- * 5. montar o contrato normalizado de enriquecimento.
+ * <ol>
+ *     <li>solicitar o conteúdo da página a um provider;</li>
+ *     <li>interpretar seller e delivery;</li>
+ *     <li>interpretar rating e reviewCount;</li>
+ *     <li>interpretar condições comerciais;</li>
+ *     <li>montar o contrato normalizado de enrichment.</li>
+ * </ol>
  *
- * Ele não decide elegibilidade, filtros, score ou publicação.
+ * <p>Todos os parsers recebem exatamente o mesmo HTML adquirido pelo
+ * ProductPageContentProvider. Não existe segunda chamada HTTP para
+ * rating/reviewCount.</p>
+ *
+ * <p>O mecanismo utilizado para adquirir o conteúdo da página fica
+ * deliberadamente separado desta classe. Assim, HTTP bruto e DOM
+ * renderizado podem ser estratégias substituíveis sem alterar
+ * parsers ou regras de negócio.</p>
+ *
+ * <p>Esta classe não decide elegibilidade, filtros, score ou
+ * publicação.</p>
  */
 public final class AmazonProductPageEnrichmentClient
     implements ProductEnrichmentClient {
 
-    private static final String USER_AGENT =
-        "RaspingAmazon/1.0";
-
     private static final String SOURCE =
         "AMAZON_PRODUCT_PAGE";
 
-    private static final java.time.Duration REQUEST_TIMEOUT =
-        java.time.Duration.ofSeconds(
-            20
-        );
+    private final ProductPageContentProvider
+        contentProvider;
 
-    private final HttpClient httpClient;
-
-    private final AmazonProductPageParser parser;
+    private final AmazonProductPageParser
+        parser;
 
     private final AmazonPaymentConditionParser
         paymentConditionParser;
+
+    private final AmazonCustomerReviewParser
+        customerReviewParser;
 
     /**
      * Construtor padrão utilizado pela aplicação.
      */
     public AmazonProductPageEnrichmentClient() {
+
         this(
-            HttpClient.newBuilder()
-                .connectTimeout(
-                    REQUEST_TIMEOUT
-                )
-                .followRedirects(
-                    HttpClient.Redirect.NORMAL
-                )
-                .build(),
+            new HttpProductPageContentProvider(),
             new AmazonProductPageParser(),
-            new AmazonPaymentConditionParser()
+            new AmazonPaymentConditionParser(),
+            new AmazonCustomerReviewParser()
         );
     }
 
     /**
-     * Construtor de compatibilidade utilizado pelos testes existentes.
-     *
-     * A partir da FASE 9-C1.5 ele também habilita automaticamente
-     * o parser comercial padrão.
+     * Construtor de compatibilidade utilizado pela composition e
+     * pelos testes existentes.
      */
     public AmazonProductPageEnrichmentClient(
         HttpClient httpClient,
         AmazonProductPageParser parser
     ) {
+
         this(
-            httpClient,
+            new HttpProductPageContentProvider(
+                httpClient
+            ),
             parser,
-            new AmazonPaymentConditionParser()
+            new AmazonPaymentConditionParser(),
+            new AmazonCustomerReviewParser()
         );
     }
 
     /**
-     * Construtor completo para composição e testes isolados.
+     * Construtor de compatibilidade para consumidores que injetam
+     * explicitamente os parsers já existentes.
      */
     public AmazonProductPageEnrichmentClient(
         HttpClient httpClient,
         AmazonProductPageParser parser,
         AmazonPaymentConditionParser paymentConditionParser
     ) {
-        this.httpClient =
+
+        this(
+            new HttpProductPageContentProvider(
+                httpClient
+            ),
+            parser,
+            paymentConditionParser,
+            new AmazonCustomerReviewParser()
+        );
+    }
+
+    /**
+     * Construtor estrutural de compatibilidade para providers
+     * alternativos já existentes.
+     */
+    public AmazonProductPageEnrichmentClient(
+        ProductPageContentProvider contentProvider,
+        AmazonProductPageParser parser,
+        AmazonPaymentConditionParser paymentConditionParser
+    ) {
+
+        this(
+            contentProvider,
+            parser,
+            paymentConditionParser,
+            new AmazonCustomerReviewParser()
+        );
+    }
+
+    /**
+     * Construtor completo.
+     *
+     * @param contentProvider provider responsável por adquirir o conteúdo
+     * @param parser parser de seller/delivery
+     * @param paymentConditionParser parser das condições comerciais
+     * @param customerReviewParser parser estrutural de rating/reviewCount
+     */
+    public AmazonProductPageEnrichmentClient(
+        ProductPageContentProvider contentProvider,
+        AmazonProductPageParser parser,
+        AmazonPaymentConditionParser paymentConditionParser,
+        AmazonCustomerReviewParser customerReviewParser
+    ) {
+
+        this.contentProvider =
             Objects.requireNonNull(
-                httpClient,
-                "HTTP client must not be null"
+                contentProvider,
+                "contentProvider must not be null"
             );
 
         this.parser =
             Objects.requireNonNull(
                 parser,
-                "Parser must not be null"
+                "parser must not be null"
             );
 
         this.paymentConditionParser =
             Objects.requireNonNull(
                 paymentConditionParser,
-                "Payment condition parser must not be null"
+                "paymentConditionParser must not be null"
+            );
+
+        this.customerReviewParser =
+            Objects.requireNonNull(
+                customerReviewParser,
+                "customerReviewParser must not be null"
             );
     }
 
     /**
-     * Enriquece uma oferta previamente interpretada pela etapa
-     * de Deals.
+     * Enriquece uma oferta previamente interpretada pela etapa de Deals.
      */
     @Override
     public ProductEnrichmentResult enrich(
         ParsedDeal parsedDeal
     ) {
+
         Objects.requireNonNull(
             parsedDeal,
             "Parsed deal must not be null"
@@ -134,52 +187,33 @@ public final class AmazonProductPageEnrichmentClient
             );
         }
 
-        URI uri =
-            URI.create(
-                productUrl
-            );
-
-        HttpRequest request =
-            HttpRequest.newBuilder()
-                .uri(
-                    uri
-                )
-                .timeout(
-                    REQUEST_TIMEOUT
-                )
-                .header(
-                    "User-Agent",
-                    USER_AGENT
-                )
-                .header(
-                    "Accept",
-                    "text/html"
-                )
-                .GET()
-                .build();
-
-        HttpResponse<String> response;
+        URI uri;
 
         try {
-            response =
-                httpClient.send(
-                    request,
-                    HttpResponse
-                        .BodyHandlers
-                        .ofString()
+
+            uri =
+                URI.create(
+                    productUrl
                 );
 
-        } catch (InterruptedException exception) {
-
-            Thread.currentThread()
-                .interrupt();
+        } catch (IllegalArgumentException exception) {
 
             throw new ProductEnrichmentException(
-                "Product page request was interrupted",
+                "Parsed deal contains an invalid product URL",
                 exception
             );
+        }
 
-        } catch (Exception exception) {
+        ProductPageContent pageContent;
+
+        try {
+
+            pageContent =
+                contentProvider.load(
+                    uri
+                );
+
+        } catch (ProductPageContentProviderException exception) {
 
             throw new ProductEnrichmentException(
                 "Failed to retrieve Amazon product page",
@@ -187,29 +221,19 @@ public final class AmazonProductPageEnrichmentClient
             );
         }
 
-        if (response.statusCode() < 200
-            || response.statusCode() >= 300) {
-
-            throw new ProductEnrichmentException(
-                "Amazon product page returned HTTP "
-                    + response.statusCode()
-            );
-        }
-
         String html =
-            response.body();
-
-        if (html == null
-            || html.isBlank()) {
-
-            throw new ProductEnrichmentException(
-                "Amazon product page returned an empty response"
-            );
-        }
+            pageContent.html();
 
         AmazonProductPageParser.ParsedProductOffer parsed =
             parser.parse(
                 html
+            );
+
+        AmazonCustomerReviewParser.ParsedCustomerReviews
+            customerReviews =
+            customerReviewParser.parse(
+                html,
+                parsedDeal.asin()
             );
 
         List<PaymentCondition> paymentConditions =
@@ -217,24 +241,21 @@ public final class AmazonProductPageEnrichmentClient
                 html
             );
 
-        OffsetDateTime collectedAt =
-            OffsetDateTime.now(
-                ZoneOffset.UTC
-            );
-
         return new ProductEnrichmentResult(
             parsedDeal.asin(),
             parsed.sellerEvidence(),
             parsed.deliveryEvidence(),
+            customerReviews.ratingEvidence(),
+            customerReviews.reviewCountEvidence(),
             paymentConditions,
             SOURCE,
             productUrl,
-            collectedAt
+            pageContent.collectedAt()
         );
     }
 
     /**
-     * Erro específico da operação de enriquecimento.
+     * Erro específico da operação de enrichment.
      */
     public static final class ProductEnrichmentException
         extends RuntimeException {
@@ -242,6 +263,7 @@ public final class AmazonProductPageEnrichmentClient
         public ProductEnrichmentException(
             String message
         ) {
+
             super(
                 message
             );
@@ -251,6 +273,7 @@ public final class AmazonProductPageEnrichmentClient
             String message,
             Throwable cause
         ) {
+
             super(
                 message,
                 cause

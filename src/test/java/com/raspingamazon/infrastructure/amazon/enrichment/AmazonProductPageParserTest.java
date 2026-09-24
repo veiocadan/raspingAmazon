@@ -10,14 +10,15 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Testa a extração de evidências de seller e delivery
- * usando fixtures mínimas.
+ * Testa a extração estrutural de evidências de seller e delivery.
  *
- * <p>As fixtures contêm apenas as estruturas utilizadas pelo parser,
- * evitando depender de páginas Amazon completas de vários megabytes.</p>
+ * <p>As fixtures contêm somente estruturas pequenas da página de produto,
+ * enquanto cenários de isolamento estrutural são expressos diretamente
+ * nos próprios testes.</p>
  */
 class AmazonProductPageParserTest {
 
@@ -262,6 +263,364 @@ class AmazonProductPageParserTest {
         );
     }
 
+    @Test
+    void shouldExtractVisibleSellerTextWithoutNestedHtmlMarkup() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        <a href="/sp?seller=acer">
+                            Acer <strong>Brasil</strong>
+                        </a>
+                    </span>
+                </div>
+
+                <div
+                    id="fulfillerInfoFeature_feature_div"
+                    data-feature-name="fulfillerInfoFeature">
+                    <span>Enviado por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertEquals(
+            "Acer Brasil",
+            result.sellerEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            SellerType.THIRD_PARTY,
+            result.sellerEvidence()
+                .sellerType()
+        );
+
+        assertEquals(
+            "Amazon",
+            result.deliveryEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            DeliveryType.AMAZON,
+            result.deliveryEvidence()
+                .deliveryType()
+        );
+    }
+
+    @Test
+    void shouldExtractVisibleDeliveryTextWithoutNestedHtmlMarkup() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        Samsung Loja Oficial
+                    </span>
+                </div>
+
+                <div
+                    id="fulfillerInfoFeature_feature_div"
+                    data-feature-name="fulfillerInfoFeature">
+                    <span>Enviado por</span>
+                    <span class="offer-display-feature-text-message">
+                        <a href="/sp?seller=samsung">
+                            Samsung <strong>Loja Oficial</strong>
+                        </a>
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertEquals(
+            "Samsung Loja Oficial",
+            result.deliveryEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            DeliveryType.THIRD_PARTY,
+            result.deliveryEvidence()
+                .deliveryType()
+        );
+    }
+
+    @Test
+    void shouldNotLeakSellerFromAFeatureThatComesAfterMerchantFeature() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Informação indisponível</span>
+                </div>
+
+                <div data-feature-name="secondaryOffer">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon.com.br
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertNull(
+            result.sellerEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            SellerType.UNKNOWN,
+            result.sellerEvidence()
+                .sellerType()
+        );
+
+        assertNull(
+            result.sellerEvidence()
+                .source()
+        );
+    }
+
+    @Test
+    void shouldNotLeakDeliveryFromAFeatureThatComesAfterFulfillerFeature() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        Loja Terceira
+                    </span>
+                </div>
+
+                <div
+                    id="fulfillerInfoFeature_feature_div"
+                    data-feature-name="fulfillerInfoFeature">
+                    <span>Informação indisponível</span>
+                </div>
+
+                <div data-feature-name="secondaryOffer">
+                    <span>Enviado por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertNull(
+            result.deliveryEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            DeliveryType.UNKNOWN,
+            result.deliveryEvidence()
+                .deliveryType()
+        );
+
+        assertNull(
+            result.deliveryEvidence()
+                .source()
+        );
+    }
+
+    @Test
+    void shouldPreferCanonicalMerchantFeatureOverLaterDuplicateFeature() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Vendido por</span>
+                </div>
+
+                <div data-feature-name="merchantInfoFeature">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon.com.br
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertNull(
+            result.sellerEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            SellerType.UNKNOWN,
+            result.sellerEvidence()
+                .sellerType()
+        );
+    }
+
+    @Test
+    void shouldUseCombinedMerchantFeatureForSellerAndDelivery() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div
+                    id="merchantInfoFeature_feature_div"
+                    data-feature-name="merchantInfoFeature">
+                    <span>Enviado / Vendido</span>
+                    <span class="offer-display-feature-text-message">
+                        <a>Amazon.com.br</a>
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertEquals(
+            "Amazon.com.br",
+            result.sellerEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            SellerType.AMAZON,
+            result.sellerEvidence()
+                .sellerType()
+        );
+
+        assertEquals(
+            "merchantInfoFeature",
+            result.sellerEvidence()
+                .source()
+        );
+
+        assertEquals(
+            "Amazon",
+            result.deliveryEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            DeliveryType.AMAZON,
+            result.deliveryEvidence()
+                .deliveryType()
+        );
+
+        assertEquals(
+            "merchantInfoFeature",
+            result.deliveryEvidence()
+                .source()
+        );
+    }
+
+    @Test
+    void shouldKeepSellerAndDeliveryUnknownWhenFeatureBlocksAreAbsent() {
+
+        String html =
+            """
+            <html>
+            <body>
+                <div data-feature-name="unrelatedFeature">
+                    <span>Vendido por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon.com.br
+                    </span>
+
+                    <span>Enviado por</span>
+                    <span class="offer-display-feature-text-message">
+                        Amazon
+                    </span>
+                </div>
+            </body>
+            </html>
+            """;
+
+        AmazonProductPageParser.ParsedProductOffer result =
+            parser.parse(
+                html
+            );
+
+        assertNull(
+            result.sellerEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            SellerType.UNKNOWN,
+            result.sellerEvidence()
+                .sellerType()
+        );
+
+        assertNull(
+            result.deliveryEvidence()
+                .rawValue()
+        );
+
+        assertEquals(
+            DeliveryType.UNKNOWN,
+            result.deliveryEvidence()
+                .deliveryType()
+        );
+    }
+
     /**
      * Carrega somente fixtures pequenas específicas de página de produto.
      */
@@ -280,6 +639,7 @@ class AmazonProductPageParserTest {
                      )) {
 
             if (inputStream == null) {
+
                 throw new IllegalStateException(
                     "Fixture not found: "
                         + resourcePath

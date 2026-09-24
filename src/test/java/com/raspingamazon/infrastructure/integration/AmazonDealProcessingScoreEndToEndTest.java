@@ -37,40 +37,28 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Teste vertical específico da FASE 10.
+ * Teste vertical específico do score ativo.
  *
- * <p>Exercita o caminho positivo completo:</p>
+ * <p>Após a V16, o caminho positivo completo utiliza:</p>
  *
  * <pre>
- * fixture Deals
+ * COMMERCIAL_FILTER_V2
  *     ↓
- * coleta HTTP local
+ * MIN_BASIS_DISCOUNT
  *     ↓
- * parser
+ * SCORE_V2
  *     ↓
- * enrichment comercial
- *     ↓
- * Product
- *     ↓
- * OfferSnapshot
- *     ↓
- * PaymentConditions
- *     ↓
- * elegibilidade estrutural
- *     ↓
- * filtros comerciais
- *     ↓
- * ScoreProfile ativo
- *     ↓
- * ScoreEngine
- *     ↓
- * DealEvaluation
- *     ↓
- * score + score_version
- *     ↓
- * quatro fatores auditáveis
- *     ↓
- * PostgreSQL
+ * BASIS_DISCOUNT
+ * </pre>
+ *
+ * <p>A fixture contém:</p>
+ *
+ * <pre>
+ * currentPrice = 79.90
+ * basisPrice   = 99.90
+ * CASH price   = 79.90
+ *
+ * basisDiscount = 20.0200%
  * </pre>
  */
 class AmazonDealProcessingScoreEndToEndTest {
@@ -197,23 +185,24 @@ class AmazonDealProcessingScoreEndToEndTest {
             );
 
             assertEquals(
-                "COMMERCIAL_FILTER_V1",
+                "COMMERCIAL_FILTER_V2",
                 evaluation.filterProfileVersion()
             );
 
             assertEquals(
-                "SCORE_V1",
+                "SCORE_V2",
                 evaluation.scoreVersion()
             );
 
             /*
-             * SCORE_V1:
+             * SCORE_V2:
              *
              * soldPercentage:
              * 37 / 100 * 30 = 11.1000
              *
-             * cashDiscount:
-             * 25 / 100 * 25 = 6.2500
+             * basisDiscount:
+             * ((99.90 - 79.90) / 99.90) * 100 = 20.0200
+             * 20.0200 / 100 * 25 = 5.0050
              *
              * rating:
              * 4.6 / 5 * 100 = 92
@@ -223,10 +212,10 @@ class AmazonDealProcessingScoreEndToEndTest {
              * 58363 >= 1000
              * contribuição = 15.0000
              *
-             * total = 50.7500
+             * total = 49.5050
              */
             assertBigDecimalEquals(
-                "50.7500",
+                "49.5050",
                 evaluation.score()
             );
 
@@ -245,7 +234,7 @@ class AmazonDealProcessingScoreEndToEndTest {
                 factors.get(0)
             );
 
-            assertCashDiscountFactor(
+            assertBasisDiscountFactor(
                 factors.get(1)
             );
 
@@ -328,7 +317,7 @@ class AmazonDealProcessingScoreEndToEndTest {
         );
     }
 
-    private void assertCashDiscountFactor(
+    private void assertBasisDiscountFactor(
         PersistedScoreFactor factor
     ) {
 
@@ -338,7 +327,7 @@ class AmazonDealProcessingScoreEndToEndTest {
         );
 
         assertEquals(
-            "CASH_DISCOUNT",
+            "BASIS_DISCOUNT",
             factor.factorCode()
         );
 
@@ -348,12 +337,12 @@ class AmazonDealProcessingScoreEndToEndTest {
         );
 
         assertBigDecimalEquals(
-            "25",
+            "20.0200",
             factor.rawValue()
         );
 
         assertBigDecimalEquals(
-            "25.0000",
+            "20.0200",
             factor.normalizedValue()
         );
 
@@ -363,7 +352,7 @@ class AmazonDealProcessingScoreEndToEndTest {
         );
 
         assertBigDecimalEquals(
-            "6.2500",
+            "5.0050",
             factor.contribution()
         );
     }
@@ -781,10 +770,6 @@ class AmazonDealProcessingScoreEndToEndTest {
             asin
         );
 
-        /*
-         * deal_evaluation_score_factor e
-         * deal_evaluation_rule_result são removidos por ON DELETE CASCADE.
-         */
         executeDelete(
             connection,
             """

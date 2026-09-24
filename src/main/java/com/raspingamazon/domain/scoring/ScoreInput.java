@@ -4,35 +4,46 @@ import java.math.BigDecimal;
 import java.util.Objects;
 
 /**
- * Conjunto de valores observados necessários para calcular o score.
+ * Conjunto de fatos necessários para calcular uma versão de score.
  *
- * <p>ScoreInput representa fatos já coletados e validados pelas etapas
- * anteriores do pipeline. Ele não contém pesos, versões ou parâmetros
- * de normalização; essas informações pertencem ao ScoreProfile.</p>
- *
- * <p>No SCORE_V1:</p>
- *
- * <ul>
- *     <li>soldPercentage pode estar ausente;</li>
- *     <li>cashDiscountPercentage é obrigatório;</li>
- *     <li>rating é obrigatório;</li>
- *     <li>reviewCount é obrigatório.</li>
- * </ul>
- *
- * <p>A possibilidade de soldPercentage ser null é deliberada:
- * ausência de informação não equivale a percentual vendido igual
- * a zero.</p>
+ * <p>Exatamente uma semântica de desconto deve estar presente.</p>
  */
 public record ScoreInput(
     BigDecimal soldPercentage,
     BigDecimal cashDiscountPercentage,
+    BigDecimal basisDiscountPercentage,
     BigDecimal rating,
     long reviewCount
 ) {
 
-    private static final BigDecimal ZERO = BigDecimal.ZERO;
-    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
-    private static final BigDecimal FIVE = new BigDecimal("5");
+    private static final BigDecimal ZERO =
+        BigDecimal.ZERO;
+
+    private static final BigDecimal ONE_HUNDRED =
+        new BigDecimal("100");
+
+    private static final BigDecimal FIVE =
+        new BigDecimal("5");
+
+    /**
+     * Construtor histórico do SCORE_V1.
+     */
+    public ScoreInput(
+        BigDecimal soldPercentage,
+        BigDecimal cashDiscountPercentage,
+        BigDecimal rating,
+        long reviewCount
+    ) {
+        this(
+            soldPercentage,
+            requireLegacyCashDiscount(
+                cashDiscountPercentage
+            ),
+            null,
+            rating,
+            reviewCount
+        );
+    }
 
     public ScoreInput {
 
@@ -45,22 +56,41 @@ public record ScoreInput(
             );
         }
 
-        cashDiscountPercentage = Objects.requireNonNull(
-            cashDiscountPercentage,
-            "ScoreInput cashDiscountPercentage must not be null"
-        );
+        boolean hasCash =
+            cashDiscountPercentage != null;
 
-        requireBetween(
-            cashDiscountPercentage,
-            ZERO,
-            ONE_HUNDRED,
-            "ScoreInput cashDiscountPercentage must be between 0 and 100"
-        );
+        boolean hasBasis =
+            basisDiscountPercentage != null;
 
-        rating = Objects.requireNonNull(
-            rating,
-            "ScoreInput rating must not be null"
-        );
+        if (hasCash == hasBasis) {
+            throw new IllegalArgumentException(
+                "ScoreInput must define exactly one discount percentage"
+            );
+        }
+
+        if (cashDiscountPercentage != null) {
+            requireBetween(
+                cashDiscountPercentage,
+                ZERO,
+                ONE_HUNDRED,
+                "ScoreInput cashDiscountPercentage must be between 0 and 100"
+            );
+        }
+
+        if (basisDiscountPercentage != null) {
+            requireBetween(
+                basisDiscountPercentage,
+                ZERO,
+                ONE_HUNDRED,
+                "ScoreInput basisDiscountPercentage must be between 0 and 100"
+            );
+        }
+
+        rating =
+            Objects.requireNonNull(
+                rating,
+                "ScoreInput rating must not be null"
+            );
 
         requireBetween(
             rating,
@@ -76,11 +106,43 @@ public record ScoreInput(
         }
     }
 
-    /**
-     * Indica se houve observação explícita do percentual vendido.
-     */
+    public static ScoreInput forBasisDiscount(
+        BigDecimal soldPercentage,
+        BigDecimal basisDiscountPercentage,
+        BigDecimal rating,
+        long reviewCount
+    ) {
+        return new ScoreInput(
+            soldPercentage,
+            null,
+            Objects.requireNonNull(
+                basisDiscountPercentage,
+                "basisDiscountPercentage must not be null"
+            ),
+            rating,
+            reviewCount
+        );
+    }
+
     public boolean hasSoldPercentage() {
         return soldPercentage != null;
+    }
+
+    public boolean usesCashDiscount() {
+        return cashDiscountPercentage != null;
+    }
+
+    public boolean usesBasisDiscount() {
+        return basisDiscountPercentage != null;
+    }
+
+    private static BigDecimal requireLegacyCashDiscount(
+        BigDecimal value
+    ) {
+        return Objects.requireNonNull(
+            value,
+            "ScoreInput cashDiscountPercentage must not be null"
+        );
     }
 
     private static void requireBetween(
@@ -91,7 +153,6 @@ public record ScoreInput(
     ) {
         if (value.compareTo(minimum) < 0
             || value.compareTo(maximum) > 0) {
-
             throw new IllegalArgumentException(message);
         }
     }

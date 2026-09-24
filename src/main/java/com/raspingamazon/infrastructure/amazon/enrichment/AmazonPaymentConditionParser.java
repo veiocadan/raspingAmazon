@@ -5,12 +5,20 @@ import com.raspingamazon.domain.commercial.PaymentConditionType;
 import com.raspingamazon.domain.commercial.PaymentMethod;
 import com.raspingamazon.domain.shared.Money;
 import com.raspingamazon.domain.shared.Percentage;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,132 +26,168 @@ import java.util.regex.Pattern;
  * Parser das condições comerciais observadas na página individual
  * de produto da Amazon.
  *
- * Esta classe pertence à infraestrutura porque conhece estruturas
- * e textos específicos da página Amazon.
+ * <p>Esta classe interpreta somente fatos explicitamente presentes
+ * no HTML recebido.</p>
  *
- * Responsabilidades:
+ * <p>Responsabilidades:</p>
  *
- * - localizar promoção à vista;
- * - preservar Pix e NuPay como métodos explícitos;
- * - localizar parcelamento sem juros no cartão;
- * - normalizar os fatos observados em PaymentCondition.
+ * <ul>
+ *     <li>localizar os widgets comerciais reais por id;</li>
+ *     <li>interpretar promoção à vista;</li>
+ *     <li>distinguir Pix, NuPay e NuPay Limite Adicional;</li>
+ *     <li>ler preço à vista estruturado quando disponível;</li>
+ *     <li>interpretar todas as linhas sem juros da tabela de cartão;</li>
+ *     <li>normalizar valores monetários brasileiros.</li>
+ * </ul>
  *
- * Esta classe não:
+ * <p>Esta classe não:</p>
  *
- * - decide elegibilidade;
- * - aplica filtros;
- * - escolhe o que será publicado;
- * - calcula desconto pela diferença entre preços;
- * - inventa preço Pix;
- * - reconstrói parcelamento matematicamente.
+ * <ul>
+ *     <li>decide elegibilidade;</li>
+ *     <li>aplica filtros;</li>
+ *     <li>escolhe a condição que será publicada;</li>
+ *     <li>calcula desconto pela diferença entre preços;</li>
+ *     <li>reconstrói valores comerciais ausentes.</li>
+ * </ul>
  */
 public final class AmazonPaymentConditionParser {
 
-    private static final String CASH_PROMOTION_MARKER =
+    private static final String
+        CASH_PROMOTION_ID =
         "promotionMessageInsideBuyBox_feature_div";
 
-    private static final String CASH_PROMOTION_FALLBACK_MARKER =
+    private static final String
+        CASH_PRICE_ID =
         "oneTimePaymentPrice_feature_div";
 
-    private static final String CREDIT_TABLE_MARKER =
+    private static final String
+        CREDIT_TABLE_ID =
         "InstallmentCalculatorTableCredit";
 
-    /*
-     * A região é propositalmente limitada.
+    /**
+     * Segmento específico da condição à vista.
      *
-     * Dessa forma não procuramos "Pix", "NuPay" ou percentuais
-     * indiscriminadamente em toda a página.
+     * <p>Exemplos suportados:</p>
+     *
+     * <pre>
+     * 25% off à vista no Pix
+     * à vista no Pix ou NuPay (10% off)
+     * à vista no Pix ou NuPay
+     * </pre>
+     *
+     * <p>O segmento termina antes da apresentação de parcelamento,
+     * entrega ou demais opções comerciais. Isso impede que textos
+     * como "Limite Adicional" presentes em outro sub-bloco sejam
+     * atribuídos indevidamente à condição CASH.</p>
      */
-    private static final int FEATURE_REGION_LENGTH =
-        8000;
-
-    private static final Pattern CASH_DISCOUNT_PATTERN =
+    private static final Pattern
+        CASH_SEGMENT_PATTERN =
         Pattern.compile(
-            "(\\d+(?:[.,]\\d+)?)\\s*%\\s*(?:off)?\\s*(?:à|a)\\s*vista",
+            "(?:"
+                + "\\d+(?:[.,]\\d+)?"
+                + "\\s*%"
+                + "\\s*(?:off|de\\s+desconto)"
+                + "\\s*"
+                + ")?"
+                + "(?:à|a)"
+                + "\\s+vista"
+                + "\\s+no"
+                + "\\s+.+?"
+                + "(?="
+                + "\\s+ou\\s+(?:em\\b|r\\$)"
+                + "|\\s+entrega\\b"
+                + "|\\s+ver\\s+op"
+                + "|$"
+                + ")",
             Pattern.CASE_INSENSITIVE
                 | Pattern.UNICODE_CASE
-        );
-
-    /*
-     * Fonte estruturada identificada na FASE 0 v2:
-     *
-     * name="items[0].base][customerVisiblePrice][amount]"
-     * value="161.40"
-     */
-    private static final Pattern CUSTOMER_VISIBLE_PRICE_PATTERN =
-        Pattern.compile(
-            "customerVisiblePrice\\]\\[amount\\][^>]*"
-                + "value\\s*=\\s*[\"']([0-9]+(?:[.,][0-9]+)?)[\"']",
-            Pattern.CASE_INSENSITIVE
-                | Pattern.UNICODE_CASE
-        );
-
-    /*
-     * Exemplo normalizado da fonte:
-     *
-     * Em 6x de R$ 31,65
-     * sem juros
-     * R$ 189,90
-     */
-    private static final Pattern CREDIT_INSTALLMENT_PATTERN =
-        Pattern.compile(
-            "(?:em\\s+)?"
-                + "(\\d+)x\\s+de\\s+r\\$\\s*"
-                + "([0-9]+(?:[.,][0-9]+)?)"
-                + ".*?"
-                + "sem\\s+juros"
-                + ".*?"
-                + "r\\$\\s*"
-                + "([0-9]+(?:[.,][0-9]+)?)",
-            Pattern.CASE_INSENSITIVE
-                | Pattern.UNICODE_CASE
-                | Pattern.DOTALL
         );
 
     /**
-     * Extrai todas as condições comerciais suportadas encontradas
-     * explicitamente na página.
+     * Percentual explicitamente observado dentro do segmento CASH.
+     */
+    private static final Pattern
+        DISCOUNT_PATTERN =
+        Pattern.compile(
+            "(\\d+(?:[.,]\\d+)?)"
+                + "\\s*%",
+            Pattern.CASE_INSENSITIVE
+                | Pattern.UNICODE_CASE
+        );
+
+    /**
+     * Linha de parcelamento sem juros.
      *
-     * A lista retornada é imutável.
+     * <p>Depois que Jsoup transforma a tabela em texto, uma linha
+     * possui formato equivalente a:</p>
+     *
+     * <pre>
+     * Em 12x de R$ 158,24 sem juros R$ 1.898,00
+     * </pre>
+     */
+    private static final Pattern
+        INTEREST_FREE_INSTALLMENT_PATTERN =
+        Pattern.compile(
+            "(?:em\\s+)?"
+                + "(\\d+)x"
+                + "\\s+de"
+                + "\\s+r\\$"
+                + "\\s*"
+                + "([0-9][0-9.]*,[0-9]{2})"
+                + "\\s+sem\\s+juros"
+                + "\\s+r\\$"
+                + "\\s*"
+                + "([0-9][0-9.]*,[0-9]{2})",
+            Pattern.CASE_INSENSITIVE
+                | Pattern.UNICODE_CASE
+        );
+
+    /**
+     * Extrai todas as condições comerciais suportadas.
+     *
+     * <p>A lista é imutável.</p>
      */
     public List<PaymentCondition> parse(
         String html
     ) {
+
         Objects.requireNonNull(
             html,
             "html must not be null"
         );
 
         if (html.isBlank()) {
+
             throw new IllegalArgumentException(
                 "html must not be blank"
             );
         }
+
+        Document document =
+            Jsoup.parse(
+                html
+            );
 
         List<PaymentCondition> conditions =
             new ArrayList<>();
 
         PaymentCondition cashCondition =
             extractCashCondition(
-                html
+                document
             );
 
         if (cashCondition != null) {
+
             conditions.add(
                 cashCondition
             );
         }
 
-        PaymentCondition creditCondition =
-            extractCreditInstallmentCondition(
-                html
-            );
-
-        if (creditCondition != null) {
-            conditions.add(
-                creditCondition
-            );
-        }
+        conditions.addAll(
+            extractCreditInstallmentConditions(
+                document
+            )
+        );
 
         return List.copyOf(
             conditions
@@ -151,59 +195,41 @@ public final class AmazonPaymentConditionParser {
     }
 
     /**
-     * Extrai a promoção à vista explicitamente associada ao bloco
-     * comercial investigado na FASE 0 v2.
+     * Extrai uma única condição CASH representando a promoção
+     * explicitamente apresentada para os métodos à vista.
      */
     private PaymentCondition extractCashCondition(
-        String html
+        Document document
     ) {
-        String promotionRegion =
-            featureRegion(
-                html,
-                CASH_PROMOTION_MARKER
+
+        List<String> cashSegments =
+            extractCashSegments(
+                document
             );
 
-        if (promotionRegion == null) {
-            promotionRegion =
-                featureRegion(
-                    html,
-                    CASH_PROMOTION_FALLBACK_MARKER
-                );
-        }
+        if (cashSegments.isEmpty()) {
 
-        if (promotionRegion == null) {
             return null;
         }
 
-        String text =
-            normalizeHtmlText(
-                promotionRegion
-            );
-
         List<PaymentMethod> methods =
             extractCashPaymentMethods(
-                text
+                cashSegments
             );
 
-        /*
-         * Sem método explicitamente reconhecido, não construímos
-         * uma condição CASH.
-         *
-         * Isso evita transformar qualquer percentual promocional
-         * encontrado na página em desconto Pix/NuPay.
-         */
         if (methods.isEmpty()) {
+
             return null;
         }
 
         Percentage discount =
-            extractCashDiscount(
-                text
+            extractConsistentCashDiscount(
+                cashSegments
             );
 
         Money cashPrice =
-            extractCustomerVisiblePrice(
-                html
+            extractCashPrice(
+                document
             );
 
         return new PaymentCondition(
@@ -219,32 +245,132 @@ public final class AmazonPaymentConditionParser {
     }
 
     /**
-     * Extrai apenas os meios explicitamente associados à promoção
-     * à vista.
+     * Obtém somente o trecho semântico referente à promoção CASH.
+     *
+     * <p>Os ids podem aparecer mais de uma vez no DOM, por exemplo
+     * em variantes responsivas. Elementos duplicados são considerados,
+     * mas segmentos textualmente idênticos são deduplicados.</p>
      */
-    private List<PaymentMethod> extractCashPaymentMethods(
-        String normalizedText
+    private List<String> extractCashSegments(
+        Document document
     ) {
-        String lower =
-            normalizedText.toLowerCase(
-                Locale.ROOT
+
+        Set<String> segments =
+            new LinkedHashSet<>();
+
+        collectCashSegments(
+            document,
+            CASH_PROMOTION_ID,
+            segments
+        );
+
+        collectCashSegments(
+            document,
+            CASH_PRICE_ID,
+            segments
+        );
+
+        return List.copyOf(
+            segments
+        );
+    }
+
+    private void collectCashSegments(
+        Document document,
+        String elementId,
+        Set<String> segments
+    ) {
+
+        Elements elements =
+            document.getElementsByAttributeValue(
+                "id",
+                elementId
             );
 
-        List<PaymentMethod> methods =
-            new ArrayList<>();
+        for (Element element : elements) {
 
-        if (lower.contains("pix")) {
-            methods.add(
-                PaymentMethod.PIX
-            );
+            String text =
+                normalizeText(
+                    element.text()
+                );
+
+            if (text.isBlank()) {
+                continue;
+            }
+
+            Matcher matcher =
+                CASH_SEGMENT_PATTERN.matcher(
+                    text
+                );
+
+            while (matcher.find()) {
+
+                String segment =
+                    normalizeText(
+                        matcher.group()
+                    );
+
+                if (!segment.isBlank()) {
+
+                    segments.add(
+                        segment
+                    );
+                }
+            }
         }
+    }
 
-        if (lower.contains("nupay")
-            || lower.contains("limite adicional")) {
+    /**
+     * Extrai os meios explicitamente presentes no segmento CASH.
+     *
+     * <p>Importante: "NuPay" só vira NUPAY_ADDITIONAL_LIMIT quando
+     * "Limite Adicional" aparece dentro do próprio segmento da
+     * promoção à vista.</p>
+     */
+    private List<PaymentMethod>
+    extractCashPaymentMethods(
+        List<String> cashSegments
+    ) {
 
-            methods.add(
-                PaymentMethod.NUPAY_ADDITIONAL_LIMIT
-            );
+        Set<PaymentMethod> methods =
+            new LinkedHashSet<>();
+
+        for (String segment : cashSegments) {
+
+            String lower =
+                segment.toLowerCase(
+                    Locale.ROOT
+                );
+
+            if (lower.contains(
+                "pix"
+            )) {
+
+                methods.add(
+                    PaymentMethod.PIX
+                );
+            }
+
+            if (lower.contains(
+                "nupay"
+            )) {
+
+                if (lower.contains(
+                    "limite adicional"
+                )) {
+
+                    methods.add(
+                        PaymentMethod
+                            .NUPAY_ADDITIONAL_LIMIT
+                    );
+
+                } else {
+
+                    methods.add(
+                        PaymentMethod.NUPAY
+                    );
+                }
+            }
         }
 
         return List.copyOf(
@@ -253,216 +379,502 @@ public final class AmazonPaymentConditionParser {
     }
 
     /**
-     * Retorna o percentual somente quando ele está explicitamente
-     * descrito como desconto à vista dentro da região comercial.
+     * Retorna o desconto quando as ocorrências explícitas encontradas
+     * são consistentes entre si.
      *
-     * Ausência continua sendo null.
+     * <p>Se widgets duplicados apresentarem percentuais conflitantes,
+     * a ausência é preservada em vez de escolher arbitrariamente um
+     * dos valores.</p>
      */
-    private Percentage extractCashDiscount(
-        String normalizedText
+    private Percentage extractConsistentCashDiscount(
+        List<String> cashSegments
     ) {
-        Matcher matcher =
-            CASH_DISCOUNT_PATTERN.matcher(
-                normalizedText
-            );
 
-        if (!matcher.find()) {
-            return null;
-        }
+        BigDecimal observed =
+            null;
 
-        BigDecimal value =
-            parseDecimal(
-                matcher.group(1)
-            );
+        for (String segment : cashSegments) {
 
-        if (value == null) {
-            return null;
-        }
-
-        try {
-            return new Percentage(
-                value
-            );
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
-    }
-
-    /**
-     * Lê customerVisiblePrice apenas como preço comercial associado
-     * à condição observada.
-     *
-     * A ausência desse valor não invalida a existência da condição.
-     */
-    private Money extractCustomerVisiblePrice(
-        String html
-    ) {
-        Matcher matcher =
-            CUSTOMER_VISIBLE_PRICE_PATTERN.matcher(
-                html
-            );
-
-        if (!matcher.find()) {
-            return null;
-        }
-
-        BigDecimal value =
-            parseDecimal(
-                matcher.group(1)
-            );
-
-        if (value == null) {
-            return null;
-        }
-
-        try {
-            return new Money(
-                value
-            );
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
-    }
-
-    /**
-     * Extrai uma condição de cartão sem juros diretamente da tabela
-     * de parcelamento identificada na investigação.
-     *
-     * Parcelamentos com juros ainda não são normalizados aqui porque
-     * o modelo atual não possui uma representação explícita para
-     * "juros presentes, percentual desconhecido".
-     *
-     * Preservamos ausência em vez de inventar esse percentual.
-     */
-    private PaymentCondition extractCreditInstallmentCondition(
-        String html
-    ) {
-        String creditRegion =
-            featureRegion(
-                html,
-                CREDIT_TABLE_MARKER
-            );
-
-        if (creditRegion == null) {
-            return null;
-        }
-
-        String text =
-            normalizeHtmlText(
-                creditRegion
-            );
-
-        Matcher matcher =
-            CREDIT_INSTALLMENT_PATTERN.matcher(
-                text
-            );
-
-        if (!matcher.find()) {
-            return null;
-        }
-
-        Integer installmentCount;
-
-        try {
-            installmentCount =
-                Integer.valueOf(
-                    matcher.group(1)
+            Matcher matcher =
+                DISCOUNT_PATTERN.matcher(
+                    segment
                 );
-        } catch (NumberFormatException exception) {
+
+            if (!matcher.find()) {
+                continue;
+            }
+
+            BigDecimal candidate =
+                parsePercentageValue(
+                    matcher.group(
+                        1
+                    )
+                );
+
+            if (candidate == null) {
+                continue;
+            }
+
+            if (observed == null) {
+
+                observed =
+                    candidate;
+
+                continue;
+            }
+
+            if (observed.compareTo(
+                candidate
+            ) != 0) {
+
+                return null;
+            }
+        }
+
+        if (observed == null) {
+
             return null;
         }
 
-        BigDecimal installmentAmountValue =
-            parseDecimal(
-                matcher.group(2)
+        try {
+
+            return new Percentage(
+                observed
             );
 
-        BigDecimal installmentTotalValue =
-            parseDecimal(
-                matcher.group(3)
+        } catch (IllegalArgumentException exception) {
+
+            return null;
+        }
+    }
+
+    /**
+     * Extrai o preço à vista de fontes estruturadas.
+     *
+     * <p>A fonte histórica customerVisiblePrice permanece prioritária.
+     * Quando ela não existir, data-csa-c-price-to-pay é usado como
+     * fallback estruturado.</p>
+     *
+     * <p>Quando múltiplas ocorrências apresentam valores conflitantes,
+     * nenhuma delas é escolhida arbitrariamente.</p>
+     */
+    private Money extractCashPrice(
+        Document document
+    ) {
+
+        BigDecimal customerVisiblePrice =
+            extractCustomerVisiblePrice(
+                document
             );
 
-        if (installmentAmountValue == null
-            || installmentTotalValue == null) {
+        if (customerVisiblePrice != null) {
+
+            return new Money(
+                customerVisiblePrice
+            );
+        }
+
+        BigDecimal priceToPay =
+            extractPriceToPay(
+                document
+            );
+
+        if (priceToPay == null) {
 
             return null;
         }
 
-        return new PaymentCondition(
-            PaymentConditionType.CREDIT_INSTALLMENT,
-            null,
-            null,
-            installmentCount,
-            new Money(
-                installmentAmountValue
-            ),
-            new Money(
-                installmentTotalValue
-            ),
-            Percentage.of(
-                "0"
-            ),
-            List.of(
-                PaymentMethod.CREDIT_CARD
+        return new Money(
+            priceToPay
+        );
+    }
+
+    private BigDecimal extractCustomerVisiblePrice(
+        Document document
+    ) {
+
+        List<BigDecimal> values =
+            new ArrayList<>();
+
+        for (Element input
+            : document.getElementsByTag(
+            "input"
+        )) {
+
+            String name =
+                input.attr(
+                    "name"
+                );
+
+            if (name == null
+                || !name.contains(
+                "customerVisiblePrice"
             )
+                || !name.contains(
+                "amount"
+            )
+                || !input.hasAttr(
+                "value"
+            )) {
+
+                continue;
+            }
+
+            BigDecimal value =
+                parseMachineDecimal(
+                    input.attr(
+                        "value"
+                    )
+                );
+
+            if (value != null) {
+
+                values.add(
+                    value
+                );
+            }
+        }
+
+        return uniqueNumericValue(
+            values
+        );
+    }
+
+    private BigDecimal extractPriceToPay(
+        Document document
+    ) {
+
+        List<BigDecimal> values =
+            new ArrayList<>();
+
+        Elements elements =
+            document.getElementsByAttribute(
+                "data-csa-c-price-to-pay"
+            );
+
+        for (Element element : elements) {
+
+            BigDecimal value =
+                parseMachineDecimal(
+                    element.attr(
+                        "data-csa-c-price-to-pay"
+                    )
+                );
+
+            if (value != null) {
+
+                values.add(
+                    value
+                );
+            }
+        }
+
+        return uniqueNumericValue(
+            values
         );
     }
 
     /**
-     * Obtém uma região limitada do HTML a partir de um marcador.
+     * Extrai todas as linhas sem juros explicitamente observadas na
+     * tabela de cartão.
      *
-     * O objetivo é impedir que textos de promoções concorrentes,
-     * cupons, Prime ou cartão Amazon sejam misturados com a promoção
-     * específica que estamos interpretando.
+     * <p>Não escolhe a "melhor" parcela. Essa decisão pertence à
+     * camada de apresentação/publicação.</p>
      */
-    private String featureRegion(
-        String html,
-        String marker
+    private List<PaymentCondition>
+    extractCreditInstallmentConditions(
+        Document document
     ) {
-        int markerIndex =
-            html.indexOf(
-                marker
+
+        Elements tables =
+            document.getElementsByAttributeValue(
+                "id",
+                CREDIT_TABLE_ID
             );
 
-        if (markerIndex < 0) {
+        if (tables.isEmpty()) {
+
+            return List.of();
+        }
+
+        Map<
+            InstallmentKey,
+            PaymentCondition
+            > conditions =
+            new LinkedHashMap<>();
+
+        for (Element table : tables) {
+
+            String text =
+                normalizeText(
+                    table.text()
+                );
+
+            Matcher matcher =
+                INTEREST_FREE_INSTALLMENT_PATTERN
+                    .matcher(
+                        text
+                    );
+
+            while (matcher.find()) {
+
+                Integer installmentCount =
+                    parseInstallmentCount(
+                        matcher.group(
+                            1
+                        )
+                    );
+
+                BigDecimal installmentAmount =
+                    parseBrazilianMoney(
+                        matcher.group(
+                            2
+                        )
+                    );
+
+                BigDecimal installmentTotal =
+                    parseBrazilianMoney(
+                        matcher.group(
+                            3
+                        )
+                    );
+
+                if (installmentCount == null
+                    || installmentAmount == null
+                    || installmentTotal == null) {
+
+                    continue;
+                }
+
+                InstallmentKey key =
+                    new InstallmentKey(
+                        installmentCount,
+                        installmentAmount,
+                        installmentTotal
+                    );
+
+                conditions.putIfAbsent(
+                    key,
+                    new PaymentCondition(
+                        PaymentConditionType
+                            .CREDIT_INSTALLMENT,
+                        null,
+                        null,
+                        installmentCount,
+                        new Money(
+                            installmentAmount
+                        ),
+                        new Money(
+                            installmentTotal
+                        ),
+                        Percentage.of(
+                            "0"
+                        ),
+                        List.of(
+                            PaymentMethod.CREDIT_CARD
+                        )
+                    )
+                );
+            }
+        }
+
+        return List.copyOf(
+            conditions.values()
+        );
+    }
+
+    private Integer parseInstallmentCount(
+        String value
+    ) {
+
+        if (value == null
+            || value.isBlank()) {
+
             return null;
         }
 
-        int end =
-            Math.min(
-                html.length(),
-                markerIndex
-                    + FEATURE_REGION_LENGTH
-            );
+        try {
 
-        return html.substring(
-            markerIndex,
-            end
-        );
+            int parsed =
+                Integer.parseInt(
+                    value.trim()
+                );
+
+            return parsed > 0
+                ? parsed
+                : null;
+
+        } catch (NumberFormatException exception) {
+
+            return null;
+        }
     }
 
     /**
-     * Converte um trecho HTML em texto suficientemente estável
-     * para interpretar os padrões comerciais investigados.
+     * Interpreta valor monetário apresentado no formato brasileiro.
      *
-     * Não é um parser HTML genérico. É uma normalização localizada
-     * de uma região previamente selecionada.
+     * <p>Exemplos:</p>
+     *
+     * <pre>
+     * 949,00    -> 949.00
+     * 1.898,00  -> 1898.00
+     * </pre>
      */
-    private String normalizeHtmlText(
-        String html
+    private BigDecimal parseBrazilianMoney(
+        String value
     ) {
-        return html
-            .replace("&nbsp;", " ")
-            .replace("&#160;", " ")
-            .replace("&percnt;", "%")
-            .replace("&agrave;", "à")
-            .replace("&Agrave;", "À")
-            .replace("&atilde;", "ã")
-            .replace("&otilde;", "õ")
-            .replace("&ccedil;", "ç")
-            .replaceAll(
-                "<[^>]+>",
-                " "
+
+        if (value == null
+            || value.isBlank()) {
+
+            return null;
+        }
+
+        String normalized =
+            value
+                .replace(
+                    "\u00A0",
+                    ""
+                )
+                .replace(
+                    " ",
+                    ""
+                )
+                .replace(
+                    ".",
+                    ""
+                )
+                .replace(
+                    ',',
+                    '.'
+                );
+
+        try {
+
+            return new BigDecimal(
+                normalized
+            );
+
+        } catch (NumberFormatException exception) {
+
+            return null;
+        }
+    }
+
+    /**
+     * Interpreta valores estruturados normalmente representados como
+     * decimal técnico, por exemplo 1708.20.
+     */
+    private BigDecimal parseMachineDecimal(
+        String value
+    ) {
+
+        if (value == null
+            || value.isBlank()) {
+
+            return null;
+        }
+
+        String normalized =
+            value.trim();
+
+        if (normalized.contains(
+            ","
+        )
+            && !normalized.contains(
+            "."
+        )) {
+
+            normalized =
+                normalized.replace(
+                    ',',
+                    '.'
+                );
+        }
+
+        try {
+
+            return new BigDecimal(
+                normalized
+            );
+
+        } catch (NumberFormatException exception) {
+
+            return null;
+        }
+    }
+
+    private BigDecimal parsePercentageValue(
+        String value
+    ) {
+
+        if (value == null
+            || value.isBlank()) {
+
+            return null;
+        }
+
+        try {
+
+            return new BigDecimal(
+                value.trim()
+                    .replace(
+                        ',',
+                        '.'
+                    )
+            );
+
+        } catch (NumberFormatException exception) {
+
+            return null;
+        }
+    }
+
+    /**
+     * Retorna o valor somente quando todas as ocorrências válidas são
+     * numericamente equivalentes.
+     */
+    private BigDecimal uniqueNumericValue(
+        List<BigDecimal> values
+    ) {
+
+        BigDecimal observed =
+            null;
+
+        for (BigDecimal value : values) {
+
+            if (observed == null) {
+
+                observed =
+                    value;
+
+                continue;
+            }
+
+            if (observed.compareTo(
+                value
+            ) != 0) {
+
+                return null;
+            }
+        }
+
+        return observed;
+    }
+
+    private String normalizeText(
+        String value
+    ) {
+
+        if (value == null) {
+
+            return "";
+        }
+
+        return value
+            .replace(
+                '\u00A0',
+                ' '
             )
             .replaceAll(
                 "\\s+",
@@ -471,25 +883,13 @@ public final class AmazonPaymentConditionParser {
             .trim();
     }
 
-    private BigDecimal parseDecimal(
-        String value
+    /**
+     * Chave utilizada apenas para eliminar linhas duplicadas do DOM.
+     */
+    private record InstallmentKey(
+        int installmentCount,
+        BigDecimal installmentAmount,
+        BigDecimal installmentTotal
     ) {
-        if (value == null
-            || value.isBlank()) {
-
-            return null;
-        }
-
-        String normalized =
-            value.trim()
-                .replace(',', '.');
-
-        try {
-            return new BigDecimal(
-                normalized
-            );
-        } catch (NumberFormatException exception) {
-            return null;
-        }
     }
 }

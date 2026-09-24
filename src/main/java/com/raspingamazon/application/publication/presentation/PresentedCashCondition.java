@@ -30,27 +30,43 @@ public record PresentedCashCondition(
             "condition must not be null"
         );
 
-        if (paymentMethod != PaymentMethod.PIX
-            && paymentMethod != PaymentMethod.NUPAY_ADDITIONAL_LIMIT) {
+        if (!isCashPresentationMethod(
+            paymentMethod
+        )) {
 
             throw new IllegalArgumentException(
-                "Presented cash condition must use PIX or NUPAY_ADDITIONAL_LIMIT"
+                "Presented cash condition must use PIX, NUPAY or NUPAY_ADDITIONAL_LIMIT"
             );
         }
 
-        if (condition.type() != PaymentConditionType.CASH) {
+        if (condition.type()
+            != PaymentConditionType.CASH) {
+
             throw new IllegalArgumentException(
                 "Presented cash condition must reference a CASH condition"
             );
         }
 
-        if (!condition.paymentMethods().contains(
-            paymentMethod
-        )) {
+        if (!condition.paymentMethods()
+            .contains(
+                paymentMethod
+            )) {
 
             throw new IllegalArgumentException(
                 "Payment condition does not contain the presented payment method"
             );
         }
+    }
+
+    private static boolean isCashPresentationMethod(
+        PaymentMethod paymentMethod
+    ) {
+
+        return paymentMethod
+            == PaymentMethod.PIX
+            || paymentMethod
+            == PaymentMethod.NUPAY
+            || paymentMethod
+            == PaymentMethod.NUPAY_ADDITIONAL_LIMIT;
     }
 }
