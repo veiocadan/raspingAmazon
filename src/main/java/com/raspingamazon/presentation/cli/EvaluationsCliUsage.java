@@ -12,6 +12,7 @@ public final class EvaluationsCliUsage {
         """
         Uso:
           rasping-amazon evaluations list [opcoes]
+          rasping-amazon evaluations show <evaluation-id>
 
         Opcoes de list:
           --eligible <true|false>
@@ -27,8 +28,9 @@ public final class EvaluationsCliUsage {
         Paginacao:
           --after-at e --after-id devem ser informados juntos.
 
-        Exemplo:
+        Exemplos:
           rasping-amazon evaluations list --eligible true --min-score 70 --limit 50
+          rasping-amazon evaluations show 123
         """;
 
     private EvaluationsCliUsage() {
