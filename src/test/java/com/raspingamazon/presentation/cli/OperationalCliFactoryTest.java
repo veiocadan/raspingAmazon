@@ -5,6 +5,7 @@ import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetai
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ProcessingJobPage;
+import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPage;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
@@ -166,6 +167,35 @@ class OperationalCliFactoryTest {
     }
 
     @Test
+    void shouldWireRunDetailUseCase() {
+
+        TestFixture fixture =
+            createFixture();
+
+        CliExitCode result =
+            fixture.cli()
+                .run(
+                    new String[]{
+                        "runs",
+                        "show",
+                        "999"
+                    }
+                );
+
+        assertEquals(
+            CliExitCode.NOT_FOUND,
+            result
+        );
+
+        assertTrue(
+            fixture.stderr()
+                .contains(
+                    "Run not found: 999"
+                )
+        );
+    }
+
+    @Test
     void shouldWirePublicationDetailUseCase() {
 
         TestFixture fixture =
@@ -206,6 +236,22 @@ class OperationalCliFactoryTest {
                 null,
                 fixture.getDealEvaluationDetailUseCase(),
                 fixture.listProcessingRunsUseCase(),
+                fixture.getProcessingRunDetailUseCase(),
+                fixture.listProcessingJobsUseCase(),
+                fixture.listPublicationsUseCase(),
+                fixture.getPublicationDetailUseCase(),
+                fixture.out(),
+                fixture.err()
+            )
+        );
+
+        assertThrows(
+            NullPointerException.class,
+            () -> OperationalCliFactory.create(
+                fixture.listDealEvaluationsUseCase(),
+                fixture.getDealEvaluationDetailUseCase(),
+                fixture.listProcessingRunsUseCase(),
+                null,
                 fixture.listProcessingJobsUseCase(),
                 fixture.listPublicationsUseCase(),
                 fixture.getPublicationDetailUseCase(),
@@ -242,6 +288,13 @@ class OperationalCliFactoryTest {
                         List.of(),
                         null
                     )
+            );
+
+        GetProcessingRunDetailUseCase
+            getProcessingRunDetailUseCase =
+            new GetProcessingRunDetailUseCase(
+                runId ->
+                    Optional.empty()
             );
 
         ListProcessingJobsUseCase
@@ -296,6 +349,7 @@ class OperationalCliFactoryTest {
                 listDealEvaluationsUseCase,
                 getDealEvaluationDetailUseCase,
                 listProcessingRunsUseCase,
+                getProcessingRunDetailUseCase,
                 listProcessingJobsUseCase,
                 listPublicationsUseCase,
                 getPublicationDetailUseCase,
@@ -308,6 +362,7 @@ class OperationalCliFactoryTest {
             listDealEvaluationsUseCase,
             getDealEvaluationDetailUseCase,
             listProcessingRunsUseCase,
+            getProcessingRunDetailUseCase,
             listProcessingJobsUseCase,
             listPublicationsUseCase,
             getPublicationDetailUseCase,
@@ -323,6 +378,7 @@ class OperationalCliFactoryTest {
         ListDealEvaluationsUseCase listDealEvaluationsUseCase,
         GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
         ListProcessingRunsUseCase listProcessingRunsUseCase,
+        GetProcessingRunDetailUseCase getProcessingRunDetailUseCase,
         ListProcessingJobsUseCase listProcessingJobsUseCase,
         ListPublicationsUseCase listPublicationsUseCase,
         GetPublicationDetailUseCase getPublicationDetailUseCase,

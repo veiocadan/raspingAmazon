@@ -40,6 +40,10 @@ class OperationalInterfaceCompositionTest {
             );
 
             assertNotNull(
+                composition.getProcessingRunDetail()
+            );
+
+            assertNotNull(
                 composition.listProcessingJobs()
             );
 

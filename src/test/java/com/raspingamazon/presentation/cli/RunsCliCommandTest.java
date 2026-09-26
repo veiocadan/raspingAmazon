@@ -1,10 +1,15 @@
 package com.raspingamazon.presentation.cli;
 
+import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunCursor;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunDetail;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunJobMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPage;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPipelineMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunSearchCriteria;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunSummary;
+import com.raspingamazon.application.operation.orchestration.run.port.ProcessingRunOperationalDetailQueryPort;
 import com.raspingamazon.application.operation.orchestration.run.port.ProcessingRunOperationalQueryPort;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
 import org.junit.jupiter.api.Test;
@@ -14,6 +19,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -249,6 +255,265 @@ class RunsCliCommandTest {
                 "NEXT_CURSOR\t"
                     + REQUESTED_AT
                     + "\t101"
+            )
+        );
+    }
+
+    @Test
+    void shouldRenderRunDetail() {
+
+        RunsCliCommand command =
+            command(
+                criteria ->
+                    new ProcessingRunPage(
+                        List.of(),
+                        null
+                    ),
+                runId -> {
+
+                    assertEquals(
+                        101L,
+                        runId
+                    );
+
+                    return Optional.of(
+                        detail()
+                    );
+                }
+            );
+
+        TestConsole console =
+            new TestConsole();
+
+        CliExitCode result =
+            command.execute(
+                List.of(
+                    "show",
+                    "101"
+                ),
+                console.out(),
+                console.err()
+            );
+
+        assertEquals(
+            CliExitCode.SUCCESS,
+            result
+        );
+
+        String output =
+            console.stdout();
+
+        assertTrue(
+            output.startsWith(
+                "RUN"
+                    + System.lineSeparator()
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "RUN_ID\t101"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "RUN_KEY\trun-101"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "PIPELINE"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "COLLECTED_CANDIDATES\t10"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "ENRICHED_CANDIDATES\t8"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "PENDING_ENRICHMENT_CANDIDATES\t2"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "EVALUATIONS\t7"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "ELIGIBLE_EVALUATIONS\t5"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "REJECTED_EVALUATIONS\t2"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "PUBLICATIONS_GENERATED\t3"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "JOBS"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "TOTAL_JOBS\t10"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "DEAD_JOBS\t1"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "TOTAL_ATTEMPTS\t14"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "RETRY_ATTEMPTS\t4"
+            )
+        );
+
+        assertTrue(
+            console.stderr()
+                .isEmpty()
+        );
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRunDoesNotExist() {
+
+        RunsCliCommand command =
+            emptyCommand();
+
+        TestConsole console =
+            new TestConsole();
+
+        CliExitCode result =
+            command.execute(
+                List.of(
+                    "show",
+                    "999"
+                ),
+                console.out(),
+                console.err()
+            );
+
+        assertEquals(
+            CliExitCode.NOT_FOUND,
+            result
+        );
+
+        assertTrue(
+            console.stderr()
+                .contains(
+                    "Run not found: 999"
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidRunId() {
+
+        RunsCliCommand command =
+            emptyCommand();
+
+        TestConsole console =
+            new TestConsole();
+
+        assertThrows(
+            CliUsageException.class,
+            () -> command.execute(
+                List.of(
+                    "show",
+                    "0"
+                ),
+                console.out(),
+                console.err()
+            )
+        );
+
+        assertThrows(
+            CliUsageException.class,
+            () -> command.execute(
+                List.of(
+                    "show",
+                    "-1"
+                ),
+                console.out(),
+                console.err()
+            )
+        );
+
+        assertThrows(
+            CliUsageException.class,
+            () -> command.execute(
+                List.of(
+                    "show",
+                    "not-a-number"
+                ),
+                console.out(),
+                console.err()
+            )
+        );
+    }
+
+    @Test
+    void shouldRequireExactlyOneRunIdForShow() {
+
+        RunsCliCommand command =
+            emptyCommand();
+
+        TestConsole console =
+            new TestConsole();
+
+        assertThrows(
+            CliUsageException.class,
+            () -> command.execute(
+                List.of(
+                    "show"
+                ),
+                console.out(),
+                console.err()
+            )
+        );
+
+        assertThrows(
+            CliUsageException.class,
+            () -> command.execute(
+                List.of(
+                    "show",
+                    "101",
+                    "102"
+                ),
+                console.out(),
+                console.err()
             )
         );
     }
@@ -491,6 +756,13 @@ class RunsCliCommandTest {
                     "rasping-amazon runs list"
                 )
         );
+
+        assertTrue(
+            console.stdout()
+                .contains(
+                    "rasping-amazon runs show <run-id>"
+                )
+        );
     }
 
     @Test
@@ -539,6 +811,31 @@ class RunsCliCommandTest {
         );
     }
 
+    private ProcessingRunDetail detail() {
+
+        return new ProcessingRunDetail(
+            summary(),
+            new ProcessingRunPipelineMetrics(
+                10L,
+                8L,
+                7L,
+                5L,
+                2L,
+                3L
+            ),
+            new ProcessingRunJobMetrics(
+                10L,
+                1L,
+                1L,
+                2L,
+                5L,
+                1L,
+                14L,
+                4L
+            )
+        );
+    }
+
     private RunsCliCommand emptyCommand() {
 
         return command(
@@ -551,12 +848,27 @@ class RunsCliCommandTest {
     }
 
     private RunsCliCommand command(
-        ProcessingRunOperationalQueryPort port
+        ProcessingRunOperationalQueryPort listPort
+    ) {
+
+        return command(
+            listPort,
+            runId ->
+                Optional.empty()
+        );
+    }
+
+    private RunsCliCommand command(
+        ProcessingRunOperationalQueryPort listPort,
+        ProcessingRunOperationalDetailQueryPort detailPort
     ) {
 
         return new RunsCliCommand(
             new ListProcessingRunsUseCase(
-                port
+                listPort
+            ),
+            new GetProcessingRunDetailUseCase(
+                detailPort
             )
         );
     }
@@ -596,6 +908,15 @@ class RunsCliCommandTest {
             out.flush();
 
             return stdout.toString(
+                StandardCharsets.UTF_8
+            );
+        }
+
+        String stderr() {
+
+            err.flush();
+
+            return stderr.toString(
                 StandardCharsets.UTF_8
             );
         }

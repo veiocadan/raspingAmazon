@@ -3,6 +3,7 @@ package com.raspingamazon.presentation.cli;
 import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetailUseCase;
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
+import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
@@ -30,6 +31,7 @@ public final class OperationalCliFactory {
         ListDealEvaluationsUseCase listDealEvaluationsUseCase,
         GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
         ListProcessingRunsUseCase listProcessingRunsUseCase,
+        GetProcessingRunDetailUseCase getProcessingRunDetailUseCase,
         ListProcessingJobsUseCase listProcessingJobsUseCase,
         ListPublicationsUseCase listPublicationsUseCase,
         GetPublicationDetailUseCase getPublicationDetailUseCase,
@@ -50,6 +52,11 @@ public final class OperationalCliFactory {
         Objects.requireNonNull(
             listProcessingRunsUseCase,
             "listProcessingRunsUseCase must not be null"
+        );
+
+        Objects.requireNonNull(
+            getProcessingRunDetailUseCase,
+            "getProcessingRunDetailUseCase must not be null"
         );
 
         Objects.requireNonNull(
@@ -91,7 +98,8 @@ public final class OperationalCliFactory {
         handlers.put(
             "runs",
             new RunsCliCommand(
-                listProcessingRunsUseCase
+                listProcessingRunsUseCase,
+                getProcessingRunDetailUseCase
             )
         );
 

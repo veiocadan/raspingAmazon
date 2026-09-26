@@ -74,6 +74,7 @@ public final class OperationalCliBootstrap {
                     composition.listDealEvaluations(),
                     composition.getDealEvaluationDetail(),
                     composition.listProcessingRuns(),
+                    composition.getProcessingRunDetail(),
                     composition.listProcessingJobs(),
                     composition.listPublications(),
                     composition.getPublicationDetail(),

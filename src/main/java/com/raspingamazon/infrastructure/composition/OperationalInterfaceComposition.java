@@ -3,6 +3,7 @@ package com.raspingamazon.infrastructure.composition;
 import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetailUseCase;
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
+import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
@@ -12,6 +13,7 @@ import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcDealEvaluationOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcDealEvaluationOperationalQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingJobOperationalQueryAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOperationalQueryAdapter;
@@ -49,6 +51,9 @@ public final class OperationalInterfaceComposition
 
     private final ListProcessingRunsUseCase
         listProcessingRunsUseCase;
+
+    private final GetProcessingRunDetailUseCase
+        getProcessingRunDetailUseCase;
 
     private final ListProcessingJobsUseCase
         listProcessingJobsUseCase;
@@ -111,9 +116,20 @@ public final class OperationalInterfaceComposition
                 connection
             );
 
+        JdbcProcessingRunOperationalDetailQueryAdapter
+            processingRunDetailQueryAdapter =
+            new JdbcProcessingRunOperationalDetailQueryAdapter(
+                connection
+            );
+
         this.listProcessingRunsUseCase =
             new ListProcessingRunsUseCase(
                 processingRunQueryAdapter
+            );
+
+        this.getProcessingRunDetailUseCase =
+            new GetProcessingRunDetailUseCase(
+                processingRunDetailQueryAdapter
             );
 
         /*
@@ -237,6 +253,11 @@ public final class OperationalInterfaceComposition
     public ListProcessingRunsUseCase listProcessingRuns() {
 
         return listProcessingRunsUseCase;
+    }
+
+    public GetProcessingRunDetailUseCase getProcessingRunDetail() {
+
+        return getProcessingRunDetailUseCase;
     }
 
     public ListProcessingJobsUseCase listProcessingJobs() {
