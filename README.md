@@ -1,8 +1,41 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, orquestração durável e geração auditável de publicações de ofertas da Amazon Brasil**, com foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução escalável.
+Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, orquestração durável, geração auditável de publicações e operação por interface Java** de ofertas da Amazon Brasil.
 
-> **Estado atual: FASE 13 concluída localmente.** O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, política comercial de apresentação, template versionado, link de associado encapsulado e persistência idempotente de `Publication`. O gate local final está verde com **558 testes**, **0 falhas**, **0 erros** e **0 ignorados**. O Flyway validou **14 migrations** e o schema PostgreSQL está na **versão 14**. A próxima fase planejada é a **FASE 14 — Interface operacional**.
+O projeto prioriza:
+
+- separação de responsabilidades;
+- rastreabilidade;
+- idempotência;
+- auditabilidade;
+- evolução incremental;
+- persistência durável;
+- escalabilidade orientada por necessidade real.
+
+> **Estado atual: FASE 14 concluída localmente.**
+>
+> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada e uma **interface operacional Java em CLI, não bloqueante**, apoiada por read models e casos de uso próprios da camada `application`.
+>
+> Gate local final da FASE 14:
+>
+> ```text
+> Tests run: 820
+> Failures: 0
+> Errors: 0
+> Skipped: 0
+>
+> BUILD SUCCESS
+> ```
+>
+> O catálogo Flyway alcança **V19**.
+>
+> O encerramento remoto da FASE 14 ainda depende de:
+>
+> ```text
+> push da branch
+> +
+> CI remoto verde
+> ```
 
 ---
 
@@ -33,14 +66,35 @@ momentum versionado
   ↓
 orquestração durável
   ↓
-geração de publicação
+geração de Publication
   ↓
-revisão operacional
+seleção operacional futura
   ↓
-canais futuros
+outbox / entrega futura
+  ↓
+canais
 ```
 
 permaneçam desacoplados.
+
+A interface operacional observa esse fluxo por fora:
+
+```text
+                     ┌──────────────────────┐
+                     │ Interface operacional│
+                     │ consulta / diagnóstico│
+                     └──────────┬───────────┘
+                                │
+                                ▼
+coleta → avaliação → publicação → entrega futura
+```
+
+Princípio da FASE 14:
+
+```text
+A interface observa e administra o pipeline.
+A interface não autoriza o pipeline a funcionar.
+```
 
 A ordem das fases deve ser preservada e responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
@@ -68,10 +122,10 @@ A ordem das fases deve ser preservada e responsabilidades futuras não devem ser
 | FASE 11 | Histórico, evolução e momentum | CONCLUÍDA |
 | FASE 12 | Orquestração assíncrona e processamento durável | CONCLUÍDA |
 | FASE 13 | Geração de publicação e link de associado | CONCLUÍDA |
-| FASE 14 | Interface operacional | PRÓXIMA |
-| FASE 15 | Qualidade integrada | PLANEJADA |
+| FASE 14 | Interface operacional não bloqueante | CONCLUÍDA LOCALMENTE |
+| FASE 15 | Qualidade integrada | PRÓXIMA APÓS GATE REMOTO |
 | FASE 16 | Observabilidade | PLANEJADA |
-| FASE 17 | Agendamento | PLANEJADA |
+| FASE 17 | Agendamento e execução contínua | PLANEJADA |
 | FASE 18 | Contrato de canais / outbox | PLANEJADA |
 | FASE 19+ | Canais, hardening e escala | PLANEJADA |
 
@@ -88,7 +142,8 @@ src/
 │   │   └── com/raspingamazon/
 │   │       ├── application/
 │   │       ├── domain/
-│   │       └── infrastructure/
+│   │       ├── infrastructure/
+│   │       └── presentation/
 │   └── resources/
 │       └── db/
 │           └── migration/
@@ -103,8 +158,27 @@ src/
 Responsabilidades:
 
 - `domain`: conceitos, invariantes e regras de negócio sem dependência de infraestrutura;
-- `application`: contratos, ports e coordenação dos casos de uso;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon e composition roots.
+- `application`: contratos, ports, read models e coordenação dos casos de uso;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon, bootstrap e composition roots;
+- `presentation`: adaptadores de interação com o operador, atualmente CLI.
+
+Dependência conceitual:
+
+```text
+presentation
+     ↓
+application
+     ↓
+domain
+```
+
+A infraestrutura implementa ports definidos para dentro:
+
+```text
+infrastructure
+     ↓
+application contracts
+```
 
 O domínio não conhece:
 
@@ -114,8 +188,21 @@ HTTP
 PostgreSQL
 Flyway
 JDBC
+CLI
 Telegram
 WhatsApp
+```
+
+A apresentação não conhece:
+
+```text
+Connection
+DriverManager
+SQL
+adapters JDBC
+HTML Amazon
+collector
+parser
 ```
 
 O projeto permanece em um único módulo Maven enquanto não houver pressão arquitetural real para decomposição.
@@ -132,8 +219,11 @@ O projeto permanece em um único módulo Maven enquanto não houver pressão arq
 - Flyway 11.14.1
 - PostgreSQL JDBC 42.7.8
 - Jackson Databind
+- jsoup
 - Docker / Docker Compose
 - GitHub Actions
+- Exec Maven Plugin para execução local da CLI operacional
+- Playwright apenas no profile de diagnóstico externo
 
 ---
 
@@ -153,10 +243,10 @@ Use o Maven Wrapper versionado.
 ./mvnw clean test
 ```
 
-Gate local final da FASE 13:
+Gate local final da FASE 14:
 
 ```text
-Tests run: 558
+Tests run: 820
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -164,12 +254,7 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Compilação observada no gate:
-
-```text
-167 source files
-113 test source files
-```
+O gate normal não executa automaticamente a CLI.
 
 ---
 
@@ -251,7 +336,7 @@ PaymentConditionType.CASH
 PaymentConditionType.CREDIT_INSTALLMENT
 ```
 
-Métodos reconhecidos:
+Métodos reconhecidos incluem:
 
 ```text
 PIX
@@ -295,44 +380,72 @@ DELIVERY_UNKNOWN
 DELIVERY_THIRD_PARTY
 ```
 
-Elegibilidade estrutural permanece separada de filtros comerciais, score, momentum e apresentação de publicação.
+Elegibilidade estrutural permanece separada de:
+
+```text
+filtros comerciais
+score
+ranking
+momentum
+apresentação de publicação
+política futura de seleção
+```
 
 ---
 
 ## 10. Filtros comerciais
 
-Perfil ativo:
+Perfil ativo após V16:
+
+```text
+COMMERCIAL_FILTER_V2
+```
+
+A V2 utiliza desconto sobre preço-base como critério comercial principal de desconto.
+
+Configuração ativada pela migration V16:
+
+```text
+minBasisDiscountPercentage = 20.0000
+minRating = 4.30
+minReviewCount = 100
+```
+
+A versão anterior:
 
 ```text
 COMMERCIAL_FILTER_V1
 ```
 
-Filtros:
-
-```text
-MIN_CASH_DISCOUNT
-MIN_RATING
-MIN_REVIEW_COUNT
-```
-
-Limites persistidos no perfil:
-
-```text
-minCashDiscountPercentage = 20
-minRating = 4.3
-minReviewCount = 100
-```
+permanece histórica.
 
 O sistema distingue dado ausente de dado presente abaixo do limite.
+
+Mudanças semânticas de filtros são versionadas.
 
 ---
 
 ## 11. Score e ranking
 
-Versão atual:
+Perfil ativo após V16:
 
 ```text
-SCORE_V1
+SCORE_V2
+```
+
+Pesos configurados:
+
+```text
+SOLD_PERCENTAGE = 30
+BASIS_DISCOUNT  = 25
+RATING          = 20
+REVIEW_COUNT    = 15
+```
+
+O limiar de `reviewCount` para pontuação cheia permanece:
+
+```text
+1000
 ```
 
 Características:
@@ -340,10 +453,15 @@ Características:
 - score reproduzível;
 - fatores explicáveis;
 - fatores persistidos;
-- soma das contribuições validada pelo domínio;
-- ranking determinístico.
+- soma das contribuições validada;
+- ranking determinístico;
+- versão histórica preservada.
 
-Score só existe quando a avaliação é elegível após todas as regras aplicáveis.
+`SCORE_V1` permanece disponível como versão histórica.
+
+O score não deve absorver penalidade de recorrência de publicação.
+
+A prioridade operacional futura de publicação é conceito separado.
 
 ---
 
@@ -361,7 +479,7 @@ MomentumEngine
 MomentumAudit
 ```
 
-Versão atual:
+Versão:
 
 ```text
 MOMENTUM_V1
@@ -370,10 +488,11 @@ MOMENTUM_V1
 Momentum:
 
 - interpreta evolução temporal;
-- não altera elegibilidade;
-- não altera `SCORE_V1`;
+- não altera elegibilidade estrutural;
+- não altera o significado do score;
 - pode ser indisponível quando não há base histórica suficiente;
-- possui auditoria própria.
+- possui auditoria própria;
+- é apresentado pela interface a partir do estado persistido.
 
 ---
 
@@ -431,7 +550,15 @@ SUCCEEDED
 DEAD
 ```
 
-A FASE 12 não incluiu publicação.
+Tipos atuais:
+
+```text
+COLLECT_DEALS
+ENRICH_DEAL
+EVALUATE_DEAL
+```
+
+A fila da FASE 12 não possui um tipo artificial de publicação.
 
 ---
 
@@ -470,6 +597,8 @@ reavalia elegibilidade
 reexecuta filtros
 recalcula score
 recalcula momentum
+seleciona quota de publicação
+aplica cooldown
 envia para canais
 ```
 
@@ -493,6 +622,10 @@ Product
 
 A publicação não duplica todos os dados históricos.
 
+O gerador recebe uma avaliação já selecionada.
+
+Política futura de seleção não pertence ao `PublicationGenerator`.
+
 ---
 
 ## 16. Política comercial de apresentação
@@ -503,7 +636,7 @@ Contrato:
 CommercialPresentationPolicy
 ```
 
-Implementação:
+Implementação atual:
 
 ```text
 AmazonCommercialPresentationV1
@@ -515,26 +648,19 @@ Versão:
 AMAZON_COMMERCIAL_PRESENTATION_V1
 ```
 
-Regras principais para condições à vista:
+A política de apresentação não decide:
 
 ```text
-NuPay > Pix
-    → destaca NuPay
-    → Pix pode aparecer como alternativa
-
-Pix > NuPay
-    → destaca Pix
-
-Pix = NuPay
-    → destaca Pix
-
-somente uma disponível
-    → apresenta a existente
+elegibilidade
+filtros
+score
+ranking
+recorrência
+quota
+cadência
 ```
 
-Para parcelamento, a apresentação prioriza a maior quantidade de parcelas sem juros quando disponível.
-
-A política de apresentação não decide elegibilidade.
+Ela somente define como fatos já aceitos serão apresentados.
 
 ---
 
@@ -558,9 +684,19 @@ Versão:
 AMAZON_PUBLICATION_V1
 ```
 
-O template recebe dados já preparados e não conhece SQL, JDBC ou regras de geração da URL de afiliado.
+O template recebe dados já preparados e não conhece:
 
-Exemplo de saída:
+```text
+SQL
+JDBC
+score
+filtros
+geração de URL de afiliado
+Telegram
+WhatsApp
+```
+
+Exemplo conceitual:
 
 ```text
 Produto exemplo
@@ -578,16 +714,18 @@ Contrato:
 AffiliateLinkGenerator
 ```
 
-Implementação:
+Implementação usada para novas publicações:
+
+```text
+AmazonAffiliateLinkGeneratorV2
+```
+
+A V2 preserva paths já percent-encoded sem dupla codificação.
+
+A versão anterior permanece disponível para reprodução histórica:
 
 ```text
 AmazonAffiliateLinkGeneratorV1
-```
-
-Versão:
-
-```text
-AMAZON_AFFILIATE_LINK_V1
 ```
 
 Fluxo:
@@ -619,7 +757,7 @@ status
 createdAt
 ```
 
-Estados:
+Estados existentes:
 
 ```text
 CREATED
@@ -634,7 +772,26 @@ A geração da FASE 13 cria inicialmente:
 CREATED
 ```
 
-`READY` permanece reservado para revisão/liberação posterior.
+Semântica arquitetural adotada pela ADR-0009:
+
+```text
+CREATED
+Publication gerada e persistida.
+
+READY
+Publication liberada pelas regras automáticas aplicáveis
+para prosseguir ao mecanismo de despacho futuro.
+
+PUBLISHED
+Entrega confirmada pelo mecanismo responsável pelo canal.
+
+FAILED
+Falha posterior tratável conforme as regras da etapa responsável.
+```
+
+Esses estados não representam etapas obrigatórias de aprovação humana.
+
+A FASE 14 não implementa scheduler, outbox ou entrega por canal.
 
 ---
 
@@ -680,13 +837,13 @@ sem sobrescrever o fato histórico original
 
 ## 21. Composition root de publicação
 
-Foi criado:
+Composition root:
 
 ```text
 AmazonPublicationComposition
 ```
 
-Composição:
+Composição atual:
 
 ```text
 JdbcOfferSnapshotEvaluationLoadAdapter
@@ -695,7 +852,7 @@ JdbcPublicationDataQueryAdapter
         ↓
 AmazonCommercialPresentationV1
         ↓
-AmazonAffiliateLinkGeneratorV1
+AmazonAffiliateLinkGeneratorV2
         ↓
 AmazonPublicationV1
         ↓
@@ -706,18 +863,417 @@ PublicationGenerator
 
 A composição apenas monta dependências.
 
-Não executa regras de negócio.
+Ela não executa regras de seleção, recorrência, quota ou canal.
 
 ---
 
-## 22. PostgreSQL e Flyway
+## 22. Interface operacional — FASE 14
 
-Estado atual:
+A FASE 14 implementou a primeira apresentação operacional do projeto como CLI Java.
+
+Objetivo:
+
+```text
+observação
+consulta histórica
+diagnóstico
+administração explícita
+```
+
+Sem tornar o operador parte obrigatória do pipeline.
+
+A CLI opera sobre casos de uso e read models da camada `application`.
+
+Não existe SQL na apresentação.
+
+Não existe recomputação de decisão histórica na apresentação.
+
+---
+
+## 23. Read side operacional de avaliações
+
+Pacote:
+
+```text
+application/operation/evaluation
+```
+
+Principais contratos:
+
+```text
+DealEvaluationCursor
+DealEvaluationPage
+DealEvaluationSearchCriteria
+DealEvaluationSummary
+DealEvaluationDetail
+OperationalEvaluationRuleResult
+OperationalScoreFactorResult
+OperationalMomentumAudit
+ListDealEvaluationsUseCase
+GetDealEvaluationDetailUseCase
+DealEvaluationOperationalQueryPort
+DealEvaluationOperationalDetailQueryPort
+```
+
+Listagem disponível:
+
+```text
+evaluations list
+```
+
+Filtros incluem:
+
+```text
+eligible
+ASIN
+minScore
+maxScore
+evaluatedFrom
+evaluatedUntil
+cursor
+limit
+```
+
+Ordenação keyset:
+
+```text
+evaluatedAt DESC
+evaluationId DESC
+```
+
+Detalhe:
+
+```text
+evaluations show <evaluation-id>
+```
+
+O detalhe apresenta fatos persistidos de:
+
+```text
+oferta
+elegibilidade
+versões
+rule results
+score factors
+momentum audit
+```
+
+sem executar novamente os motores de decisão.
+
+---
+
+## 24. Read side operacional de runs e jobs
+
+Runs:
+
+```text
+runs list
+```
+
+Ordenação:
+
+```text
+requestedAt DESC
+runId DESC
+```
+
+Jobs:
+
+```text
+jobs list
+```
+
+Filtros incluem:
+
+```text
+type
+status
+lastFailureType
+processingRunId
+dealCandidateId
+offerSnapshotId
+createdFrom
+createdUntil
+cursor
+limit
+```
+
+Ordenação:
+
+```text
+createdAt DESC
+jobId DESC
+```
+
+O filtro por `processingRunId` representa o vínculo direto persistido no job.
+
+A interface não o apresenta como rastreamento completo de linhagem.
+
+A FASE 14 não adiciona retry arbitrário nem pause/resume falso à CLI.
+
+---
+
+## 25. Read side operacional de publicações
+
+Comandos:
+
+```text
+publications list
+publications show <publication-id>
+```
+
+Filtros da listagem incluem:
+
+```text
+status
+ASIN
+dealEvaluationId
+createdFrom
+createdUntil
+cursor
+limit
+```
+
+Ordenação:
+
+```text
+createdAt DESC
+publicationId DESC
+```
+
+O resumo evita carregar desnecessariamente:
+
+```text
+generatedText
+affiliateUrl
+```
+
+O detalhe apresenta esses campos somente quando solicitado.
+
+---
+
+## 26. Composition root operacional
+
+Composition root:
+
+```text
+OperationalInterfaceComposition
+```
+
+Casos de uso expostos:
+
+```text
+listDealEvaluations()
+getDealEvaluationDetail()
+listProcessingRuns()
+listProcessingJobs()
+listPublications()
+getPublicationDetail()
+```
+
+A composição:
+
+- abre a conexão;
+- compartilha a conexão entre os adapters operacionais;
+- implementa `AutoCloseable`;
+- é responsável pelo fechamento da conexão;
+- não contém regra comercial;
+- não executa score;
+- não executa momentum;
+- não faz retry;
+- não implementa scheduler;
+- não altera status de `Publication`.
+
+---
+
+## 27. CLI operacional
+
+Pacote:
+
+```text
+com.raspingamazon.presentation.cli
+```
+
+Núcleo:
+
+```text
+CliExitCode
+CliUsageException
+CliCommandHandler
+CliText
+CliValueParser
+OperationalCliUsage
+OperationalCli
+OperationalCliFactory
+```
+
+Recursos disponíveis:
+
+```text
+evaluations list
+evaluations show <evaluation-id>
+
+runs list
+
+jobs list
+
+publications list
+publications show <publication-id>
+```
+
+Códigos de saída:
+
+```text
+0 SUCCESS
+1 OPERATIONAL_ERROR
+2 USAGE_ERROR
+3 NOT_FOUND
+```
+
+`OperationalCli` retorna o código de saída.
+
+Ele não chama `System.exit()`.
+
+---
+
+## 28. Bootstrap e entrypoint
+
+Pacote:
+
+```text
+com.raspingamazon.infrastructure.bootstrap
+```
+
+Componentes:
+
+```text
+OperationalCliBootstrap
+OperationalCliMain
+```
+
+Fluxo:
+
+```text
+OperationalCliMain
+        ↓
+OperationalCliBootstrap
+        ↓
+OperationalInterfaceComposition
+        ↓
+application use cases
+        ↓
+OperationalCliFactory
+        ↓
+OperationalCli
+```
+
+Ajuda global e comando top-level inválido não precisam abrir PostgreSQL.
+
+Comandos operacionais reais abrem a composição.
+
+`System.exit()` fica restrito ao entrypoint de processo.
+
+---
+
+## 29. Executando a CLI
+
+O projeto usa `exec-maven-plugin` somente quando solicitado explicitamente.
+
+### Ajuda
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=help"
+```
+
+### Avaliações
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=evaluations list --limit 5"
+```
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=evaluations show 123"
+```
+
+### Runs
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=runs list --limit 5"
+```
+
+### Jobs
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=jobs list --limit 5"
+```
+
+### Publicações
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=publications list --limit 5"
+```
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=publications show 123"
+```
+
+O plugin não está associado a uma fase padrão do lifecycle.
+
+`clean test` continua sendo apenas o gate de build/testes.
+
+---
+
+## 30. Smoke tests reais da FASE 14
+
+Ajuda sem banco:
+
+```text
+mvn compile exec:java -Dexec.args=help
+
+→ ajuda exibida
+→ BUILD SUCCESS
+```
+
+Consulta real com PostgreSQL:
+
+```text
+mvn compile exec:java -Dexec.args=evaluations list --limit 5
+
+→ composição aberta
+→ PostgreSQL consultado
+→ cabeçalho operacional exibido
+→ BUILD SUCCESS
+```
+
+No smoke test observado, não havia linhas correspondentes no banco e apenas o cabeçalho foi retornado.
+
+O caminho real foi validado:
+
+```text
+CLI
+↓
+bootstrap
+↓
+composition
+↓
+JDBC
+↓
+PostgreSQL
+↓
+application
+↓
+presentation
+```
+
+---
+
+## 31. PostgreSQL e Flyway
+
+Estado estrutural atual:
 
 ```text
 PostgreSQL 18.6
-schema version = 14
-migrations validadas = 14
+catálogo de migrations até V19
 ```
 
 Migrations:
@@ -737,7 +1293,22 @@ V11__processing_orchestration.sql
 V12__evaluation_processing_idempotency.sql
 V13__deal_candidate_idempotency.sql
 V14__publication_generation_audit.sql
+V15__prepare_basis_discount_filter_and_score_v2.sql
+V16__activate_basis_discount_filter_and_score_v2.sql
+V17__operational_deal_evaluation_read.sql
+V18__operational_processing_read_indexes.sql
+V19__operational_publication_read_indexes.sql
 ```
+
+Migrations diretamente atribuídas ao read side da FASE 14:
+
+```text
+V17
+V18
+V19
+```
+
+V15 e V16 pertencem à evolução comercial anterior de filtro/score.
 
 Regra de evolução:
 
@@ -749,7 +1320,7 @@ Toda mudança estrutural deve ser feita por nova migration versionada.
 
 ---
 
-## 23. ADRs relevantes
+## 32. ADRs relevantes
 
 Documentação arquitetural versionada em:
 
@@ -757,64 +1328,175 @@ Documentação arquitetural versionada em:
 docs/adr/
 ```
 
-ADRs atuais relevantes para o fluxo:
+Catálogo atual:
 
 ```text
-ADR-0001 — semântica comercial
-ADR-0003 — histórico e momentum
-ADR-0004 — geração de publicação e link de associado
+ADR-0001 — Semântica de filtros comerciais e apresentação de pagamentos
+ADR-0002 — Semântica de score, ranking e explicabilidade
+ADR-0003 — Semântica de histórico e momentum
+ADR-0004 — Semântica de geração de publicação e link de associado
+ADR-0005 — Semântica de desconto, preço-base e preço efetivo
+ADR-0006 — Semântica de SCORE_V2 / desconto sobre preço-base
+ADR-0007 — Fallback de rating/review na página de produto
+ADR-0008 — Correção versionada do link de associado / percent-encoding
+ADR-0009 — Interface operacional não bloqueante
+ADR-0010 — Política de seleção, recorrência e cadência de publicações
 ```
 
-O ADR-0004 formaliza:
+### ADR-0009
 
-- geração somente com dados persistidos;
-- apresentação separada de elegibilidade;
-- template versionado;
-- estratégia de link versionada;
-- persistência antes de entrega;
-- publicação desacoplada dos canais.
+Status:
+
+```text
+ACEITA
+```
+
+Princípio:
+
+```text
+A interface observa e administra o pipeline.
+A interface não autoriza o pipeline a funcionar.
+```
+
+Aprovação humana obrigatória não faz parte do caminho crítico.
+
+### ADR-0010
+
+Status:
+
+```text
+PROPOSTA
+```
+
+Relacionada principalmente a:
+
+```text
+FASE 17
+FASE 18
+```
+
+Define fronteiras futuras para:
+
+```text
+PublicationSelectionPolicy
+recorrência
+cooldown
+quota
+cadência
+escopo por canal/destino
+auditabilidade da seleção
+```
+
+Essas regras não pertencem à CLI.
 
 ---
 
-## 24. Testes da FASE 13
+## 33. Resultado consolidado da FASE 14
 
-Componentes diretamente cobertos:
+Documento:
 
 ```text
-PublicationData
-JdbcPublicationDataQueryAdapter
-AmazonCommercialPresentationV1
-AmazonPublicationV1
-AmazonAffiliateLinkGeneratorV1
-Publication
-PublicationJdbcRepository
-PublicationGenerator
-AmazonPublicationComposition
+docs/phases/FASE_14_RESULTADO.md
 ```
 
-Cenários validados incluem:
+Capacidades concluídas:
 
-- dados persistidos obrigatórios;
-- Pix/NuPay;
-- parcelamento;
-- dados opcionais;
-- template determinístico;
-- formatação monetária;
-- geração de link;
-- validação de host/HTTPS;
-- versões de auditoria;
-- persistência JDBC;
-- idempotência;
-- reentrada;
-- `Clock` injetável;
-- composição real;
-- fluxo vertical com PostgreSQL.
+```text
+evaluations list          OK
+evaluations show <id>     OK
+runs list                 OK
+jobs list                 OK
+publications list         OK
+publications show <id>    OK
+composition operacional   OK
+factory da CLI            OK
+bootstrap                 OK
+entrypoint                OK
+execução Maven            OK
+smoke real PostgreSQL     OK
+```
+
+Gate:
+
+```text
+Tests run: 820
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+Critérios arquiteturais da ADR-0009:
+
+```text
+10 / 10 atendidos localmente
+```
 
 ---
 
-## 25. Fluxo vertical atual
+## 34. O que ainda não foi implementado
 
-Visão consolidada:
+Para preservar a ordem do roadmap, permanecem fora do escopo da FASE 14:
+
+- aprovação humana obrigatória;
+- `PublicationSelectionPolicy`;
+- cooldown de publicação;
+- quota temporal;
+- cadência de mensagens;
+- scheduler definitivo;
+- execução periódica contínua;
+- pause/resume real;
+- outbox de canais;
+- worker de entrega;
+- `PublicationChannel`;
+- Telegram;
+- WhatsApp;
+- envio automático;
+- autenticação/autorização de uma futura interface web;
+- dashboard avançado;
+- métricas avançadas;
+- alertas;
+- hardening de produção;
+- empacotamento final de distribuição da CLI;
+- Excel/CSV como integração opcional;
+- mecanismos adicionais de escala sem evidência operacional.
+
+Esses itens pertencem às fases posteriores.
+
+---
+
+## 35. Débitos encaminhados para a FASE 15
+
+### Preparação de schema em testes integrados
+
+Em um segundo computador, alguns testes JDBC inicialmente encontraram um banco ainda sem `processing_run`.
+
+Após migrations/schema serem normalizados, a suíte completa passou.
+
+A FASE 15 deverá avaliar como tornar a preparação do schema dos testes integrados mais autocontida e menos dependente de pré-condições externas.
+
+### Gate remoto
+
+A FASE 14 está concluída localmente.
+
+O encerramento remoto depende de:
+
+```text
+push da branch
++
+CI remoto verde
+```
+
+### Distribuição da CLI
+
+Execução via Maven é suficiente para a FASE 14.
+
+Empacotamento final de distribuição permanece para hardening posterior.
+
+---
+
+## 36. Fluxo vertical atual
 
 ```text
 Amazon / deals
@@ -853,10 +1535,17 @@ PostgreSQL
 Orquestração:
 
 ```text
+ProcessingRun
 ProcessingJob
 ```
 
-Publicação automática em canais:
+Operação:
+
+```text
+CLI Java
+```
+
+Entrega automática em canais:
 
 ```text
 AINDA NÃO
@@ -864,76 +1553,7 @@ AINDA NÃO
 
 ---
 
-## 26. O que ainda não foi implementado
-
-Para preservar a ordem do roadmap, permanecem fora do escopo atual:
-
-- interface operacional;
-- revisão/aprovação manual;
-- scheduler operacional;
-- execução periódica;
-- `PublicationChannel`;
-- outbox de canais;
-- Telegram;
-- WhatsApp;
-- envio automático;
-- provider reference;
-- métricas avançadas;
-- dashboards;
-- alertas;
-- hardening de produção;
-- Excel/CSV como integração opcional;
-- mecanismos adicionais de escala sem evidência operacional.
-
----
-
-## 27. Próxima fase — FASE 14
-
-Próxima etapa:
-
-```text
-FASE 14 — Interface operacional
-```
-
-A interface deverá operar sobre casos de uso existentes.
-
-Responsabilidades esperadas:
-
-```text
-listar ofertas processadas
-consultar avaliações
-selecionar avaliação
-gerar publicação
-visualizar publicação
-revisar / liberar publicação
-```
-
-A interface não deve acessar diretamente:
-
-```text
-collector
-parser
-JDBC
-HTML da Amazon
-canais
-```
-
-Também não deve reimplementar:
-
-```text
-elegibilidade
-filtros
-score
-momentum
-apresentação comercial
-template
-link de associado
-persistência
-```
-
----
-
-## 28. Roadmap simplificado
+## 37. Roadmap simplificado
 
 ```text
 FASES 0–8
@@ -954,43 +1574,67 @@ Geração de publicação
 FASE 14
 Interface operacional
               ↓
-FASES 15–17
-Qualidade + observabilidade + agendamento
+FASE 15
+Qualidade integrada
               ↓
-FASES 18+
+FASE 16
+Observabilidade
+              ↓
+FASE 17
+Agendamento e execução contínua
+              ↓
+FASE 18
+Contrato de canais / outbox
+              ↓
+FASES 19+
 Canais + hardening + escala
 ```
 
 ---
 
-## 29. Princípios preservados
+## 38. Princípios preservados
 
 O projeto mantém:
 
 - Java como núcleo;
 - PostgreSQL como estado operacional principal;
 - Flyway;
-- JDBC explícito;
+- JDBC explícito na infraestrutura;
 - migrations imutáveis;
 - domínio sem dependência de infraestrutura;
+- presentation sem JDBC;
 - adapters Amazon isolados;
 - seller/delivery fail closed;
 - dados ausentes não inventados;
 - versões auditáveis;
 - idempotência no banco;
+- score semanticamente separado de recorrência;
 - publicação desacoplada de canais;
+- interface desacoplada do caminho crítico;
 - segredos fora do código;
 - evolução incremental;
 - escalabilidade guiada por necessidade real.
 
 ---
 
-## 30. Comandos úteis
+## 39. Comandos úteis
 
 ### Suíte completa
 
 ```powershell
 .\mvnw.cmd clean test
+```
+
+### Ajuda da interface operacional
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=help"
+```
+
+### Consulta operacional simples
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=evaluations list --limit 5"
 ```
 
 ### Ver status Git
@@ -1013,44 +1657,73 @@ git log --oneline -15
 
 ---
 
-## 31. Estado consolidado
+## 40. Estado consolidado
 
 ```text
 Java 25
 PostgreSQL 18.6
-Flyway schema 14
-14 migrations
+Flyway migrations até V19
 
-FASE 12
+Filtros ativos:
+COMMERCIAL_FILTER_V2
+
+Score ativo:
+SCORE_V2
+
+Momentum:
+MOMENTUM_V1
+
+Geração:
+AMAZON_COMMERCIAL_PRESENTATION_V1
+AMAZON_PUBLICATION_V1
+AmazonAffiliateLinkGeneratorV2
+
+FASE 12:
 orquestração durável
 retry
 lease
 idempotência
 workers
 
-FASE 13
+FASE 13:
 PublicationData
-AMAZON_COMMERCIAL_PRESENTATION_V1
-AMAZON_AFFILIATE_LINK_V1
-AMAZON_PUBLICATION_V1
 PublicationGenerator
 PublicationJdbcRepository
 AmazonPublicationComposition
 
+FASE 14:
+read models operacionais
+evaluations list/show
+runs list
+jobs list
+publications list/show
+OperationalInterfaceComposition
+OperationalCli
+OperationalCliFactory
+OperationalCliBootstrap
+OperationalCliMain
+
 Gate local:
-558 testes
+820 testes
 0 falhas
 0 erros
 0 ignorados
 BUILD SUCCESS
 
+Próximo gate:
+documentação final
++
+push
++
+CI remoto verde
+
 Próxima fase:
-FASE 14 — Interface operacional
+FASE 15 — Qualidade integrada
 ```
 
 ---
 
-## 32. Regra operacional atual
+## 41. Regra operacional atual
 
 > **Coletar fatos sem inventá-los.**
 >
@@ -1058,10 +1731,12 @@ FASE 14 — Interface operacional
 >
 > **Versionar decisões auditáveis.**
 >
-> **Separar elegibilidade, filtros, score, histórico, apresentação e publicação.**
+> **Separar elegibilidade, filtros, score, histórico, apresentação, seleção e publicação.**
 >
 > **Usar PostgreSQL como defesa final de idempotência.**
 >
 > **Gerar publicação somente a partir de fatos persistidos.**
 >
-> **Não antecipar canais ou scheduler antes das fases correspondentes.**
+> **A interface observa e administra; não autoriza o pipeline a funcionar.**
+>
+> **Não antecipar scheduler, outbox ou canais antes das fases correspondentes.**
