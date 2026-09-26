@@ -54,6 +54,17 @@ class OperationalInterfaceCompositionTest {
             assertNotNull(
                 composition.getPublicationDetail()
             );
+
+            /*
+             * Construir o caso de uso de alertas não deve carregar
+             * nem validar as variáveis ALERT_*.
+             *
+             * A política somente é carregada quando execute() é
+             * chamado.
+             */
+            assertNotNull(
+                composition.getOperationalAlerts()
+            );
         }
     }
 

@@ -2,6 +2,7 @@ package com.raspingamazon.infrastructure.composition;
 
 import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetailUseCase;
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
+import com.raspingamazon.application.operation.observability.alert.GetOperationalAlertsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
@@ -9,9 +10,11 @@ import com.raspingamazon.application.operation.publication.GetPublicationDetailU
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+import com.raspingamazon.infrastructure.config.EnvironmentOperationalAlertPolicyProvider;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcDealEvaluationOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcDealEvaluationOperationalQueryAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcOperationalAlertQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingJobOperationalQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalQueryAdapter;
@@ -20,6 +23,7 @@ import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOpera
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.util.Objects;
 
 /**
@@ -63,6 +67,9 @@ public final class OperationalInterfaceComposition
 
     private final GetPublicationDetailUseCase
         getPublicationDetailUseCase;
+
+    private final GetOperationalAlertsUseCase
+        getOperationalAlertsUseCase;
 
     private boolean closed;
 
@@ -176,6 +183,35 @@ public final class OperationalInterfaceComposition
             new GetPublicationDetailUseCase(
                 publicationDetailQueryAdapter
             );
+
+        /*
+         * ---------------------------------------------------------
+         * OPERATIONAL ALERTS
+         * ---------------------------------------------------------
+         *
+         * O provider de policy é lazy: construir a composição não
+         * exige que as variáveis ALERT_* estejam configuradas.
+         *
+         * Elas somente serão interpretadas quando o caso de uso
+         * de alertas for explicitamente executado.
+         */
+
+        JdbcOperationalAlertQueryAdapter
+            operationalAlertQueryAdapter =
+            new JdbcOperationalAlertQueryAdapter(
+                connection
+            );
+
+        EnvironmentOperationalAlertPolicyProvider
+            operationalAlertPolicyProvider =
+            new EnvironmentOperationalAlertPolicyProvider();
+
+        this.getOperationalAlertsUseCase =
+            new GetOperationalAlertsUseCase(
+                operationalAlertQueryAdapter,
+                operationalAlertPolicyProvider,
+                Clock.systemUTC()
+            );
     }
 
     /**
@@ -273,6 +309,11 @@ public final class OperationalInterfaceComposition
     public GetPublicationDetailUseCase getPublicationDetail() {
 
         return getPublicationDetailUseCase;
+    }
+
+    public GetOperationalAlertsUseCase getOperationalAlerts() {
+
+        return getOperationalAlertsUseCase;
     }
 
     /**
