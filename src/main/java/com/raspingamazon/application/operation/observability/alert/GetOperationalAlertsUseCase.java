@@ -1,5 +1,6 @@
 package com.raspingamazon.application.operation.observability.alert;
 
+import com.raspingamazon.application.operation.observability.alert.port.OperationalAlertPolicyProvider;
 import com.raspingamazon.application.operation.observability.alert.port.OperationalAlertQueryPort;
 
 import java.time.Clock;
@@ -14,6 +15,10 @@ import java.util.Objects;
  * <p>Uma chamada representa uma única avaliação explícita do estado
  * persistido.</p>
  *
+ * <p>A política é obtida somente no momento da execução. Isso evita
+ * tornar configuração de alertas um pré-requisito para outros
+ * comandos da interface operacional.</p>
+ *
  * <p>Não existe scheduler, loop, sleep ou polling nesta classe.</p>
  */
 public final class GetOperationalAlertsUseCase {
@@ -21,15 +26,22 @@ public final class GetOperationalAlertsUseCase {
     private final OperationalAlertQueryPort
         queryPort;
 
-    private final OperationalAlertPolicy
-        policy;
+    private final OperationalAlertPolicyProvider
+        policyProvider;
 
     private final Clock
         clock;
 
+    /**
+     * Cria o caso de uso.
+     *
+     * @param queryPort porta de consulta dos fatos operacionais
+     * @param policyProvider fonte explícita da política de alertas
+     * @param clock relógio da avaliação
+     */
     public GetOperationalAlertsUseCase(
         OperationalAlertQueryPort queryPort,
-        OperationalAlertPolicy policy,
+        OperationalAlertPolicyProvider policyProvider,
         Clock clock
     ) {
 
@@ -39,10 +51,10 @@ public final class GetOperationalAlertsUseCase {
                 "queryPort must not be null"
             );
 
-        this.policy =
+        this.policyProvider =
             Objects.requireNonNull(
-                policy,
-                "policy must not be null"
+                policyProvider,
+                "policyProvider must not be null"
             );
 
         this.clock =
@@ -54,8 +66,19 @@ public final class GetOperationalAlertsUseCase {
 
     /**
      * Avalia os alertas uma única vez.
+     *
+     * <p>A política é carregada nesta chamada, e não durante a criação
+     * do composition root. Portanto comandos operacionais que não
+     * consultam alertas não dependem da configuração dos seus
+     * limiares.</p>
      */
     public List<OperationalAlert> execute() {
+
+        OperationalAlertPolicy policy =
+            Objects.requireNonNull(
+                policyProvider.load(),
+                "OperationalAlertPolicyProvider must not return null"
+            );
 
         OffsetDateTime evaluatedAt =
             OffsetDateTime.ofInstant(

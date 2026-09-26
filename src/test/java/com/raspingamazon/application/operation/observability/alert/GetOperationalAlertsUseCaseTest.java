@@ -1,5 +1,6 @@
 package com.raspingamazon.application.operation.observability.alert;
 
+import com.raspingamazon.application.operation.observability.alert.port.OperationalAlertPolicyProvider;
 import com.raspingamazon.application.operation.observability.alert.port.OperationalAlertQueryPort;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +36,10 @@ class GetOperationalAlertsUseCaseTest {
 
         OperationalAlertPolicy policy =
             policy();
+
+        OperationalAlertPolicyProvider policyProvider =
+            () ->
+                policy;
 
         AtomicReference<OperationalAlertPolicy>
             receivedPolicy =
@@ -72,7 +77,7 @@ class GetOperationalAlertsUseCaseTest {
         GetOperationalAlertsUseCase useCase =
             new GetOperationalAlertsUseCase(
                 queryPort,
-                policy,
+                policyProvider,
                 FIXED_CLOCK
             );
 
@@ -119,10 +124,13 @@ class GetOperationalAlertsUseCaseTest {
             (policy, evaluatedAt) ->
                 mutable;
 
+        OperationalAlertPolicyProvider policyProvider =
+            this::policy;
+
         GetOperationalAlertsUseCase useCase =
             new GetOperationalAlertsUseCase(
                 queryPort,
-                policy(),
+                policyProvider,
                 FIXED_CLOCK
             );
 
@@ -151,20 +159,36 @@ class GetOperationalAlertsUseCaseTest {
     }
 
     @Test
-    void shouldRejectInvalidDependenciesAndNullQueryResult() {
+    void shouldRejectInvalidDependenciesAndInvalidPortResults() {
 
-        OperationalAlertQueryPort queryPort =
+        OperationalAlertQueryPort validQueryPort =
             (policy, evaluatedAt) ->
                 List.of();
 
-        OperationalAlertPolicy policy =
-            policy();
+        OperationalAlertPolicyProvider validPolicyProvider =
+            this::policy;
 
+        /*
+         * Dependências estruturais obrigatórias.
+         */
         assertThrows(
             NullPointerException.class,
             () -> new GetOperationalAlertsUseCase(
                 null,
-                policy,
+                validPolicyProvider,
+                FIXED_CLOCK
+            )
+        );
+
+        /*
+         * Agora existe somente um tipo possível para o segundo
+         * argumento. Portanto null não produz ambiguidade de overload.
+         */
+        assertThrows(
+            NullPointerException.class,
+            () -> new GetOperationalAlertsUseCase(
+                validQueryPort,
+                null,
                 FIXED_CLOCK
             )
         );
@@ -172,35 +196,49 @@ class GetOperationalAlertsUseCaseTest {
         assertThrows(
             NullPointerException.class,
             () -> new GetOperationalAlertsUseCase(
-                queryPort,
-                null,
-                FIXED_CLOCK
-            )
-        );
-
-        assertThrows(
-            NullPointerException.class,
-            () -> new GetOperationalAlertsUseCase(
-                queryPort,
-                policy,
+                validQueryPort,
+                validPolicyProvider,
                 null
             )
         );
 
-        OperationalAlertQueryPort invalidQueryPort =
-            (queryPolicy, evaluatedAt) ->
+        /*
+         * O provider também precisa respeitar seu contrato e nunca
+         * retornar null.
+         */
+        OperationalAlertPolicyProvider invalidPolicyProvider =
+            () ->
                 null;
 
-        GetOperationalAlertsUseCase useCase =
+        GetOperationalAlertsUseCase invalidPolicyUseCase =
             new GetOperationalAlertsUseCase(
-                invalidQueryPort,
-                policy,
+                validQueryPort,
+                invalidPolicyProvider,
                 FIXED_CLOCK
             );
 
         assertThrows(
             NullPointerException.class,
-            useCase::execute
+            invalidPolicyUseCase::execute
+        );
+
+        /*
+         * A query port também não pode devolver null.
+         */
+        OperationalAlertQueryPort invalidQueryPort =
+            (queryPolicy, evaluatedAt) ->
+                null;
+
+        GetOperationalAlertsUseCase invalidQueryUseCase =
+            new GetOperationalAlertsUseCase(
+                invalidQueryPort,
+                validPolicyProvider,
+                FIXED_CLOCK
+            );
+
+        assertThrows(
+            NullPointerException.class,
+            invalidQueryUseCase::execute
         );
     }
 
