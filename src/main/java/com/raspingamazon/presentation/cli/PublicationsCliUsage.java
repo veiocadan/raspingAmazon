@@ -12,6 +12,7 @@ public final class PublicationsCliUsage {
         """
         Uso:
           rasping-amazon publications list [opcoes]
+          rasping-amazon publications show <publication-id>
 
         Opcoes de list:
           --status <CREATED|READY|PUBLISHED|FAILED>
@@ -30,6 +31,7 @@ public final class PublicationsCliUsage {
           rasping-amazon publications list
           rasping-amazon publications list --status CREATED
           rasping-amazon publications list --asin B0XXXXXXXX --limit 25
+          rasping-amazon publications show 123
         """;
 
     private PublicationsCliUsage() {

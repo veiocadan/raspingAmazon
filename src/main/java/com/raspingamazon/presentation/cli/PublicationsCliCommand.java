@@ -1,7 +1,9 @@
 package com.raspingamazon.presentation.cli;
 
+import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
 import com.raspingamazon.application.operation.publication.PublicationCursor;
+import com.raspingamazon.application.operation.publication.PublicationDetail;
 import com.raspingamazon.application.operation.publication.PublicationPage;
 import com.raspingamazon.application.operation.publication.PublicationSearchCriteria;
 import com.raspingamazon.application.operation.publication.PublicationSummary;
@@ -14,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -46,14 +49,24 @@ public final class PublicationsCliCommand
     private final ListPublicationsUseCase
         listPublicationsUseCase;
 
+    private final GetPublicationDetailUseCase
+        getPublicationDetailUseCase;
+
     public PublicationsCliCommand(
-        ListPublicationsUseCase listPublicationsUseCase
+        ListPublicationsUseCase listPublicationsUseCase,
+        GetPublicationDetailUseCase getPublicationDetailUseCase
     ) {
 
         this.listPublicationsUseCase =
             Objects.requireNonNull(
                 listPublicationsUseCase,
                 "listPublicationsUseCase must not be null"
+            );
+
+        this.getPublicationDetailUseCase =
+            Objects.requireNonNull(
+                getPublicationDetailUseCase,
+                "getPublicationDetailUseCase must not be null"
             );
     }
 
@@ -105,23 +118,33 @@ public final class PublicationsCliCommand
             return CliExitCode.SUCCESS;
         }
 
-        if (!"list".equals(
-            action
-        )) {
+        return switch (action) {
 
-            throw new CliUsageException(
-                "unknown publications action: "
-                    + action
-            );
-        }
+            case "list" ->
+                executeList(
+                    arguments.subList(
+                        1,
+                        arguments.size()
+                    ),
+                    out
+                );
 
-        return executeList(
-            arguments.subList(
-                1,
-                arguments.size()
-            ),
-            out
-        );
+            case "show" ->
+                executeShow(
+                    arguments.subList(
+                        1,
+                        arguments.size()
+                    ),
+                    out,
+                    err
+                );
+
+            default ->
+                throw new CliUsageException(
+                    "unknown publications action: "
+                        + action
+                );
+        };
     }
 
     private CliExitCode executeList(
@@ -158,6 +181,61 @@ public final class PublicationsCliCommand
 
         renderPage(
             page,
+            out
+        );
+
+        return CliExitCode.SUCCESS;
+    }
+
+    private CliExitCode executeShow(
+        List<String> arguments,
+        PrintWriter out,
+        PrintWriter err
+    ) {
+
+        if (arguments.size() == 1
+            && isHelp(
+            arguments.getFirst()
+        )) {
+
+            PublicationsCliUsage.print(
+                out
+            );
+
+            return CliExitCode.SUCCESS;
+        }
+
+        if (arguments.size() != 1) {
+            throw new CliUsageException(
+                "publications show requires exactly one publication-id"
+            );
+        }
+
+        long publicationId =
+            CliValueParser.positiveLong(
+                "publication-id",
+                arguments.getFirst()
+            );
+
+        Optional<PublicationDetail> result =
+            getPublicationDetailUseCase.execute(
+                publicationId
+            );
+
+        if (result.isEmpty()) {
+
+            err.println(
+                "Publication not found: "
+                    + publicationId
+            );
+
+            err.flush();
+
+            return CliExitCode.NOT_FOUND;
+        }
+
+        renderDetail(
+            result.orElseThrow(),
             out
         );
 
@@ -508,6 +586,99 @@ public final class PublicationsCliCommand
                 summary.title()
             )
         );
+    }
+
+    private void renderDetail(
+        PublicationDetail detail,
+        PrintWriter out
+    ) {
+
+        PublicationSummary summary =
+            detail.summary();
+
+        out.println(
+            "PUBLICATION_ID\t"
+                + summary.publicationId()
+        );
+
+        out.println(
+            "DEAL_EVALUATION_ID\t"
+                + summary.dealEvaluationId()
+        );
+
+        out.println(
+            "PRODUCT_ID\t"
+                + summary.productId()
+        );
+
+        out.println(
+            "ASIN\t"
+                + summary.asin()
+                .value()
+        );
+
+        out.println(
+            "TITLE\t"
+                + CliText.text(
+                summary.title()
+            )
+        );
+
+        out.println(
+            "STATUS\t"
+                + CliText.text(
+                summary.status()
+            )
+        );
+
+        out.println(
+            "TEMPLATE_VERSION\t"
+                + CliText.text(
+                summary.templateVersion()
+            )
+        );
+
+        out.println(
+            "COMMERCIAL_PRESENTATION_VERSION\t"
+                + CliText.text(
+                summary.commercialPresentationVersion()
+            )
+        );
+
+        out.println(
+            "AFFILIATE_LINK_VERSION\t"
+                + CliText.text(
+                summary.affiliateLinkVersion()
+            )
+        );
+
+        out.println(
+            "CREATED_AT\t"
+                + summary.createdAt()
+        );
+
+        out.println(
+            "AFFILIATE_URL\t"
+                + CliText.text(
+                detail.affiliateUrl()
+            )
+        );
+
+        out.println();
+
+        out.println(
+            "GENERATED_TEXT_BEGIN"
+        );
+
+        out.println(
+            detail.generatedText()
+        );
+
+        out.println(
+            "GENERATED_TEXT_END"
+        );
+
+        out.flush();
     }
 
     private boolean isHelp(
