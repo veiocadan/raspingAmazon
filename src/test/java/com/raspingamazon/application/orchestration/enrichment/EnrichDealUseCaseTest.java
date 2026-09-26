@@ -67,7 +67,7 @@ class EnrichDealUseCaseTest {
         );
 
     @Test
-    void shouldEnrichPersistAndEnqueueEvaluation() {
+    void shouldEnrichPersistCorrelateAndEnqueueEvaluation() {
 
         List<String> events =
             new ArrayList<>();
@@ -75,8 +75,8 @@ class EnrichDealUseCaseTest {
         DealCandidate candidate =
             createCandidate();
 
-        DealCandidateRepositoryPort candidateRepository =
-            candidateRepositoryReturning(
+        RecordingCandidateRepository candidateRepository =
+            new RecordingCandidateRepository(
                 candidate,
                 events
             );
@@ -199,10 +199,26 @@ class EnrichDealUseCaseTest {
                 "snapshot",
                 "payments",
                 "evidence",
+                "candidate-link",
                 "enqueue",
                 "transaction-commit"
             ),
             events
+        );
+
+        assertEquals(
+            1,
+            candidateRepository.linkCalls
+        );
+
+        assertEquals(
+            CANDIDATE_ID,
+            candidateRepository.linkedCandidateId
+        );
+
+        assertEquals(
+            SNAPSHOT_ID,
+            candidateRepository.linkedSnapshotId
         );
 
         assertEquals(
@@ -230,7 +246,7 @@ class EnrichDealUseCaseTest {
     }
 
     @Test
-    void shouldNotCallEnrichmentWhenSnapshotAlreadyExists() {
+    void shouldCorrelateAndNotCallEnrichmentWhenSnapshotAlreadyExists() {
 
         List<String> events =
             new ArrayList<>();
@@ -238,8 +254,8 @@ class EnrichDealUseCaseTest {
         DealCandidate candidate =
             createCandidate();
 
-        DealCandidateRepositoryPort candidateRepository =
-            candidateRepositoryReturning(
+        RecordingCandidateRepository candidateRepository =
+            new RecordingCandidateRepository(
                 candidate,
                 events
             );
@@ -332,10 +348,26 @@ class EnrichDealUseCaseTest {
                 "candidate-find",
                 "snapshot-lookup",
                 "transaction-begin",
+                "candidate-link",
                 "enqueue",
                 "transaction-commit"
             ),
             events
+        );
+
+        assertEquals(
+            1,
+            candidateRepository.linkCalls
+        );
+
+        assertEquals(
+            CANDIDATE_ID,
+            candidateRepository.linkedCandidateId
+        );
+
+        assertEquals(
+            SNAPSHOT_ID,
+            candidateRepository.linkedSnapshotId
         );
 
         assertEquals(
@@ -345,7 +377,7 @@ class EnrichDealUseCaseTest {
     }
 
     @Test
-    void shouldNotDuplicateDependenciesWhenSnapshotIsReused() {
+    void shouldCorrelateAndNotDuplicateDependenciesWhenSnapshotIsReused() {
 
         List<String> events =
             new ArrayList<>();
@@ -353,8 +385,8 @@ class EnrichDealUseCaseTest {
         DealCandidate candidate =
             createCandidate();
 
-        DealCandidateRepositoryPort candidateRepository =
-            candidateRepositoryReturning(
+        RecordingCandidateRepository candidateRepository =
+            new RecordingCandidateRepository(
                 candidate,
                 events
             );
@@ -433,6 +465,21 @@ class EnrichDealUseCaseTest {
 
         assertEquals(
             1,
+            candidateRepository.linkCalls
+        );
+
+        assertEquals(
+            CANDIDATE_ID,
+            candidateRepository.linkedCandidateId
+        );
+
+        assertEquals(
+            SNAPSHOT_ID,
+            candidateRepository.linkedSnapshotId
+        );
+
+        assertEquals(
+            1,
             queue.submissions.size()
         );
     }
@@ -440,8 +487,11 @@ class EnrichDealUseCaseTest {
     @Test
     void shouldFailBeforeExternalCallWhenCandidateDoesNotExist() {
 
-        DealCandidateRepositoryPort candidateRepository =
-            emptyCandidateRepository();
+        RecordingCandidateRepository candidateRepository =
+            new RecordingCandidateRepository(
+                null,
+                new ArrayList<>()
+            );
 
         EnrichedOfferLookupPort lookup =
             value -> {
@@ -517,71 +567,16 @@ class EnrichDealUseCaseTest {
                 CANDIDATE_ID
             )
         );
-    }
 
-    private static DealCandidateRepositoryPort
-    candidateRepositoryReturning(
-        DealCandidate candidate,
-        List<String> events
-    ) {
+        assertEquals(
+            0,
+            candidateRepository.linkCalls
+        );
 
-        return new DealCandidateRepositoryPort() {
-
-            @Override
-            public DealCandidate save(
-                DealCandidate value
-            ) {
-
-                throw new UnsupportedOperationException(
-                    "save is not used by this test"
-                );
-            }
-
-            @Override
-            public Optional<DealCandidate> findById(
-                long id
-            ) {
-
-                events.add(
-                    "candidate-find"
-                );
-
-                if (candidate.id() != null
-                    && candidate.id() == id) {
-
-                    return Optional.of(
-                        candidate
-                    );
-                }
-
-                return Optional.empty();
-            }
-        };
-    }
-
-    private static DealCandidateRepositoryPort
-    emptyCandidateRepository() {
-
-        return new DealCandidateRepositoryPort() {
-
-            @Override
-            public DealCandidate save(
-                DealCandidate candidate
-            ) {
-
-                throw new UnsupportedOperationException(
-                    "save is not used by this test"
-                );
-            }
-
-            @Override
-            public Optional<DealCandidate> findById(
-                long id
-            ) {
-
-                return Optional.empty();
-            }
-        };
+        assertEquals(
+            0,
+            queue.submissions.size()
+        );
     }
 
     private static DealCandidate createCandidate() {
@@ -682,6 +677,82 @@ class EnrichDealUseCaseTest {
             snapshot.source(),
             snapshot.paymentConditions()
         );
+    }
+
+    private static final class RecordingCandidateRepository
+        implements DealCandidateRepositoryPort {
+
+        private final DealCandidate candidate;
+
+        private final List<String> events;
+
+        private int linkCalls;
+
+        private long linkedCandidateId;
+
+        private long linkedSnapshotId;
+
+        private RecordingCandidateRepository(
+            DealCandidate candidate,
+            List<String> events
+        ) {
+
+            this.candidate =
+                candidate;
+
+            this.events =
+                events;
+        }
+
+        @Override
+        public DealCandidate save(
+            DealCandidate candidate
+        ) {
+
+            throw new UnsupportedOperationException(
+                "save is not used by this test"
+            );
+        }
+
+        @Override
+        public Optional<DealCandidate> findById(
+            long id
+        ) {
+
+            events.add(
+                "candidate-find"
+            );
+
+            if (candidate != null
+                && candidate.id() != null
+                && candidate.id() == id) {
+
+                return Optional.of(
+                    candidate
+                );
+            }
+
+            return Optional.empty();
+        }
+
+        @Override
+        public void linkOfferSnapshot(
+            long dealCandidateId,
+            long offerSnapshotId
+        ) {
+
+            events.add(
+                "candidate-link"
+            );
+
+            linkCalls++;
+
+            linkedCandidateId =
+                dealCandidateId;
+
+            linkedSnapshotId =
+                offerSnapshotId;
+        }
     }
 
     private static final class RecordingQueue

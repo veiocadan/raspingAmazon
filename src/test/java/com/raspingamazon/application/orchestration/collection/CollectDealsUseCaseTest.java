@@ -791,6 +791,17 @@ class CollectDealsUseCaseTest {
                 )
                 .findFirst();
         }
+
+        @Override
+        public void linkOfferSnapshot(
+            long dealCandidateId,
+            long offerSnapshotId
+        ) {
+
+            throw new UnsupportedOperationException(
+                "linkOfferSnapshot is not used by collection tests"
+            );
+        }
     }
 
     private static final class RecordingQueue

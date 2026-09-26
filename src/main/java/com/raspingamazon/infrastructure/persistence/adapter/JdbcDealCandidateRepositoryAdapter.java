@@ -217,7 +217,7 @@ public final class JdbcDealCandidateRepositoryAdapter
         long id
     ) {
 
-        requirePositiveId(
+        requirePositiveDealCandidateId(
             id
         );
 
@@ -271,6 +271,151 @@ public final class JdbcDealCandidateRepositoryAdapter
                 "find DealCandidate",
                 exception
             );
+        }
+    }
+
+    @Override
+    public void linkOfferSnapshot(
+        long dealCandidateId,
+        long offerSnapshotId
+    ) {
+
+        requirePositiveDealCandidateId(
+            dealCandidateId
+        );
+
+        requirePositiveOfferSnapshotId(
+            offerSnapshotId
+        );
+
+        /*
+         * A associação é idempotente:
+         *
+         * NULL -> X
+         * X    -> X
+         *
+         * são operações válidas.
+         *
+         * X -> Y não é permitido.
+         *
+         * A própria linha funciona como ponto de sincronização no
+         * PostgreSQL para concorrência entre tentativas.
+         */
+        String sql =
+            """
+            UPDATE deal_candidate
+            SET offer_snapshot_id = ?
+            WHERE id = ?
+              AND (
+                  offer_snapshot_id IS NULL
+                  OR offer_snapshot_id = ?
+              )
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                offerSnapshotId
+            );
+
+            statement.setLong(
+                2,
+                dealCandidateId
+            );
+
+            statement.setLong(
+                3,
+                offerSnapshotId
+            );
+
+            int updatedRows =
+                statement.executeUpdate();
+
+            if (updatedRows == 1) {
+                return;
+            }
+
+            /*
+             * UPDATE sem linha afetada pode significar:
+             *
+             * 1. candidato inexistente;
+             * 2. candidato já correlacionado a outro snapshot.
+             *
+             * Diferenciamos os casos para não esconder corrupção de
+             * linhagem como simples "not found".
+             */
+            throwLinkFailure(
+                dealCandidateId,
+                offerSnapshotId
+            );
+
+        } catch (SQLException exception) {
+            throw persistenceFailure(
+                "link DealCandidate to OfferSnapshot",
+                exception
+            );
+        }
+    }
+
+    private void throwLinkFailure(
+        long dealCandidateId,
+        long requestedOfferSnapshotId
+    ) throws SQLException {
+
+        String sql =
+            """
+            SELECT offer_snapshot_id
+            FROM deal_candidate
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                dealCandidateId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                if (!resultSet.next()) {
+                    throw new IllegalArgumentException(
+                        "DealCandidate not found: "
+                            + dealCandidateId
+                    );
+                }
+
+                long existingOfferSnapshotId =
+                    resultSet.getLong(
+                        "offer_snapshot_id"
+                    );
+
+                if (resultSet.wasNull()) {
+                    throw new IllegalStateException(
+                        "DealCandidate "
+                            + dealCandidateId
+                            + " could not be linked to OfferSnapshot "
+                            + requestedOfferSnapshotId
+                    );
+                }
+
+                throw new IllegalStateException(
+                    "DealCandidate "
+                        + dealCandidateId
+                        + " is already linked to OfferSnapshot "
+                        + existingOfferSnapshotId
+                        + " and cannot be reassigned to OfferSnapshot "
+                        + requestedOfferSnapshotId
+                );
+            }
         }
     }
 
@@ -410,13 +555,24 @@ public final class JdbcDealCandidateRepositoryAdapter
         );
     }
 
-    private void requirePositiveId(
+    private void requirePositiveDealCandidateId(
         long id
     ) {
 
         if (id <= 0) {
             throw new IllegalArgumentException(
                 "DealCandidate id must be positive"
+            );
+        }
+    }
+
+    private void requirePositiveOfferSnapshotId(
+        long id
+    ) {
+
+        if (id <= 0) {
+            throw new IllegalArgumentException(
+                "OfferSnapshot id must be positive"
             );
         }
     }
