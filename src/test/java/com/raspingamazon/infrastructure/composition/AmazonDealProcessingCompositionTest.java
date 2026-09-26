@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Testes do composition root do processamento Amazon.
  *
  * <p>Além da montagem estrutural, esta suíte prova que a composição HTTP
- * padrão conecta a coleta à persistência durável de observabilidade sem
- * utilizar a Amazon real.</p>
+ * padrão conecta coleta e enrichment à persistência durável de
+ * observabilidade sem utilizar a Amazon real.</p>
  */
 @PostgresIntegrationTest
 class AmazonDealProcessingCompositionTest {
@@ -44,20 +44,43 @@ class AmazonDealProcessingCompositionTest {
     private static final String COLLECTION_INTEGRATION =
         "amazon-deals-http";
 
-    private static final Instant OBSERVATION_INSTANT =
+    private static final String PRODUCT_PAGE_INTEGRATION =
+        "amazon-product-page";
+
+    private static final String TEST_ASIN =
+        "B000000001";
+
+    private static final Instant COLLECTION_ONLY_INSTANT =
         Instant.parse(
             "2026-09-26T16:45:12Z"
         );
 
-    private static final OffsetDateTime OBSERVED_AT =
+    private static final OffsetDateTime COLLECTION_ONLY_OBSERVED_AT =
         OffsetDateTime.ofInstant(
-            OBSERVATION_INSTANT,
+            COLLECTION_ONLY_INSTANT,
             ZoneOffset.UTC
         );
 
-    private static final Clock FIXED_CLOCK =
+    private static final Clock COLLECTION_ONLY_CLOCK =
         Clock.fixed(
-            OBSERVATION_INSTANT,
+            COLLECTION_ONLY_INSTANT,
+            ZoneOffset.UTC
+        );
+
+    private static final Instant FULL_PIPELINE_INSTANT =
+        Instant.parse(
+            "2026-09-26T17:15:00Z"
+        );
+
+    private static final OffsetDateTime FULL_PIPELINE_OBSERVED_AT =
+        OffsetDateTime.ofInstant(
+            FULL_PIPELINE_INSTANT,
+            ZoneOffset.UTC
+        );
+
+    private static final Clock FULL_PIPELINE_CLOCK =
+        Clock.fixed(
+            FULL_PIPELINE_INSTANT,
             ZoneOffset.UTC
         );
 
@@ -78,13 +101,7 @@ class AmazonDealProcessingCompositionTest {
                  )) {
 
             HttpClient httpClient =
-                HttpClient.newBuilder()
-                    .connectTimeout(
-                        Duration.ofSeconds(
-                            5
-                        )
-                    )
-                    .build();
+                createHttpClient();
 
             AmazonDealProcessingService service =
                 AmazonDealProcessingComposition.create(
@@ -100,27 +117,17 @@ class AmazonDealProcessingCompositionTest {
     }
 
     /**
-     * Prova o wiring real:
-     *
-     * <pre>
-     * servidor HTTP local
-     *     -> JavaHttpTransport
-     *     -> HttpCollectionCollector
-     *     -> IntegrationObservationRecorder
-     *     -> JdbcIntegrationObservationPersistenceAdapter
-     *     -> PostgreSQL
-     * </pre>
+     * Prova o wiring real da coleta isoladamente.
      *
      * <p>O payload possui products=[] para que o parser produza zero
-     * ofertas. Com isso o teste termina depois da coleta e não acessa
-     * a fronteira de enrichment.</p>
+     * ofertas. Portanto nenhuma página individual é enriquecida.</p>
      */
     @Test
     void shouldPersistCollectionObservationThroughProductionComposition()
         throws Exception {
 
         HttpServer server =
-            createCollectionServer();
+            createCollectionOnlyServer();
 
         server.start();
 
@@ -128,10 +135,10 @@ class AmazonDealProcessingCompositionTest {
 
             URI source =
                 URI.create(
-                    "http://127.0.0.1:"
-                        + server.getAddress()
-                        .getPort()
-                        + "/deals"
+                    serverUrl(
+                        server,
+                        "/deals"
+                    )
                 );
 
             ApplicationConfig config =
@@ -142,32 +149,19 @@ class AmazonDealProcessingCompositionTest {
                          config
                      )) {
 
-                deleteTestObservations(
+                deleteCollectionOnlyTestObservations(
                     connection
                 );
 
                 try {
 
-                    HttpClient httpClient =
-                        HttpClient.newBuilder()
-                            .connectTimeout(
-                                Duration.ofSeconds(
-                                    5
-                                )
-                            )
-                            .build();
-
                     AmazonDealProcessingService service =
                         AmazonDealProcessingComposition.create(
                             connection,
-                            FIXED_CLOCK,
-                            httpClient
+                            COLLECTION_ONLY_CLOCK,
+                            createHttpClient()
                         );
 
-                    /*
-                     * products=[] garante que nenhuma página individual
-                     * de produto seja enriquecida.
-                     */
                     assertTrue(
                         service.process(
                             new CollectionRequest(
@@ -182,7 +176,7 @@ class AmazonDealProcessingCompositionTest {
 
                 } finally {
 
-                    deleteTestObservations(
+                    deleteCollectionOnlyTestObservations(
                         connection
                     );
                 }
@@ -197,13 +191,142 @@ class AmazonDealProcessingCompositionTest {
     }
 
     /**
-     * Servidor HTTP estritamente local para a prova de composição.
+     * Prova o grafo completo de observabilidade das duas integrações:
      *
-     * <p>Não existe acesso à Amazon, internet pública ou mock do
-     * composition root. O HttpClient real executa uma chamada HTTP
-     * contra uma porta efêmera em 127.0.0.1.</p>
+     * <pre>
+     * /deals
+     *   -> JavaHttpTransport
+     *   -> HttpCollectionCollector
+     *   -> integration_observation
+     *
+     * /product
+     *   -> HttpProductPageContentProvider
+     *   -> AmazonProductPageEnrichmentClient
+     *   -> integration_observation
+     * </pre>
+     *
+     * <p>O teste abre uma transação externa e executa rollback no final.
+     * Dessa forma Product, OfferSnapshot, Evidence, Evaluation e
+     * integration_observation permanecem visíveis durante as asserções,
+     * mas nenhum dado de teste é confirmado no banco.</p>
      */
-    private HttpServer createCollectionServer()
+    @Test
+    void shouldPersistCollectionAndProductPageObservationsThroughProductionComposition()
+        throws Exception {
+
+        String productPageHtml =
+            loadProductPageFixture(
+                "amazon-amazon.html"
+            );
+
+        HttpServer server =
+            createFullPipelineServer(
+                productPageHtml
+            );
+
+        server.start();
+
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        try {
+
+            URI dealsUri =
+                URI.create(
+                    serverUrl(
+                        server,
+                        "/deals"
+                    )
+                );
+
+            try (Connection connection =
+                     DatabaseConnection.open(
+                         config
+                     )) {
+
+                connection.setAutoCommit(
+                    false
+                );
+
+                try {
+
+                    AmazonDealProcessingService service =
+                        AmazonDealProcessingComposition.create(
+                            connection,
+                            FULL_PIPELINE_CLOCK,
+                            createHttpClient()
+                        );
+
+                    var results =
+                        service.process(
+                            new CollectionRequest(
+                                dealsUri
+                            )
+                        );
+
+                    assertEquals(
+                        1,
+                        results.size()
+                    );
+
+                    assertFullPipelineObservations(
+                        connection
+                    );
+
+                    /*
+                     * Todo o pipeline está dentro da transação externa.
+                     *
+                     * A observabilidade usa savepoints e não executa
+                     * commit pertencente ao chamador.
+                     */
+                    connection.rollback();
+
+                    assertEquals(
+                        0,
+                        countFullPipelineObservations(
+                            connection
+                        )
+                    );
+
+                } finally {
+
+                    /*
+                     * Limpeza defensiva caso uma asserção anterior falhe.
+                     */
+                    connection.rollback();
+
+                    connection.setAutoCommit(
+                        true
+                    );
+                }
+            }
+
+        } finally {
+
+            server.stop(
+                0
+            );
+        }
+    }
+
+    private HttpClient createHttpClient() {
+
+        return HttpClient.newBuilder()
+            .connectTimeout(
+                Duration.ofSeconds(
+                    5
+                )
+            )
+            .followRedirects(
+                HttpClient.Redirect.NORMAL
+            )
+            .build();
+    }
+
+    /**
+     * Servidor usado pelo teste que prova apenas a coleta.
+     */
+    private HttpServer createCollectionOnlyServer()
         throws IOException {
 
         HttpServer server =
@@ -217,36 +340,128 @@ class AmazonDealProcessingCompositionTest {
 
         server.createContext(
             "/deals",
-            this::handleCollectionRequest
+            exchange ->
+                writeResponse(
+                    exchange,
+                    200,
+                    """
+                    {
+                      "productSearchResponse": {
+                        "products": []
+                      }
+                    }
+                    """
+                )
         );
 
         return server;
     }
 
-    private void handleCollectionRequest(
-        HttpExchange exchange
+    /**
+     * Servidor local com as duas rotas necessárias ao pipeline completo.
+     *
+     * <p>A rota /deals devolve exatamente um produto. O link desse
+     * produto aponta para /product no mesmo servidor, portanto não existe
+     * qualquer acesso à internet pública.</p>
+     */
+    private HttpServer createFullPipelineServer(
+        String productPageHtml
     ) throws IOException {
 
-        byte[] responseBody =
+        HttpServer server =
+            HttpServer.create(
+                new InetSocketAddress(
+                    "127.0.0.1",
+                    0
+                ),
+                0
+            );
+
+        String productUrl =
+            serverUrl(
+                server,
+                "/product"
+            );
+
+        String dealsBody =
             """
             {
               "productSearchResponse": {
-                "products": []
+                "products": [
+                  {
+                    "asin": "%s",
+                    "title": "Produto observabilidade",
+                    "link": "%s",
+                    "price": {
+                      "priceToPay": {
+                        "price": "100.00"
+                      },
+                      "basisPrice": {
+                        "price": "150.00"
+                      }
+                    },
+                    "dealDetails": {
+                      "percentClaimed": 50
+                    },
+                    "customerReviews": {
+                      "rating": {
+                        "shortDisplayString": "4,8"
+                      },
+                      "count": {
+                        "value": 500
+                      }
+                    }
+                  }
+                ]
               }
             }
-            """
-                .getBytes(
-                    StandardCharsets.UTF_8
-                );
+            """.formatted(
+                TEST_ASIN,
+                productUrl
+            );
+
+        server.createContext(
+            "/deals",
+            exchange ->
+                writeResponse(
+                    exchange,
+                    200,
+                    dealsBody
+                )
+        );
+
+        server.createContext(
+            "/product",
+            exchange ->
+                writeResponse(
+                    exchange,
+                    200,
+                    productPageHtml
+                )
+        );
+
+        return server;
+    }
+
+    private void writeResponse(
+        HttpExchange exchange,
+        int statusCode,
+        String body
+    ) throws IOException {
+
+        byte[] responseBody =
+            body.getBytes(
+                StandardCharsets.UTF_8
+            );
 
         exchange.getResponseHeaders()
             .set(
                 "Content-Type",
-                "application/json; charset=UTF-8"
+                "text/html; charset=UTF-8"
             );
 
         exchange.sendResponseHeaders(
-            200,
+            statusCode,
             responseBody.length
         );
 
@@ -256,18 +471,55 @@ class AmazonDealProcessingCompositionTest {
             output.write(
                 responseBody
             );
+
         } finally {
 
             exchange.close();
         }
     }
 
+    private String serverUrl(
+        HttpServer server,
+        String path
+    ) {
+
+        return "http://127.0.0.1:"
+            + server.getAddress()
+            .getPort()
+            + path;
+    }
+
+    private String loadProductPageFixture(
+        String fileName
+    ) throws Exception {
+
+        String resourcePath =
+            "/amazon/fixtures/product/"
+                + fileName;
+
+        try (var inputStream =
+                 getClass()
+                     .getResourceAsStream(
+                         resourcePath
+                     )) {
+
+            if (inputStream == null) {
+
+                throw new IllegalStateException(
+                    "Fixture not found: "
+                        + resourcePath
+                );
+            }
+
+            return new String(
+                inputStream.readAllBytes(),
+                StandardCharsets.UTF_8
+            );
+        }
+    }
+
     /**
-     * Confere o fato persistido em vez de inspecionar campos privados
-     * da composição.
-     *
-     * <p>Esse formato é intencional: o teste observa o comportamento
-     * externo da composição real e não depende de reflection.</p>
+     * Valida a observação da coleta no teste de products=[].
      */
     private void assertPersistedCollectionObservation(
         Connection connection
@@ -311,7 +563,7 @@ class AmazonDealProcessingCompositionTest {
 
             statement.setObject(
                 2,
-                OBSERVED_AT
+                COLLECTION_ONLY_OBSERVED_AT
             );
 
             try (ResultSet resultSet =
@@ -322,7 +574,7 @@ class AmazonDealProcessingCompositionTest {
                 );
 
                 assertEquals(
-                    OBSERVED_AT,
+                    COLLECTION_ONLY_OBSERVED_AT,
                     resultSet.getObject(
                         "observed_at",
                         OffsetDateTime.class
@@ -350,21 +602,12 @@ class AmazonDealProcessingCompositionTest {
                     )
                 );
 
-                /*
-                 * A latência varia conforme a máquina.
-                 * A propriedade relevante aqui é ser uma duração
-                 * monotônica não negativa.
-                 */
                 assertTrue(
                     resultSet.getLong(
                         "duration_ms"
                     ) >= 0L
                 );
 
-                /*
-                 * O collector síncrono recebe somente CollectionRequest.
-                 * Nenhuma identidade de pipeline é inventada.
-                 */
                 assertNull(
                     resultSet.getObject(
                         "processing_run_id"
@@ -413,9 +656,6 @@ class AmazonDealProcessingCompositionTest {
                     )
                 );
 
-                /*
-                 * SUCCESS não possui metadados de falha.
-                 */
                 assertNull(
                     resultSet.getString(
                         "failure_origin"
@@ -442,9 +682,6 @@ class AmazonDealProcessingCompositionTest {
                     )
                 );
 
-                /*
-                 * Uma chamada HTTP produz uma única observação.
-                 */
                 assertFalse(
                     resultSet.next()
                 );
@@ -453,10 +690,246 @@ class AmazonDealProcessingCompositionTest {
     }
 
     /**
-     * O timestamp fixo torna a linha de teste determinística e permite
-     * limpeza específica sem tocar em observações operacionais reais.
+     * Valida as duas observações criadas pelo pipeline completo.
      */
-    private void deleteTestObservations(
+    private void assertFullPipelineObservations(
+        Connection connection
+    ) throws Exception {
+
+        String sql =
+            """
+            SELECT
+                integration,
+                operation,
+                outcome,
+                duration_ms,
+                asin,
+                failure_origin,
+                failure_type,
+                error_code,
+                http_status_code
+            FROM integration_observation
+            WHERE observed_at = ?
+              AND integration IN (?, ?)
+            ORDER BY integration
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                FULL_PIPELINE_OBSERVED_AT
+            );
+
+            statement.setString(
+                2,
+                COLLECTION_INTEGRATION
+            );
+
+            statement.setString(
+                3,
+                PRODUCT_PAGE_INTEGRATION
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                /*
+                 * ORDER BY integration:
+                 *
+                 * amazon-deals-http
+                 * amazon-product-page
+                 */
+                assertTrue(
+                    resultSet.next()
+                );
+
+                assertEquals(
+                    COLLECTION_INTEGRATION,
+                    resultSet.getString(
+                        "integration"
+                    )
+                );
+
+                assertEquals(
+                    "GET",
+                    resultSet.getString(
+                        "operation"
+                    )
+                );
+
+                assertEquals(
+                    "SUCCESS",
+                    resultSet.getString(
+                        "outcome"
+                    )
+                );
+
+                assertTrue(
+                    resultSet.getLong(
+                        "duration_ms"
+                    ) >= 0L
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "asin"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "failure_origin"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "failure_type"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "error_code"
+                    )
+                );
+
+                assertEquals(
+                    200,
+                    resultSet.getObject(
+                        "http_status_code",
+                        Integer.class
+                    )
+                );
+
+                assertTrue(
+                    resultSet.next()
+                );
+
+                assertEquals(
+                    PRODUCT_PAGE_INTEGRATION,
+                    resultSet.getString(
+                        "integration"
+                    )
+                );
+
+                assertEquals(
+                    "LOAD",
+                    resultSet.getString(
+                        "operation"
+                    )
+                );
+
+                assertEquals(
+                    "SUCCESS",
+                    resultSet.getString(
+                        "outcome"
+                    )
+                );
+
+                assertTrue(
+                    resultSet.getLong(
+                        "duration_ms"
+                    ) >= 0L
+                );
+
+                /*
+                 * O enrichment conhece o ASIN real sem consulta ou
+                 * inferência adicional.
+                 */
+                assertEquals(
+                    TEST_ASIN,
+                    resultSet.getString(
+                        "asin"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "failure_origin"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "failure_type"
+                    )
+                );
+
+                assertNull(
+                    resultSet.getString(
+                        "error_code"
+                    )
+                );
+
+                /*
+                 * O contrato ProductPageContentProvider não promete
+                 * status HTTP porque também suporta estratégias não-HTTP.
+                 */
+                assertNull(
+                    resultSet.getObject(
+                        "http_status_code"
+                    )
+                );
+
+                assertFalse(
+                    resultSet.next()
+                );
+            }
+        }
+    }
+
+    private int countFullPipelineObservations(
+        Connection connection
+    ) throws Exception {
+
+        String sql =
+            """
+            SELECT COUNT(*)
+            FROM integration_observation
+            WHERE observed_at = ?
+              AND integration IN (?, ?)
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                FULL_PIPELINE_OBSERVED_AT
+            );
+
+            statement.setString(
+                2,
+                COLLECTION_INTEGRATION
+            );
+
+            statement.setString(
+                3,
+                PRODUCT_PAGE_INTEGRATION
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                assertTrue(
+                    resultSet.next()
+                );
+
+                return resultSet.getInt(
+                    1
+                );
+            }
+        }
+    }
+
+    private void deleteCollectionOnlyTestObservations(
         Connection connection
     ) throws Exception {
 
@@ -479,7 +952,7 @@ class AmazonDealProcessingCompositionTest {
 
             statement.setObject(
                 2,
-                OBSERVED_AT
+                COLLECTION_ONLY_OBSERVED_AT
             );
 
             statement.executeUpdate();

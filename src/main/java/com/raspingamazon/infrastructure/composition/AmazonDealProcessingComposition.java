@@ -19,8 +19,12 @@ import com.raspingamazon.domain.history.SnapshotEvolutionCalculator;
 import com.raspingamazon.domain.momentum.MomentumEngine;
 import com.raspingamazon.domain.scoring.ScoreEngine;
 import com.raspingamazon.domain.validation.AmazonEligibilityValidator;
+import com.raspingamazon.infrastructure.amazon.enrichment.AmazonCustomerReviewParser;
+import com.raspingamazon.infrastructure.amazon.enrichment.AmazonPaymentConditionParser;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageEnrichmentClient;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageParser;
+import com.raspingamazon.infrastructure.amazon.enrichment.HttpProductPageContentProvider;
+import com.raspingamazon.infrastructure.amazon.enrichment.ProductPageContentProvider;
 import com.raspingamazon.infrastructure.amazon.parser.AmazonDealsParser;
 import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
@@ -64,8 +68,8 @@ import java.util.Objects;
  *
  * <ol>
  *     <li>
- *         composição padrão de produção, que cria coleta, parser e
- *         enrichment HTTP;
+ *         composição padrão de produção, que cria coleta, parser,
+ *         enrichment HTTP e observabilidade das integrações;
  *     </li>
  *     <li>
  *         composição com fronteiras externas injetadas, útil quando
@@ -87,6 +91,9 @@ public final class AmazonDealProcessingComposition {
 
     private static final String COLLECTION_INTEGRATION =
         "amazon-deals-http";
+
+    private static final String PRODUCT_PAGE_INTEGRATION =
+        "amazon-product-page";
 
     private AmazonDealProcessingComposition() {
     }
@@ -112,20 +119,17 @@ public final class AmazonDealProcessingComposition {
     /**
      * Variante padrão com Clock e HttpClient injetáveis.
      *
-     * <p>Esta continua sendo a composição HTTP convencional da
-     * aplicação. Ela cria:</p>
+     * <p>Esta é a composição HTTP convencional da aplicação. Ela cria
+     * as duas fronteiras externas observadas:</p>
      *
      * <ul>
-     *     <li>HttpCollectionCollector;</li>
-     *     <li>observabilidade durável da coleta HTTP;</li>
-     *     <li>AmazonDealsParser;</li>
-     *     <li>AmazonProductPageEnrichmentClient baseado em HTTP.</li>
+     *     <li>coleta de deals;</li>
+     *     <li>aquisição da página individual de produto.</li>
      * </ul>
      *
-     * <p>Nesta etapa da FASE 16, somente a fronteira de coleta está
-     * ligada ao recorder de observabilidade. O enrichment será
-     * instrumentado separadamente para que cada fronteira externa
-     * mantenha sua própria medição e semântica.</p>
+     * <p>As duas usam o mesmo recorder best-effort e o mesmo
+     * ProcessingFailureClassifier, evitando fontes concorrentes de
+     * classificação operacional.</p>
      */
     public static AmazonDealProcessingService create(
         Connection connection,
@@ -154,14 +158,13 @@ public final class AmazonDealProcessingComposition {
          * ---------------------------------------------------------
          *
          * O mesmo classificador utilizado pelo processamento fornece
-         * TRANSIENT/PERMANENT e errorCode para as observações.
+         * TRANSIENT/PERMANENT e errorCode para todas as observações.
          *
-         * O adapter JDBC usa a mesma Connection da composição, mas
-         * protege transações externas com savepoint por meio do
-         * JdbcTransactionAdapter que existe dentro do adapter.
+         * O adapter JDBC utiliza a mesma Connection do pipeline e
+         * protege transações externas com savepoints.
          *
-         * BestEffortIntegrationObservationRecorder impede que uma
-         * falha da própria observabilidade altere o fluxo funcional.
+         * O recorder best-effort garante que uma falha da própria
+         * observabilidade não modifique o resultado funcional.
          */
         ProcessingFailureClassifier failureClassifier =
             new DefaultProcessingFailureClassifier();
@@ -174,14 +177,10 @@ public final class AmazonDealProcessingComposition {
 
         /*
          * Falhas da própria observabilidade são diagnósticas e são
-         * emitidas como JSON Lines em stderr.
+         * escritas em JSON Lines no stderr.
          *
-         * stderr é utilizado para que esse diagnóstico estruturado
-         * não seja misturado ao stdout destinado à saída funcional
-         * ou humana de uma interface.
-         *
-         * O PrintWriter não é fechado por esta composição porque
-         * System.err pertence ao processo.
+         * O writer não é fechado porque System.err pertence ao
+         * processo.
          */
         StructuredOperationalLogPort operationalLog =
             new JsonStructuredOperationalLogAdapter(
@@ -230,17 +229,43 @@ public final class AmazonDealProcessingComposition {
 
         /*
          * ---------------------------------------------------------
+         * PRODUCT PAGE ACQUISITION
+         * ---------------------------------------------------------
+         *
+         * O provider permanece separado do client de enrichment.
+         * Portanto, no futuro, HTTP bruto pode ser substituído por
+         * DOM renderizado sem alterar a instrumentação do client.
+         *
+         * O Clock compartilhado também é fornecido ao provider para
+         * que collectedAt e observedAt usem a mesma referência civil.
+         */
+        ProductPageContentProvider productPageContentProvider =
+            new HttpProductPageContentProvider(
+                httpClient,
+                clock
+            );
+
+        /*
+         * ---------------------------------------------------------
          * PRODUCT ENRICHMENT
          * ---------------------------------------------------------
          *
-         * Ainda não há observabilidade de integração ligada aqui.
-         * Essa segunda fronteira HTTP será instrumentada em uma
-         * subetapa independente.
+         * A observação envolve somente
+         * ProductPageContentProvider.load().
+         *
+         * Parsing de seller, delivery, reviews e condições comerciais
+         * fica deliberadamente fora da latência da integração.
          */
         ProductEnrichmentClient enrichmentClient =
             new AmazonProductPageEnrichmentClient(
-                httpClient,
-                new AmazonProductPageParser()
+                productPageContentProvider,
+                new AmazonProductPageParser(),
+                new AmazonPaymentConditionParser(),
+                new AmazonCustomerReviewParser(),
+                clock,
+                PRODUCT_PAGE_INTEGRATION,
+                observationRecorder,
+                failureClassifier
             );
 
         return create(
@@ -274,9 +299,8 @@ public final class AmazonDealProcessingComposition {
      *
      * <p>Esta variante permanece deliberadamente neutra em relação
      * à observabilidade das fronteiras externas. O chamador que
-     * fornece um CollectionCollector ou ProductEnrichmentClient
-     * alternativo também é responsável pela composição concreta
-     * dessas fronteiras.</p>
+     * fornece CollectionCollector ou ProductEnrichmentClient
+     * alternativos também controla a composição dessas fronteiras.</p>
      *
      * @param connection conexão JDBC compartilhada
      * @param clock relógio da execução
