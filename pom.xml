@@ -47,6 +47,10 @@
             3.5.0
         </maven.jar.plugin.version>
 
+        <exec.maven.plugin.version>
+            3.6.4
+        </exec.maven.plugin.version>
+
         <build.helper.maven.plugin.version>
             3.6.2
         </build.helper.maven.plugin.version>
@@ -126,6 +130,38 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>${maven.jar.plugin.version}</version>
+            </plugin>
+
+            <!--
+                Execução local da interface operacional.
+
+                O plugin não é associado automaticamente a nenhuma fase
+                do lifecycle Maven. A CLI é executada somente quando
+                exec:java é solicitado explicitamente.
+
+                blockSystemExit protege a JVM do Maven caso o entrypoint
+                precise produzir um código de saída diferente de zero.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec.maven.plugin.version}</version>
+
+                <configuration>
+
+                    <mainClass>
+                        com.raspingamazon.infrastructure.bootstrap.OperationalCliMain
+                    </mainClass>
+
+                    <classpathScope>
+                        runtime
+                    </classpathScope>
+
+                    <blockSystemExit>
+                        true
+                    </blockSystemExit>
+
+                </configuration>
             </plugin>
 
         </plugins>
