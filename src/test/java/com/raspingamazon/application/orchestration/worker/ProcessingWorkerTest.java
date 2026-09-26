@@ -1,5 +1,8 @@
 package com.raspingamazon.application.orchestration.worker;
 
+import com.raspingamazon.application.observability.OperationalLogEvent;
+import com.raspingamazon.application.observability.OperationalLogLevel;
+import com.raspingamazon.application.observability.port.StructuredOperationalLogPort;
 import com.raspingamazon.application.orchestration.ProcessingFailure;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import com.raspingamazon.application.orchestration.ProcessingJob;
@@ -15,11 +18,14 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -47,6 +53,9 @@ class ProcessingWorkerTest {
         RecordingQueue queue =
             new RecordingQueue();
 
+        RecordingOperationalLog operationalLog =
+            new RecordingOperationalLog();
+
         ProcessingJobExecutionPort executor =
             job -> {
                 throw new AssertionError(
@@ -62,7 +71,8 @@ class ProcessingWorkerTest {
                 failureHandler(
                     queue
                 ),
-                CLOCK
+                CLOCK,
+                operationalLog
             );
 
         ProcessingWorkerRunResult result =
@@ -96,10 +106,20 @@ class ProcessingWorkerTest {
             NOW,
             queue.lastClaimedAt
         );
+
+        /*
+         * Ausência de trabalho não gera log.
+         *
+         * Isso evita volume inútil quando uma composição futura
+         * executar runOnce() de forma recorrente.
+         */
+        assertTrue(
+            operationalLog.events.isEmpty()
+        );
     }
 
     @Test
-    void shouldExecuteAndMarkJobSucceeded() {
+    void shouldExecuteMarkSucceededAndEmitStructuredLifecycleEvents() {
 
         RecordingQueue queue =
             new RecordingQueue();
@@ -109,6 +129,9 @@ class ProcessingWorkerTest {
                 1,
                 5
             );
+
+        RecordingOperationalLog operationalLog =
+            new RecordingOperationalLog();
 
         AtomicInteger executionCalls =
             new AtomicInteger();
@@ -132,7 +155,8 @@ class ProcessingWorkerTest {
                 failureHandler(
                     queue
                 ),
-                CLOCK
+                CLOCK,
+                operationalLog
             );
 
         ProcessingWorkerRunResult result =
@@ -171,10 +195,159 @@ class ProcessingWorkerTest {
             0,
             queue.deadCalls
         );
+
+        assertEquals(
+            2,
+            operationalLog.events.size()
+        );
+
+        OperationalLogEvent claimedEvent =
+            operationalLog.events.get(
+                0
+            );
+
+        assertEquals(
+            OperationalLogLevel.INFO,
+            claimedEvent.level()
+        );
+
+        assertEquals(
+            "processing.job.claimed",
+            claimedEvent.event()
+        );
+
+        assertEquals(
+            "processing-worker",
+            claimedEvent.component()
+        );
+
+        assertEquals(
+            "execute-job",
+            claimedEvent.operation()
+        );
+
+        assertEquals(
+            "CLAIMED",
+            claimedEvent.outcome()
+        );
+
+        assertEquals(
+            100L,
+            claimedEvent.context()
+                .jobId()
+        );
+
+        assertEquals(
+            ProcessingJobType.ENRICH_DEAL,
+            claimedEvent.context()
+                .jobType()
+        );
+
+        assertEquals(
+            200L,
+            claimedEvent.context()
+                .candidateId()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .runId()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .snapshotId()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .evaluationId()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .publicationId()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .asin()
+        );
+
+        assertNull(
+            claimedEvent.context()
+                .integration()
+        );
+
+        assertNull(
+            claimedEvent.durationMs()
+        );
+
+        assertNull(
+            claimedEvent.failureOrigin()
+        );
+
+        assertNull(
+            claimedEvent.failureType()
+        );
+
+        assertNull(
+            claimedEvent.errorCode()
+        );
+
+        OperationalLogEvent succeededEvent =
+            operationalLog.events.get(
+                1
+            );
+
+        assertEquals(
+            OperationalLogLevel.INFO,
+            succeededEvent.level()
+        );
+
+        assertEquals(
+            "processing.job.succeeded",
+            succeededEvent.event()
+        );
+
+        assertEquals(
+            "SUCCEEDED",
+            succeededEvent.outcome()
+        );
+
+        assertEquals(
+            100L,
+            succeededEvent.context()
+                .jobId()
+        );
+
+        assertEquals(
+            ProcessingJobType.ENRICH_DEAL,
+            succeededEvent.context()
+                .jobType()
+        );
+
+        assertEquals(
+            200L,
+            succeededEvent.context()
+                .candidateId()
+        );
+
+        assertNull(
+            succeededEvent.failureOrigin()
+        );
+
+        assertNull(
+            succeededEvent.failureType()
+        );
+
+        assertNull(
+            succeededEvent.errorCode()
+        );
     }
 
     @Test
-    void shouldScheduleRetryWhenExecutionFailsTransiently() {
+    void shouldScheduleRetryAndEmitStructuredRetryEvent() {
 
         RecordingQueue queue =
             new RecordingQueue();
@@ -184,6 +357,9 @@ class ProcessingWorkerTest {
                 1,
                 5
             );
+
+        RecordingOperationalLog operationalLog =
+            new RecordingOperationalLog();
 
         ProcessingJobExecutionPort executor =
             job -> {
@@ -213,7 +389,8 @@ class ProcessingWorkerTest {
                 queue,
                 executor,
                 failureHandler,
-                CLOCK
+                CLOCK,
+                operationalLog
             );
 
         ProcessingWorkerRunResult result =
@@ -242,10 +419,73 @@ class ProcessingWorkerTest {
             0,
             queue.deadCalls
         );
+
+        assertEquals(
+            2,
+            operationalLog.events.size()
+        );
+
+        OperationalLogEvent retryEvent =
+            operationalLog.events.get(
+                1
+            );
+
+        assertEquals(
+            OperationalLogLevel.WARN,
+            retryEvent.level()
+        );
+
+        assertEquals(
+            "processing.job.retry-scheduled",
+            retryEvent.event()
+        );
+
+        assertEquals(
+            "RETRY_WAIT",
+            retryEvent.outcome()
+        );
+
+        assertEquals(
+            100L,
+            retryEvent.context()
+                .jobId()
+        );
+
+        assertEquals(
+            ProcessingJobType.ENRICH_DEAL,
+            retryEvent.context()
+                .jobType()
+        );
+
+        assertEquals(
+            200L,
+            retryEvent.context()
+                .candidateId()
+        );
+
+        /*
+         * O worker conhece o resultado RETRY_WAIT, mas não possui
+         * contexto suficiente para determinar a origem concreta da
+         * falha.
+         *
+         * A classificação completa será observada na fronteira de
+         * integração correspondente.
+         */
+        assertNull(
+            retryEvent.failureOrigin()
+        );
+
+        assertNull(
+            retryEvent.failureType()
+        );
+
+        assertNull(
+            retryEvent.errorCode()
+        );
     }
 
     @Test
-    void shouldMarkDeadWhenExecutionFailsPermanently() {
+    void shouldMarkDeadAndEmitStructuredDeadEvent() {
 
         RecordingQueue queue =
             new RecordingQueue();
@@ -255,6 +495,9 @@ class ProcessingWorkerTest {
                 1,
                 5
             );
+
+        RecordingOperationalLog operationalLog =
+            new RecordingOperationalLog();
 
         ProcessingJobExecutionPort executor =
             job -> {
@@ -285,7 +528,8 @@ class ProcessingWorkerTest {
                 queue,
                 executor,
                 failureHandler,
-                CLOCK
+                CLOCK,
+                operationalLog
             );
 
         ProcessingWorkerRunResult result =
@@ -310,6 +554,61 @@ class ProcessingWorkerTest {
             1,
             queue.deadCalls
         );
+
+        assertEquals(
+            2,
+            operationalLog.events.size()
+        );
+
+        OperationalLogEvent deadEvent =
+            operationalLog.events.get(
+                1
+            );
+
+        assertEquals(
+            OperationalLogLevel.ERROR,
+            deadEvent.level()
+        );
+
+        assertEquals(
+            "processing.job.dead",
+            deadEvent.event()
+        );
+
+        assertEquals(
+            "DEAD",
+            deadEvent.outcome()
+        );
+
+        assertEquals(
+            100L,
+            deadEvent.context()
+                .jobId()
+        );
+
+        assertEquals(
+            ProcessingJobType.ENRICH_DEAL,
+            deadEvent.context()
+                .jobType()
+        );
+
+        assertEquals(
+            200L,
+            deadEvent.context()
+                .candidateId()
+        );
+
+        assertNull(
+            deadEvent.failureOrigin()
+        );
+
+        assertNull(
+            deadEvent.failureType()
+        );
+
+        assertNull(
+            deadEvent.errorCode()
+        );
     }
 
     @Test
@@ -327,6 +626,9 @@ class ProcessingWorkerTest {
         queue.failMarkSucceeded =
             true;
 
+        RecordingOperationalLog operationalLog =
+            new RecordingOperationalLog();
+
         ProcessingWorker worker =
             new ProcessingWorker(
                 WORKER_ID,
@@ -336,7 +638,8 @@ class ProcessingWorkerTest {
                 failureHandler(
                     queue
                 ),
-                CLOCK
+                CLOCK,
+                operationalLog
             );
 
         assertThrows(
@@ -357,6 +660,112 @@ class ProcessingWorkerTest {
         assertEquals(
             0,
             queue.deadCalls
+        );
+
+        /*
+         * O claim foi persistido e observado.
+         *
+         * O evento de sucesso não existe porque markSucceeded
+         * falhou antes da confirmação persistente.
+         */
+        assertEquals(
+            1,
+            operationalLog.events.size()
+        );
+
+        assertEquals(
+            "processing.job.claimed",
+            operationalLog.events
+                .getFirst()
+                .event()
+        );
+    }
+
+    @Test
+    void shouldNotLetLoggingFailureChangeSuccessfulProcessing() {
+
+        RecordingQueue queue =
+            new RecordingQueue();
+
+        queue.nextJob =
+            runningJob(
+                1,
+                5
+            );
+
+        StructuredOperationalLogPort failingLog =
+            event -> {
+                throw new IllegalStateException(
+                    "logging unavailable"
+                );
+            };
+
+        ProcessingWorker worker =
+            new ProcessingWorker(
+                WORKER_ID,
+                queue,
+                job -> {
+                },
+                failureHandler(
+                    queue
+                ),
+                CLOCK,
+                failingLog
+            );
+
+        ProcessingWorkerRunResult result =
+            worker.runOnce();
+
+        assertTrue(
+            result.jobClaimed()
+        );
+
+        assertEquals(
+            100L,
+            result.claimedJobId()
+        );
+
+        assertEquals(
+            ProcessingJobStatus.SUCCEEDED,
+            result.finalStatus()
+        );
+
+        assertEquals(
+            1,
+            queue.successCalls
+        );
+
+        assertEquals(
+            0,
+            queue.retryCalls
+        );
+
+        assertEquals(
+            0,
+            queue.deadCalls
+        );
+    }
+
+    @Test
+    void shouldRejectNullOperationalLog() {
+
+        RecordingQueue queue =
+            new RecordingQueue();
+
+        assertThrows(
+            NullPointerException.class,
+            () ->
+                new ProcessingWorker(
+                    WORKER_ID,
+                    queue,
+                    job -> {
+                    },
+                    failureHandler(
+                        queue
+                    ),
+                    CLOCK,
+                    null
+                )
         );
     }
 
@@ -414,6 +823,23 @@ class ProcessingWorkerTest {
             ),
             null
         );
+    }
+
+    private static final class RecordingOperationalLog
+        implements StructuredOperationalLogPort {
+
+        private final List<OperationalLogEvent> events =
+            new ArrayList<>();
+
+        @Override
+        public void log(
+            OperationalLogEvent event
+        ) {
+
+            events.add(
+                event
+            );
+        }
     }
 
     private static final class RecordingQueue
