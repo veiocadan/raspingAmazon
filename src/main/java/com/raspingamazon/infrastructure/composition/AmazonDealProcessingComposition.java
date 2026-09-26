@@ -6,6 +6,12 @@ import com.raspingamazon.application.deal.OfferSnapshotFactory;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.evaluation.AmazonDealEvaluationApplicationService;
 import com.raspingamazon.application.momentum.MomentumCalculationService;
+import com.raspingamazon.application.observability.BestEffortIntegrationObservationRecorder;
+import com.raspingamazon.application.observability.port.IntegrationObservationPersistencePort;
+import com.raspingamazon.application.observability.port.IntegrationObservationRecorder;
+import com.raspingamazon.application.observability.port.StructuredOperationalLogPort;
+import com.raspingamazon.application.orchestration.failure.DefaultProcessingFailureClassifier;
+import com.raspingamazon.application.orchestration.failure.ProcessingFailureClassifier;
 import com.raspingamazon.application.parsing.contract.DealsParser;
 import com.raspingamazon.domain.filter.BestCashDiscountSelector;
 import com.raspingamazon.domain.filter.CommercialFilterEngine;
@@ -18,6 +24,7 @@ import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageParse
 import com.raspingamazon.infrastructure.amazon.parser.AmazonDealsParser;
 import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
+import com.raspingamazon.infrastructure.observability.JsonStructuredOperationalLogAdapter;
 import com.raspingamazon.infrastructure.persistence.DealEvaluationJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.FilterProfileJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.MomentumAuditJdbcRepository;
@@ -27,13 +34,16 @@ import com.raspingamazon.infrastructure.persistence.OfferPaymentConditionReposit
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
 import com.raspingamazon.infrastructure.persistence.ProductRepository;
 import com.raspingamazon.infrastructure.persistence.ScoreProfileJdbcRepository;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcIntegrationObservationPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcTransactionAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferEvidenceJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.OfferSnapshotJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.PaymentConditionJdbcPersistenceAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.ProductJdbcPersistenceAdapter;
 
+import java.io.PrintWriter;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Clock;
 import java.time.Duration;
@@ -75,6 +85,9 @@ public final class AmazonDealProcessingComposition {
             20
         );
 
+    private static final String COLLECTION_INTEGRATION =
+        "amazon-deals-http";
+
     private AmazonDealProcessingComposition() {
     }
 
@@ -104,9 +117,15 @@ public final class AmazonDealProcessingComposition {
      *
      * <ul>
      *     <li>HttpCollectionCollector;</li>
+     *     <li>observabilidade durável da coleta HTTP;</li>
      *     <li>AmazonDealsParser;</li>
      *     <li>AmazonProductPageEnrichmentClient baseado em HTTP.</li>
      * </ul>
+     *
+     * <p>Nesta etapa da FASE 16, somente a fronteira de coleta está
+     * ligada ao recorder de observabilidade. O enrichment será
+     * instrumentado separadamente para que cada fronteira externa
+     * mantenha sua própria medição e semântica.</p>
      */
     public static AmazonDealProcessingService create(
         Connection connection,
@@ -129,6 +148,63 @@ public final class AmazonDealProcessingComposition {
             "httpClient must not be null"
         );
 
+        /*
+         * ---------------------------------------------------------
+         * INTEGRATION OBSERVABILITY
+         * ---------------------------------------------------------
+         *
+         * O mesmo classificador utilizado pelo processamento fornece
+         * TRANSIENT/PERMANENT e errorCode para as observações.
+         *
+         * O adapter JDBC usa a mesma Connection da composição, mas
+         * protege transações externas com savepoint por meio do
+         * JdbcTransactionAdapter que existe dentro do adapter.
+         *
+         * BestEffortIntegrationObservationRecorder impede que uma
+         * falha da própria observabilidade altere o fluxo funcional.
+         */
+        ProcessingFailureClassifier failureClassifier =
+            new DefaultProcessingFailureClassifier();
+
+        IntegrationObservationPersistencePort
+            observationPersistencePort =
+            new JdbcIntegrationObservationPersistenceAdapter(
+                connection
+            );
+
+        /*
+         * Falhas da própria observabilidade são diagnósticas e são
+         * emitidas como JSON Lines em stderr.
+         *
+         * stderr é utilizado para que esse diagnóstico estruturado
+         * não seja misturado ao stdout destinado à saída funcional
+         * ou humana de uma interface.
+         *
+         * O PrintWriter não é fechado por esta composição porque
+         * System.err pertence ao processo.
+         */
+        StructuredOperationalLogPort operationalLog =
+            new JsonStructuredOperationalLogAdapter(
+                new PrintWriter(
+                    System.err,
+                    true,
+                    StandardCharsets.UTF_8
+                ),
+                clock
+            );
+
+        IntegrationObservationRecorder observationRecorder =
+            new BestEffortIntegrationObservationRecorder(
+                observationPersistencePort,
+                failureClassifier,
+                operationalLog
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * COLLECTION HTTP
+         * ---------------------------------------------------------
+         */
         JavaHttpTransport httpTransport =
             new JavaHttpTransport(
                 httpClient,
@@ -138,12 +214,29 @@ public final class AmazonDealProcessingComposition {
         CollectionCollector collectionCollector =
             new HttpCollectionCollector(
                 httpTransport,
-                clock
+                clock,
+                COLLECTION_INTEGRATION,
+                observationRecorder,
+                failureClassifier
             );
 
+        /*
+         * ---------------------------------------------------------
+         * DEALS PARSER
+         * ---------------------------------------------------------
+         */
         DealsParser dealsParser =
             new AmazonDealsParser();
 
+        /*
+         * ---------------------------------------------------------
+         * PRODUCT ENRICHMENT
+         * ---------------------------------------------------------
+         *
+         * Ainda não há observabilidade de integração ligada aqui.
+         * Essa segunda fronteira HTTP será instrumentada em uma
+         * subetapa independente.
+         */
         ProductEnrichmentClient enrichmentClient =
             new AmazonProductPageEnrichmentClient(
                 httpClient,
@@ -178,6 +271,12 @@ public final class AmazonDealProcessingComposition {
      *
      * <p>A partir de ProductPersistencePort, a composição é
      * exatamente a mesma usada pelo fluxo padrão.</p>
+     *
+     * <p>Esta variante permanece deliberadamente neutra em relação
+     * à observabilidade das fronteiras externas. O chamador que
+     * fornece um CollectionCollector ou ProductEnrichmentClient
+     * alternativo também é responsável pela composição concreta
+     * dessas fronteiras.</p>
      *
      * @param connection conexão JDBC compartilhada
      * @param clock relógio da execução
