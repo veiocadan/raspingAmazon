@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -9,7 +11,6 @@ import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -38,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>O teste também garante que uma coleta posterior continua
  * produzindo histórico normalmente.</p>
  */
+@PostgresIntegrationTest
 class OfferSnapshotIdempotencyTest {
 
     private static final String ASIN =
@@ -57,9 +59,6 @@ class OfferSnapshotIdempotencyTest {
          * Garante que V6 esteja aplicada antes de exercitar
          * a constraint de idempotência.
          */
-        DatabaseMigration.migrate(
-                config
-        );
 
         long productId =
                 0;
@@ -161,9 +160,6 @@ class OfferSnapshotIdempotencyTest {
         ApplicationConfig config =
                 EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-                config
-        );
 
         long productId =
                 0;

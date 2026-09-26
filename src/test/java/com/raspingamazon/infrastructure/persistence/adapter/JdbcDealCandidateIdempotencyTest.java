@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
@@ -15,6 +17,7 @@ import java.time.OffsetDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@PostgresIntegrationTest
 class JdbcDealCandidateIdempotencyTest {
 
     private static final String ASIN =

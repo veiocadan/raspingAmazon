@@ -1,10 +1,11 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.operation.evaluation.DealEvaluationDetail;
 import com.raspingamazon.domain.evaluation.RejectionReason;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcDealEvaluationOperationalDetailQueryAdapterTest {
 
     private static final OffsetDateTime BASE_TIME =
@@ -490,9 +492,6 @@ class JdbcDealEvaluationOperationalDetailQueryAdapterTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         try (Connection connection =
                  DatabaseConnection.open(

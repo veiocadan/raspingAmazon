@@ -12,11 +12,11 @@ O projeto prioriza:
 - persistência durável;
 - escalabilidade orientada por necessidade real.
 
-> **Estado atual: FASE 14 concluída localmente.**
+> **Estado atual: FASE 15 concluída localmente.**
 >
-> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada e uma **interface operacional Java em CLI, não bloqueante**, apoiada por read models e casos de uso próprios da camada `application`.
+> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, uma **interface operacional Java em CLI, não bloqueante** e uma suíte de integração PostgreSQL autocontida, capaz de preparar seu schema via Flyway sem bootstrap Maven separado.
 >
-> Gate local final da FASE 14:
+> Gate local final da FASE 15:
 >
 > ```text
 > Tests run: 820
@@ -29,10 +29,12 @@ O projeto prioriza:
 >
 > O catálogo Flyway alcança **V19**.
 >
-> O encerramento remoto da FASE 14 ainda depende de:
+> O encerramento remoto da FASE 15 ainda depende de:
 >
 > ```text
 > push da branch
+> +
+> Pull Request
 > +
 > CI remoto verde
 > ```
@@ -122,9 +124,9 @@ A ordem das fases deve ser preservada e responsabilidades futuras não devem ser
 | FASE 11 | Histórico, evolução e momentum | CONCLUÍDA |
 | FASE 12 | Orquestração assíncrona e processamento durável | CONCLUÍDA |
 | FASE 13 | Geração de publicação e link de associado | CONCLUÍDA |
-| FASE 14 | Interface operacional não bloqueante | CONCLUÍDA LOCALMENTE |
-| FASE 15 | Qualidade integrada | PRÓXIMA APÓS GATE REMOTO |
-| FASE 16 | Observabilidade | PLANEJADA |
+| FASE 14 | Interface operacional não bloqueante | CONCLUÍDA |
+| FASE 15 | Qualidade integrada | CONCLUÍDA LOCALMENTE |
+| FASE 16 | Observabilidade | PRÓXIMA APÓS GATE REMOTO |
 | FASE 17 | Agendamento e execução contínua | PLANEJADA |
 | FASE 18 | Contrato de canais / outbox | PLANEJADA |
 | FASE 19+ | Canais, hardening e escala | PLANEJADA |
@@ -243,7 +245,7 @@ Use o Maven Wrapper versionado.
 ./mvnw clean test
 ```
 
-Gate local final da FASE 14:
+Gate local final da FASE 15:
 
 ```text
 Tests run: 820
@@ -1466,34 +1468,84 @@ Esses itens pertencem às fases posteriores.
 
 ---
 
-## 35. Débitos encaminhados para a FASE 15
+## 35. Qualidade integrada — FASE 15
 
-### Preparação de schema em testes integrados
+A FASE 15 resolveu o débito de preparação de schema identificado ao final da FASE 14.
 
-Em um segundo computador, alguns testes JDBC inicialmente encontraram um banco ainda sem `processing_run`.
+O problema observado era a existência de testes JDBC que dependiam de um PostgreSQL previamente migrado.
 
-Após migrations/schema serem normalizados, a suíte completa passou.
+Foi criada infraestrutura compartilhada em:
 
-A FASE 15 deverá avaliar como tornar a preparação do schema dos testes integrados mais autocontida e menos dependente de pré-condições externas.
+```text
+src/test/java/com/raspingamazon/testsupport/database/
+```
 
-### Gate remoto
+Componentes:
 
-A FASE 14 está concluída localmente.
+```text
+PostgresIntegrationTest
+PostgresSchemaExtension
+PostgresTestDatabase
+```
 
-O encerramento remoto depende de:
+Foram normalizadas:
+
+```text
+38 classes de integração PostgreSQL
+```
+
+Os testes comuns passaram a declarar:
+
+```text
+@PostgresIntegrationTest
+```
+
+A infraestrutura aplica as migrations reais da aplicação antes da execução dos consumidores PostgreSQL.
+
+Os seis testes cujo objeto de verificação é a própria migration continuam executando `DatabaseMigration.migrate(...)` explicitamente.
+
+A solução foi validada contra um database PostgreSQL completamente vazio:
+
+```text
+database vazio
+    ↓
+mvn clean test
+    ↓
+primeiro teste PostgreSQL
+    ↓
+Flyway V1 até V19
+    ↓
+restante da suíte
+```
+
+Resultado:
+
+```text
+Tests run: 820
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+O CI também deixou de executar `DatabaseMigrationTest` como bootstrap separado antes da suíte.
+
+Commit principal:
+
+```text
+9895220 test: make PostgreSQL integration suite self-contained
+```
+
+O fechamento remoto da FASE 15 ainda depende de:
 
 ```text
 push da branch
 +
+Pull Request
++
 CI remoto verde
 ```
-
-### Distribuição da CLI
-
-Execução via Maven é suficiente para a FASE 14.
-
-Empacotamento final de distribuição permanece para hardening posterior.
-
 ---
 
 ## 36. Fluxo vertical atual
@@ -1703,6 +1755,14 @@ OperationalCliFactory
 OperationalCliBootstrap
 OperationalCliMain
 
+FASE 15:
+PostgresIntegrationTest
+PostgresSchemaExtension
+PostgresTestDatabase
+38 testes PostgreSQL normalizados
+schema autocontido por Flyway
+CI sem bootstrap separado de DatabaseMigrationTest
+
 Gate local:
 820 testes
 0 falhas
@@ -1715,10 +1775,12 @@ documentação final
 +
 push
 +
+Pull Request
++
 CI remoto verde
 
 Próxima fase:
-FASE 15 — Qualidade integrada
+FASE 16 — Observabilidade
 ```
 
 ---

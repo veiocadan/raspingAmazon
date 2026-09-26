@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.composition;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
@@ -11,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class OperationalInterfaceCompositionTest {
 
     @Test

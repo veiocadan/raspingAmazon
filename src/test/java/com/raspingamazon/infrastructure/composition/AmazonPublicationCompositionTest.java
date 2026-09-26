@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.composition;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.publication.PublicationGenerator;
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
@@ -14,7 +16,6 @@ import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.AmazonAffiliateConfig;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import com.raspingamazon.infrastructure.persistence.DealEvaluationJdbcRepository;
 import com.raspingamazon.infrastructure.persistence.OfferSnapshotRepository;
@@ -33,6 +34,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@PostgresIntegrationTest
 class AmazonPublicationCompositionTest {
 
     private static final OffsetDateTime COLLECTED_AT =
@@ -63,9 +65,6 @@ class AmazonPublicationCompositionTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         try (Connection connection =
                  DatabaseConnection.open(

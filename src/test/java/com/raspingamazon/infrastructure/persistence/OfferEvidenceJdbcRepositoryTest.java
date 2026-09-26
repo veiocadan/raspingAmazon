@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.enrichment.contract.DeliveryEvidence;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
 import com.raspingamazon.application.enrichment.contract.RatingEvidence;
@@ -13,7 +15,6 @@ import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>O teste valida os quatro conceitos atualmente persistidos:
  * SELLER, DELIVERY, RATING e REVIEW_COUNT.</p>
  */
+@PostgresIntegrationTest
 class OfferEvidenceJdbcRepositoryTest {
 
     @Test
@@ -42,9 +44,6 @@ class OfferEvidenceJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         String asinValue =
             "B000EV0001";

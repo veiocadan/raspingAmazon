@@ -1,5 +1,7 @@
 package com.raspingamazon.application.orchestration.worker;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import com.raspingamazon.application.orchestration.ProcessingJob;
 import com.raspingamazon.application.orchestration.ProcessingJobStatus;
@@ -23,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@PostgresIntegrationTest
 class ProcessingWorkerJdbcIntegrationTest {
 
     private static final OffsetDateTime NOW =

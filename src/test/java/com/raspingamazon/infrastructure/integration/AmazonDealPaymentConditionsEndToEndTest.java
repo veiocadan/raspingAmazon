@@ -1,11 +1,12 @@
 package com.raspingamazon.infrastructure.integration;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.collection.contract.CollectionRequest;
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.infrastructure.composition.AmazonDealProcessingComposition;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -67,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>O teste não acessa a Amazon real.</p>
  */
+@PostgresIntegrationTest
 class AmazonDealPaymentConditionsEndToEndTest {
 
     private static final String ASIN =
@@ -90,9 +92,6 @@ class AmazonDealPaymentConditionsEndToEndTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         String dealsHtml =
             loadFixture(

@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
@@ -20,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * tanto quando o adapter é proprietário da transação quanto quando
  * participa de uma transação externa.</p>
  */
+@PostgresIntegrationTest
 class JdbcTransactionAdapterTest {
 
     @Test

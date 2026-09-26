@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.evaluation.EvaluationRuleResult;
@@ -14,7 +16,6 @@ import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class DealEvaluationJdbcRepositoryTest {
 
     @Test
@@ -42,9 +44,6 @@ class DealEvaluationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         long productId = 0;
         long offerSnapshotId = 0;
@@ -251,9 +250,6 @@ class DealEvaluationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         long productId = 0;
         long offerSnapshotId = 0;
@@ -430,9 +426,6 @@ class DealEvaluationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         long productId = 0;
         long offerSnapshotId = 0;

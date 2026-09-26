@@ -62,8 +62,5 @@ jobs:
       - name: Show Maven Wrapper version
         run: ./mvnw --version
 
-      - name: Apply and validate database migrations
-        run: ./mvnw --batch-mode -Dtest=DatabaseMigrationTest test
-
       - name: Run hermetic test suite
         run: ./mvnw --batch-mode test

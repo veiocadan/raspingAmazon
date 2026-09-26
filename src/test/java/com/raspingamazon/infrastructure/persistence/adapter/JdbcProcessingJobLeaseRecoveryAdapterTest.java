@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.lease.ProcessingJobLeaseRecoveryResult;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
@@ -14,6 +16,7 @@ import java.time.OffsetDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+@PostgresIntegrationTest
 class JdbcProcessingJobLeaseRecoveryAdapterTest {
 
     private static final OffsetDateTime NOW =

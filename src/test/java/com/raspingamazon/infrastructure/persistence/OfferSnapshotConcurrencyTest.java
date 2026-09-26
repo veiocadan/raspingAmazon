@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.domain.deal.OfferSnapshot;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.product.Product;
@@ -9,7 +11,6 @@ import com.raspingamazon.domain.validation.DeliveryType;
 import com.raspingamazon.domain.validation.SellerType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * observação. A constraint UNIQUE e o ON CONFLICT do PostgreSQL devem
  * garantir que somente uma delas crie a linha.</p>
  */
+@PostgresIntegrationTest
 class OfferSnapshotConcurrencyTest {
 
     private static final String ASIN =
@@ -55,9 +57,6 @@ class OfferSnapshotConcurrencyTest {
         ApplicationConfig config =
                 EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-                config
-        );
 
         long productId =
                 0;
