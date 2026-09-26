@@ -1,12 +1,13 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.operation.publication.PublicationPage;
 import com.raspingamazon.application.operation.publication.PublicationSearchCriteria;
 import com.raspingamazon.domain.product.Asin;
 import com.raspingamazon.domain.publication.PublicationStatus;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import org.junit.jupiter.api.Test;
 
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcPublicationOperationalQueryAdapterTest {
 
     private static final OffsetDateTime BASE_TIME =
@@ -433,9 +435,6 @@ class JdbcPublicationOperationalQueryAdapterTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         try (Connection connection =
                  DatabaseConnection.open(

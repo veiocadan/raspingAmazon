@@ -1,9 +1,10 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.domain.scoring.ScoreProfile;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>A partir da V16 o perfil operacional esperado é SCORE_V2.</p>
  */
+@PostgresIntegrationTest
 class ScoreProfileJdbcRepositoryTest {
 
     @Test
@@ -34,9 +36,6 @@ class ScoreProfileJdbcRepositoryTest {
          * Garante que todas as migrations, inclusive V16,
          * tenham sido aplicadas.
          */
-        DatabaseMigration.migrate(
-            config
-        );
 
         try (Connection connection =
                  DatabaseConnection.open(

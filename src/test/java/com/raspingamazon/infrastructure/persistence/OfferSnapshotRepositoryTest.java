@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 
@@ -36,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>As condições comerciais de pagamento são persistidas
  * separadamente por OfferPaymentConditionRepository.</p>
  */
+@PostgresIntegrationTest
 class OfferSnapshotRepositoryTest {
 
     @Test

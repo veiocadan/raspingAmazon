@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
@@ -17,6 +19,7 @@ import java.util.OptionalLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcEnrichedOfferLookupAdapterTest {
 
     private static final String ASIN =

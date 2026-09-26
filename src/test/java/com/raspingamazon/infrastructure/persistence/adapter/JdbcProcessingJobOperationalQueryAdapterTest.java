@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.operation.orchestration.job.ProcessingJobPage;
 import com.raspingamazon.application.operation.orchestration.job.ProcessingJobSearchCriteria;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
@@ -7,7 +9,6 @@ import com.raspingamazon.application.orchestration.ProcessingJobStatus;
 import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
-import com.raspingamazon.infrastructure.migration.DatabaseMigration;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcProcessingJobOperationalQueryAdapterTest {
 
     private static final OffsetDateTime BASE_TIME =
@@ -733,9 +735,6 @@ class JdbcProcessingJobOperationalQueryAdapterTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-        DatabaseMigration.migrate(
-            config
-        );
 
         try (Connection connection =
                  DatabaseConnection.open(

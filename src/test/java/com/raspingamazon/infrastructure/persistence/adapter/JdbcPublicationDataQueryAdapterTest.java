@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.publication.PublicationData;
 import com.raspingamazon.domain.evaluation.DealEvaluation;
 import com.raspingamazon.domain.scoring.ScoreFactorCode;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcPublicationDataQueryAdapterTest {
 
     private static final String ASIN =

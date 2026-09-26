@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingRun;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcProcessingOrchestrationRepositoryAdapterTest {
 
     private static final OffsetDateTime REQUESTED_AT =

@@ -3,6 +3,7 @@ package com.raspingamazon.infrastructure.persistence;
 import com.raspingamazon.domain.product.Product;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -14,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Testes de integração JDBC de ProductRepository.
  */
+@PostgresIntegrationTest
 class ProductRepositoryTest {
 
     @Test

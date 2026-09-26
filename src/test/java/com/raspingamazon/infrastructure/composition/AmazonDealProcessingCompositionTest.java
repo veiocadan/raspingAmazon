@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.composition;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.deal.AmazonDealProcessingService;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
@@ -19,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * <p>O teste deliberadamente não executa process().
  * Portanto não acessa a Amazon nem produz registros de negócio.</p>
  */
+@PostgresIntegrationTest
 class AmazonDealProcessingCompositionTest {
 
     @Test

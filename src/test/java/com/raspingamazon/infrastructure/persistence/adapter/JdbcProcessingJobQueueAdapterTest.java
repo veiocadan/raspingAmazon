@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.application.orchestration.ProcessingFailure;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import com.raspingamazon.application.orchestration.ProcessingJob;
@@ -24,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcProcessingJobQueueAdapterTest {
 
     private static final OffsetDateTime BASE_TIME =

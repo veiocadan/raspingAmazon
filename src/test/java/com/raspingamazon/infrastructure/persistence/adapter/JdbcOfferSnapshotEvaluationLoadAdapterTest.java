@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
+import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
+
 import com.raspingamazon.domain.commercial.PaymentCondition;
 import com.raspingamazon.domain.commercial.PaymentConditionType;
 import com.raspingamazon.domain.commercial.PaymentMethod;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@PostgresIntegrationTest
 class JdbcOfferSnapshotEvaluationLoadAdapterTest {
 
     private static final String ASIN =
