@@ -139,6 +139,15 @@ class OperationalCliBootstrapTest {
             )
         );
 
+        assertTrue(
+            OperationalCliBootstrap.requiresComposition(
+                new String[]{
+                    "alerts",
+                    "list"
+                }
+            )
+        );
+
         assertFalse(
             OperationalCliBootstrap.requiresComposition(
                 new String[]{

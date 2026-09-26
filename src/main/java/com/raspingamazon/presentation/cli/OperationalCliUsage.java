@@ -23,6 +23,7 @@ public final class OperationalCliUsage {
 
           runs
               list
+              show <run-id>
 
           jobs
               list
@@ -30,6 +31,9 @@ public final class OperationalCliUsage {
           publications
               list
               show <publication-id>
+
+          alerts
+              list
 
         Ajuda:
           help
@@ -40,6 +44,9 @@ public final class OperationalCliUsage {
           A interface operacional observa o pipeline.
           Ela nao autoriza o pipeline a funcionar e nao executa
           aprovacao humana obrigatoria.
+
+          alerts list realiza apenas uma avaliacao do estado
+          persistido. Ele nao inicia monitoramento continuo.
         """;
 
     private OperationalCliUsage() {

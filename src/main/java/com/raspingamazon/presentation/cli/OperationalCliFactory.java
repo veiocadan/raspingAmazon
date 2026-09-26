@@ -2,6 +2,7 @@ package com.raspingamazon.presentation.cli;
 
 import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetailUseCase;
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
+import com.raspingamazon.application.operation.observability.alert.GetOperationalAlertsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
@@ -16,11 +17,11 @@ import java.util.Objects;
 /**
  * Factory da interface operacional.
  *
- * <p>Conecta os casos de uso da camada de aplicação aos handlers
- * da camada de apresentação.</p>
+ * <p>Conecta os casos de uso da camada de aplicacao aos handlers
+ * da camada de apresentacao.</p>
  *
- * <p>Esta classe não conhece JDBC, Connection, adapters concretos
- * ou configuração de infraestrutura.</p>
+ * <p>Esta classe nao conhece JDBC, Connection, adapters concretos
+ * ou configuracao de infraestrutura.</p>
  */
 public final class OperationalCliFactory {
 
@@ -35,6 +36,7 @@ public final class OperationalCliFactory {
         ListProcessingJobsUseCase listProcessingJobsUseCase,
         ListPublicationsUseCase listPublicationsUseCase,
         GetPublicationDetailUseCase getPublicationDetailUseCase,
+        GetOperationalAlertsUseCase getOperationalAlertsUseCase,
         PrintWriter out,
         PrintWriter err
     ) {
@@ -72,6 +74,11 @@ public final class OperationalCliFactory {
         Objects.requireNonNull(
             getPublicationDetailUseCase,
             "getPublicationDetailUseCase must not be null"
+        );
+
+        Objects.requireNonNull(
+            getOperationalAlertsUseCase,
+            "getOperationalAlertsUseCase must not be null"
         );
 
         Objects.requireNonNull(
@@ -115,6 +122,13 @@ public final class OperationalCliFactory {
             new PublicationsCliCommand(
                 listPublicationsUseCase,
                 getPublicationDetailUseCase
+            )
+        );
+
+        handlers.put(
+            "alerts",
+            new AlertsCliCommand(
+                getOperationalAlertsUseCase
             )
         );
 
