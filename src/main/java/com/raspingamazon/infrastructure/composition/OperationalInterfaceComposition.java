@@ -8,6 +8,10 @@ import com.raspingamazon.application.operation.orchestration.run.GetProcessingRu
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
+import com.raspingamazon.application.scheduling.ChangeProcessingScheduleIntervalUseCase;
+import com.raspingamazon.application.scheduling.GetProcessingScheduleUseCase;
+import com.raspingamazon.application.scheduling.PauseProcessingScheduleUseCase;
+import com.raspingamazon.application.scheduling.ResumeProcessingScheduleUseCase;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.config.EnvironmentOperationalAlertPolicyProvider;
@@ -18,6 +22,7 @@ import com.raspingamazon.infrastructure.persistence.adapter.JdbcOperationalAlert
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingJobOperationalQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingRunOperationalQueryAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcProcessingScheduleAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOperationalDetailQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOperationalQueryAdapter;
 
@@ -38,9 +43,6 @@ import java.util.Objects;
  *
  * <p>A composição é dona da Connection utilizada pelos adapters e
  * deve ser fechada ao final da execução do comando operacional.</p>
- *
- * <p>Nenhuma regra comercial, decisão de publicação, retry,
- * scheduler ou transição de estado é implementada aqui.</p>
  */
 public final class OperationalInterfaceComposition
     implements AutoCloseable {
@@ -71,16 +73,35 @@ public final class OperationalInterfaceComposition
     private final GetOperationalAlertsUseCase
         getOperationalAlertsUseCase;
 
+    private final GetProcessingScheduleUseCase
+        getProcessingScheduleUseCase;
+
+    private final PauseProcessingScheduleUseCase
+        pauseProcessingScheduleUseCase;
+
+    private final ResumeProcessingScheduleUseCase
+        resumeProcessingScheduleUseCase;
+
+    private final ChangeProcessingScheduleIntervalUseCase
+        changeProcessingScheduleIntervalUseCase;
+
     private boolean closed;
 
     private OperationalInterfaceComposition(
-        Connection connection
+        Connection connection,
+        Clock clock
     ) {
 
         this.connection =
             Objects.requireNonNull(
                 connection,
                 "connection must not be null"
+            );
+
+        Clock validatedClock =
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
             );
 
         /*
@@ -188,12 +209,6 @@ public final class OperationalInterfaceComposition
          * ---------------------------------------------------------
          * OPERATIONAL ALERTS
          * ---------------------------------------------------------
-         *
-         * O provider de policy é lazy: construir a composição não
-         * exige que as variáveis ALERT_* estejam configuradas.
-         *
-         * Elas somente serão interpretadas quando o caso de uso
-         * de alertas for explicitamente executado.
          */
 
         JdbcOperationalAlertQueryAdapter
@@ -210,13 +225,53 @@ public final class OperationalInterfaceComposition
             new GetOperationalAlertsUseCase(
                 operationalAlertQueryAdapter,
                 operationalAlertPolicyProvider,
-                Clock.systemUTC()
+                validatedClock
+            );
+
+        /*
+         * ---------------------------------------------------------
+         * PROCESSING SCHEDULE
+         * ---------------------------------------------------------
+         *
+         * O mesmo adapter fornece leitura e mutações operacionais.
+         *
+         * Nenhuma regra de scheduling é implementada nesta
+         * composition root.
+         */
+
+        JdbcProcessingScheduleAdapter
+            processingScheduleAdapter =
+            new JdbcProcessingScheduleAdapter(
+                connection
+            );
+
+        this.getProcessingScheduleUseCase =
+            new GetProcessingScheduleUseCase(
+                processingScheduleAdapter
+            );
+
+        this.pauseProcessingScheduleUseCase =
+            new PauseProcessingScheduleUseCase(
+                processingScheduleAdapter,
+                validatedClock
+            );
+
+        this.resumeProcessingScheduleUseCase =
+            new ResumeProcessingScheduleUseCase(
+                processingScheduleAdapter,
+                validatedClock
+            );
+
+        this.changeProcessingScheduleIntervalUseCase =
+            new ChangeProcessingScheduleIntervalUseCase(
+                processingScheduleAdapter,
+                validatedClock
             );
     }
 
     /**
-     * Abre a composição utilizando a configuração padrão
-     * proveniente do ambiente.
+     * Abre a composição utilizando a configuração padrão proveniente
+     * do ambiente.
      */
     public static OperationalInterfaceComposition open() {
 
@@ -228,9 +283,6 @@ public final class OperationalInterfaceComposition
     /**
      * Abre a composição utilizando configuração explicitamente
      * fornecida.
-     *
-     * <p>A Connection criada pertence à composição e será encerrada
-     * por close().</p>
      */
     public static OperationalInterfaceComposition open(
         ApplicationConfig config
@@ -262,17 +314,32 @@ public final class OperationalInterfaceComposition
     }
 
     /**
-     * Variante package-private destinada a testes estruturais
-     * e outros composition roots do mesmo pacote.
-     *
-     * <p>A Connection recebida passa a pertencer à composição.</p>
+     * Variante package-private utilizada pelos testes estruturais.
      */
     static OperationalInterfaceComposition fromOwnedConnection(
         Connection connection
     ) {
 
+        return fromOwnedConnection(
+            connection,
+            Clock.systemUTC()
+        );
+    }
+
+    /**
+     * Variante package-private com Clock explícito.
+     *
+     * <p>Permite provar comandos temporais sem depender do relógio
+     * civil da máquina que executa a suíte.</p>
+     */
+    static OperationalInterfaceComposition fromOwnedConnection(
+        Connection connection,
+        Clock clock
+    ) {
+
         return new OperationalInterfaceComposition(
-            connection
+            connection,
+            clock
         );
     }
 
@@ -316,11 +383,27 @@ public final class OperationalInterfaceComposition
         return getOperationalAlertsUseCase;
     }
 
-    /**
-     * Encerra a Connection pertencente a esta composição.
-     *
-     * <p>Chamadas repetidas são seguras.</p>
-     */
+    public GetProcessingScheduleUseCase getProcessingSchedule() {
+
+        return getProcessingScheduleUseCase;
+    }
+
+    public PauseProcessingScheduleUseCase pauseProcessingSchedule() {
+
+        return pauseProcessingScheduleUseCase;
+    }
+
+    public ResumeProcessingScheduleUseCase resumeProcessingSchedule() {
+
+        return resumeProcessingScheduleUseCase;
+    }
+
+    public ChangeProcessingScheduleIntervalUseCase
+    changeProcessingScheduleInterval() {
+
+        return changeProcessingScheduleIntervalUseCase;
+    }
+
     @Override
     public void close() {
 

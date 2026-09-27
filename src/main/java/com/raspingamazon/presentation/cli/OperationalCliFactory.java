@@ -8,6 +8,10 @@ import com.raspingamazon.application.operation.orchestration.run.GetProcessingRu
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
+import com.raspingamazon.application.scheduling.ChangeProcessingScheduleIntervalUseCase;
+import com.raspingamazon.application.scheduling.GetProcessingScheduleUseCase;
+import com.raspingamazon.application.scheduling.PauseProcessingScheduleUseCase;
+import com.raspingamazon.application.scheduling.ResumeProcessingScheduleUseCase;
 
 import java.io.PrintWriter;
 import java.util.LinkedHashMap;
@@ -17,17 +21,24 @@ import java.util.Objects;
 /**
  * Factory da interface operacional.
  *
- * <p>Conecta os casos de uso da camada de aplicacao aos handlers
- * da camada de apresentacao.</p>
+ * <p>Conecta os casos de uso da camada de aplicação aos handlers da
+ * camada de apresentação.</p>
  *
- * <p>Esta classe nao conhece JDBC, Connection, adapters concretos
- * ou configuracao de infraestrutura.</p>
+ * <p>Esta classe não conhece JDBC, Connection, adapters concretos ou
+ * configuração de infraestrutura.</p>
  */
 public final class OperationalCliFactory {
 
     private OperationalCliFactory() {
     }
 
+    /**
+     * Assinatura histórica preservada.
+     *
+     * <p>Nesta variante o recurso schedules não é registrado. Isso
+     * preserva consumidores e testes anteriores que compõem apenas a
+     * interface observacional histórica.</p>
+     */
     public static OperationalCli create(
         ListDealEvaluationsUseCase listDealEvaluationsUseCase,
         GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
@@ -39,6 +50,110 @@ public final class OperationalCliFactory {
         GetOperationalAlertsUseCase getOperationalAlertsUseCase,
         PrintWriter out,
         PrintWriter err
+    ) {
+
+        Map<String, CliCommandHandler> handlers =
+            createBaseHandlers(
+                listDealEvaluationsUseCase,
+                getDealEvaluationDetailUseCase,
+                listProcessingRunsUseCase,
+                getProcessingRunDetailUseCase,
+                listProcessingJobsUseCase,
+                listPublicationsUseCase,
+                getPublicationDetailUseCase,
+                getOperationalAlertsUseCase
+            );
+
+        return new OperationalCli(
+            handlers,
+            requireWriter(
+                out,
+                "out"
+            ),
+            requireWriter(
+                err,
+                "err"
+            )
+        );
+    }
+
+    /**
+     * Composição completa da interface operacional da FASE 17.
+     */
+    public static OperationalCli create(
+        ListDealEvaluationsUseCase listDealEvaluationsUseCase,
+        GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
+        ListProcessingRunsUseCase listProcessingRunsUseCase,
+        GetProcessingRunDetailUseCase getProcessingRunDetailUseCase,
+        ListProcessingJobsUseCase listProcessingJobsUseCase,
+        ListPublicationsUseCase listPublicationsUseCase,
+        GetPublicationDetailUseCase getPublicationDetailUseCase,
+        GetOperationalAlertsUseCase getOperationalAlertsUseCase,
+        GetProcessingScheduleUseCase getProcessingScheduleUseCase,
+        PauseProcessingScheduleUseCase pauseProcessingScheduleUseCase,
+        ResumeProcessingScheduleUseCase resumeProcessingScheduleUseCase,
+        ChangeProcessingScheduleIntervalUseCase
+            changeProcessingScheduleIntervalUseCase,
+        PrintWriter out,
+        PrintWriter err
+    ) {
+
+        Map<String, CliCommandHandler> handlers =
+            createBaseHandlers(
+                listDealEvaluationsUseCase,
+                getDealEvaluationDetailUseCase,
+                listProcessingRunsUseCase,
+                getProcessingRunDetailUseCase,
+                listProcessingJobsUseCase,
+                listPublicationsUseCase,
+                getPublicationDetailUseCase,
+                getOperationalAlertsUseCase
+            );
+
+        handlers.put(
+            "schedules",
+            new SchedulesCliCommand(
+                Objects.requireNonNull(
+                    getProcessingScheduleUseCase,
+                    "getProcessingScheduleUseCase must not be null"
+                ),
+                Objects.requireNonNull(
+                    pauseProcessingScheduleUseCase,
+                    "pauseProcessingScheduleUseCase must not be null"
+                ),
+                Objects.requireNonNull(
+                    resumeProcessingScheduleUseCase,
+                    "resumeProcessingScheduleUseCase must not be null"
+                ),
+                Objects.requireNonNull(
+                    changeProcessingScheduleIntervalUseCase,
+                    "changeProcessingScheduleIntervalUseCase must not be null"
+                )
+            )
+        );
+
+        return new OperationalCli(
+            handlers,
+            requireWriter(
+                out,
+                "out"
+            ),
+            requireWriter(
+                err,
+                "err"
+            )
+        );
+    }
+
+    private static Map<String, CliCommandHandler> createBaseHandlers(
+        ListDealEvaluationsUseCase listDealEvaluationsUseCase,
+        GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
+        ListProcessingRunsUseCase listProcessingRunsUseCase,
+        GetProcessingRunDetailUseCase getProcessingRunDetailUseCase,
+        ListProcessingJobsUseCase listProcessingJobsUseCase,
+        ListPublicationsUseCase listPublicationsUseCase,
+        GetPublicationDetailUseCase getPublicationDetailUseCase,
+        GetOperationalAlertsUseCase getOperationalAlertsUseCase
     ) {
 
         Objects.requireNonNull(
@@ -79,16 +194,6 @@ public final class OperationalCliFactory {
         Objects.requireNonNull(
             getOperationalAlertsUseCase,
             "getOperationalAlertsUseCase must not be null"
-        );
-
-        Objects.requireNonNull(
-            out,
-            "out must not be null"
-        );
-
-        Objects.requireNonNull(
-            err,
-            "err must not be null"
         );
 
         Map<String, CliCommandHandler> handlers =
@@ -132,10 +237,17 @@ public final class OperationalCliFactory {
             )
         );
 
-        return new OperationalCli(
-            handlers,
-            out,
-            err
+        return handlers;
+    }
+
+    private static PrintWriter requireWriter(
+        PrintWriter writer,
+        String name
+    ) {
+
+        return Objects.requireNonNull(
+            writer,
+            name + " must not be null"
         );
     }
 }

@@ -1,6 +1,7 @@
 package com.raspingamazon.presentation.cli;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 
@@ -143,5 +144,51 @@ public final class CliValueParser {
                     + " must be an ISO-8601 offset date-time"
             );
         }
+    }
+
+    /**
+     * Converte uma duração ISO-8601 estritamente positiva.
+     *
+     * <p>Exemplos válidos:</p>
+     *
+     * <pre>
+     * PT30S
+     * PT15M
+     * PT2H
+     * P1D
+     * </pre>
+     */
+    public static Duration positiveDuration(
+        String option,
+        String value
+    ) {
+
+        final Duration parsed;
+
+        try {
+
+            parsed =
+                Duration.parse(
+                    value
+                );
+
+        } catch (DateTimeParseException exception) {
+
+            throw new CliUsageException(
+                option
+                    + " must be a positive ISO-8601 duration"
+            );
+        }
+
+        if (parsed.isZero()
+            || parsed.isNegative()) {
+
+            throw new CliUsageException(
+                option
+                    + " must be a positive ISO-8601 duration"
+            );
+        }
+
+        return parsed;
     }
 }
