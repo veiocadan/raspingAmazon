@@ -276,7 +276,7 @@ public final class JdbcOperationalAlertQueryAdapter
                     candidate_count::NUMERIC
                 )
                     AS average_candidates,
-                ROUND(
+                CEIL(
                     AVG(
                         candidate_count::NUMERIC
                     )

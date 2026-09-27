@@ -526,6 +526,154 @@ class JdbcOperationalAlertQueryAdapterTest {
     }
 
     @Test
+    void shouldCeilFractionalSuspiciousDropReferenceCount()
+        throws Exception {
+
+        inTransaction(
+            connection -> {
+
+                long previousOne =
+                    insertRun(
+                        connection,
+                        "alert-fractional-baseline-1",
+                        ProcessingRunStatus.COMPLETED,
+                        EVALUATED_AT.minusHours(
+                            4
+                        )
+                    );
+
+                insertCandidates(
+                    connection,
+                    previousOne,
+                    5,
+                    EVALUATED_AT.minusHours(
+                        4
+                    ),
+                    13000
+                );
+
+                long previousTwo =
+                    insertRun(
+                        connection,
+                        "alert-fractional-baseline-2",
+                        ProcessingRunStatus.COMPLETED,
+                        EVALUATED_AT.minusHours(
+                            3
+                        )
+                    );
+
+                insertCandidates(
+                    connection,
+                    previousTwo,
+                    5,
+                    EVALUATED_AT.minusHours(
+                        3
+                    ),
+                    14000
+                );
+
+                long previousThree =
+                    insertRun(
+                        connection,
+                        "alert-fractional-baseline-3",
+                        ProcessingRunStatus.COMPLETED,
+                        EVALUATED_AT.minusHours(
+                            2
+                        )
+                    );
+
+                insertCandidates(
+                    connection,
+                    previousThree,
+                    6,
+                    EVALUATED_AT.minusHours(
+                        2
+                    ),
+                    15000
+                );
+
+                /*
+                 * Média histórica exata:
+                 *
+                 * (5 + 5 + 6) / 3 = 5,333...
+                 *
+                 * dropFraction = 0.01
+                 *
+                 * limite = 5,28...
+                 *
+                 * observado = 5 -> alerta.
+                 *
+                 * A referência inteira não pode ser arredondada
+                 * para 5, pois isso produziria:
+                 *
+                 * observedCount == referenceCount
+                 *
+                 * embora a média exata usada pela decisão seja
+                 * maior que o observado.
+                 */
+                long currentRun =
+                    insertRun(
+                        connection,
+                        "alert-fractional-baseline-current",
+                        ProcessingRunStatus.COMPLETED,
+                        EVALUATED_AT.minusHours(
+                            1
+                        )
+                    );
+
+                insertCandidates(
+                    connection,
+                    currentRun,
+                    5,
+                    EVALUATED_AT.minusHours(
+                        1
+                    ),
+                    16000
+                );
+
+                OperationalAlertPolicy fractionalPolicy =
+                    new OperationalAlertPolicy(
+                        3,
+                        Duration.ofMinutes(
+                            15
+                        ),
+                        3,
+                        new BigDecimal(
+                            "0.01"
+                        ),
+                        5L
+                    );
+
+                List<OperationalAlert> alerts =
+                    adapter(
+                        connection
+                    ).findActiveAlerts(
+                        fractionalPolicy,
+                        EVALUATED_AT
+                    );
+
+                OperationalAlert alert =
+                    requireRunAlert(
+                        alerts,
+                        OperationalAlertType
+                            .SUSPICIOUS_COLLECTION_DROP,
+                        currentRun
+                    );
+
+                assertEquals(
+                    5L,
+                    alert.observedCount()
+                );
+
+                assertEquals(
+                    6L,
+                    alert.referenceCount()
+                );
+            }
+        );
+    }
+
+    @Test
     void shouldNotDetectSuspiciousDropWithoutCompleteLookback()
         throws Exception {
 
