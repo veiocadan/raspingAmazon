@@ -113,7 +113,8 @@ public final class JdbcProcessingScheduleAdapter
 
             statement.setString(
                 2,
-                schedule.source().toString()
+                schedule.source()
+                    .toString()
             );
 
             statement.setBoolean(
@@ -152,6 +153,7 @@ public final class JdbcProcessingScheduleAdapter
             }
 
         } catch (SQLException exception) {
+
             throw persistenceFailure(
                 "save ProcessingSchedule",
                 exception
@@ -230,6 +232,7 @@ public final class JdbcProcessingScheduleAdapter
             }
 
         } catch (SQLException exception) {
+
             throw persistenceFailure(
                 "find ProcessingSchedule",
                 exception
@@ -286,6 +289,18 @@ public final class JdbcProcessingScheduleAdapter
               AND (
                   lease_owner IS NULL
                   OR lease_expires_at <= ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM processing_job previous_collect_job
+                  WHERE previous_collect_job.processing_run_id =
+                        processing_schedule.last_processing_run_id
+                    AND previous_collect_job.job_type = 'COLLECT_DEALS'
+                    AND previous_collect_job.status IN (
+                        'PENDING',
+                        'RUNNING',
+                        'RETRY_WAIT'
+                    )
               )
             RETURNING
                 schedule_key,
@@ -361,6 +376,7 @@ public final class JdbcProcessingScheduleAdapter
             }
 
         } catch (SQLException exception) {
+
             throw persistenceFailure(
                 "acquire ProcessingSchedule lease",
                 exception
@@ -659,8 +675,14 @@ public final class JdbcProcessingScheduleAdapter
             SET
                 enabled = TRUE,
                 next_run_at = ?,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
                 updated_at = ?
             WHERE schedule_key = ?
+              AND (
+                  lease_owner IS NULL
+                  OR lease_expires_at <= ?
+              )
             RETURNING
                 schedule_key,
                 source_uri,
@@ -693,8 +715,13 @@ public final class JdbcProcessingScheduleAdapter
                     3,
                     validatedScheduleKey
                 );
+
+                statement.setObject(
+                    4,
+                    changedAt
+                );
             },
-            "ProcessingSchedule cannot be resumed"
+            "ProcessingSchedule cannot be resumed while an active lease exists"
         );
     }
 
@@ -734,8 +761,14 @@ public final class JdbcProcessingScheduleAdapter
             SET
                 interval_ms = ?,
                 next_run_at = ?,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
                 updated_at = ?
             WHERE schedule_key = ?
+              AND (
+                  lease_owner IS NULL
+                  OR lease_expires_at <= ?
+              )
             RETURNING
                 schedule_key,
                 source_uri,
@@ -773,8 +806,13 @@ public final class JdbcProcessingScheduleAdapter
                     4,
                     validatedScheduleKey
                 );
+
+                statement.setObject(
+                    5,
+                    changedAt
+                );
             },
-            "ProcessingSchedule interval cannot be changed"
+            "ProcessingSchedule interval cannot be changed while an active lease exists"
         );
     }
 
@@ -808,6 +846,7 @@ public final class JdbcProcessingScheduleAdapter
             }
 
         } catch (SQLException exception) {
+
             throw persistenceFailure(
                 "update ProcessingSchedule",
                 exception
@@ -888,9 +927,10 @@ public final class JdbcProcessingScheduleAdapter
         ProcessingSchedule existing
     ) {
 
-        if (!requested.source().equals(
-            existing.source()
-        )) {
+        if (!requested.source()
+            .equals(
+                existing.source()
+            )) {
 
             throw new IllegalStateException(
                 "ProcessingSchedule scheduleKey collision: "
@@ -912,10 +952,12 @@ public final class JdbcProcessingScheduleAdapter
         final long milliseconds;
 
         try {
+
             milliseconds =
                 duration.toMillis();
 
         } catch (ArithmeticException exception) {
+
             throw new IllegalArgumentException(
                 name + " is too large",
                 exception
@@ -967,6 +1009,7 @@ public final class JdbcProcessingScheduleAdapter
     ) {
 
         try {
+
             return instant.plus(
                 duration
             );

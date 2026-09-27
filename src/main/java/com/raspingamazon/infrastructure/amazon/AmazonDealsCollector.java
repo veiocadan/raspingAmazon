@@ -4,81 +4,290 @@ import com.raspingamazon.application.collection.contract.CollectionCollector;
 import com.raspingamazon.application.collection.contract.CollectionException;
 import com.raspingamazon.application.collection.contract.CollectionRequest;
 import com.raspingamazon.application.collection.contract.CollectionResult;
+import com.raspingamazon.application.collection.contract.SourceRestrictionException;
+import com.raspingamazon.application.collection.contract.SourceRestrictionType;
+import com.raspingamazon.application.observability.OperationalLogContext;
 
 import java.net.URI;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
- * Adaptador responsável pela definição da fonte funcional de promoções
- * da Amazon Brasil.
+ * Fronteira específica da coleta HTML de promoções da Amazon Brasil.
  *
- * <p>Esta classe representa a fronteira específica da Amazon dentro
- * da infraestrutura. Ela não interpreta HTML, não extrai ASIN, não
- * aplica regras de negócio e não decide se uma oferta é elegível.</p>
+ * <p>O transporte HTTP permanece delegado a um CollectionCollector
+ * genérico. Esta classe acrescenta somente semântica própria da fonte
+ * Amazon.</p>
  *
- * <p>A responsabilidade deste adaptador é garantir que a coleta destinada
- * à página de promoções utilize a fonte definida pelo projeto e delegar
- * a execução efetiva ao coletor HTTP genérico.</p>
+ * <p>Responsabilidades:</p>
  *
- * <p>O parsing e a normalização permanecem fora desta classe e serão
- * tratados na FASE 6.</p>
+ * <ul>
+ *     <li>preservar a fonte histórica de /deals;</li>
+ *     <li>delegar a aquisição ao collector configurado;</li>
+ *     <li>preservar correlação operacional quando fornecida;</li>
+ *     <li>detectar páginas de challenge, CAPTCHA ou bloqueio;</li>
+ *     <li>interromper a coleta quando uma proteção for encontrada.</li>
+ * </ul>
+ *
+ * <p>Esta classe não tenta resolver CAPTCHA, não executa challenge,
+ * não modifica fingerprint, não rotaciona identidade e não contém
+ * qualquer mecanismo destinado a contornar proteções da fonte.</p>
+ *
+ * <p>Parsing de ofertas continua pertencendo ao DealsParser.</p>
  */
-public final class AmazonDealsCollector {
+public final class AmazonDealsCollector
+    implements CollectionCollector {
 
     /**
-     * Fonte funcional de promoções definida durante a investigação
-     * da FASE 0.
+     * Fonte funcional histórica das promoções Amazon Brasil.
      */
     private static final URI DEALS_SOURCE =
-            URI.create("https://www.amazon.com.br/deals");
+        URI.create(
+            "https://www.amazon.com.br/deals"
+        );
+
+    /*
+     * Marcadores conservadores.
+     *
+     * Evitamos termos excessivamente genéricos como apenas "captcha"
+     * ou "robot", pois eles poderiam existir legitimamente dentro de
+     * scripts ou conteúdo normal.
+     */
+    private static final String CAPTCHA_FORM_MARKER =
+        "/errors/validatecaptcha";
+
+    private static final String CAPTCHA_INSTRUCTION_MARKER =
+        "enter the characters you see below";
+
+    private static final String CAPTCHA_IMAGE_INSTRUCTION_MARKER =
+        "type the characters you see in this image";
+
+    private static final String ROBOT_CHALLENGE_MARKER =
+        "sorry, we just need to make sure you're not a robot";
+
+    private static final String ROBOT_CHECK_TITLE_MARKER =
+        "<title>robot check</title>";
+
+    private static final String AUTOMATED_ACCESS_BLOCK_MARKER =
+        "automated access to amazon data";
 
     private final CollectionCollector collectionCollector;
 
-    /**
-     * Cria o adaptador da página de promoções da Amazon Brasil.
-     *
-     * @param collectionCollector coletor genérico responsável pela
-     *                            execução da coleta
-     */
-    public AmazonDealsCollector(CollectionCollector collectionCollector) {
-        if (collectionCollector == null) {
-            throw new NullPointerException(
-                    "Collection collector must not be null"
-            );
-        }
+    public AmazonDealsCollector(
+        CollectionCollector collectionCollector
+    ) {
 
-        this.collectionCollector = collectionCollector;
+        this.collectionCollector =
+            Objects.requireNonNull(
+                collectionCollector,
+                "Collection collector must not be null"
+            );
     }
 
     /**
-     * Executa a coleta da página de promoções da Amazon Brasil.
+     * Conveniência histórica para coleta da página /deals.
      *
-     * <p>A URL é definida exclusivamente neste adaptador. O restante
-     * da aplicação não precisa conhecer a localização concreta da
-     * fonte Amazon.</p>
-     *
-     * @return resultado bruto da coleta
+     * <p>Novos fluxos orquestrados podem utilizar diretamente o
+     * contrato CollectionCollector e fornecer a URI persistida na
+     * ProcessingRun.</p>
      */
     public CollectionResult collect() {
+
+        return collect(
+            new CollectionRequest(
+                DEALS_SOURCE
+            )
+        );
+    }
+
+    /**
+     * Executa uma coleta através da fronteira Amazon.
+     *
+     * <p>A URI recebida não é substituída. Isso permite que o
+     * ProcessingRun continue sendo a fonte da identidade da coleta no
+     * fluxo orquestrado.</p>
+     */
+    @Override
+    public CollectionResult collect(
+        CollectionRequest request
+    ) {
+
+        Objects.requireNonNull(
+            request,
+            "Collection request must not be null"
+        );
+
+        return executeAndValidate(
+            () -> collectionCollector.collect(
+                request
+            )
+        );
+    }
+
+    /**
+     * Variante contextual utilizada pela orquestração observável.
+     *
+     * <p>A correlação é repassada integralmente ao collector delegado.
+     * A fronteira Amazon não inventa runId, jobId, ASIN ou qualquer
+     * outra identidade.</p>
+     */
+    @Override
+    public CollectionResult collect(
+        CollectionRequest request,
+        OperationalLogContext context
+    ) {
+
+        Objects.requireNonNull(
+            request,
+            "Collection request must not be null"
+        );
+
+        Objects.requireNonNull(
+            context,
+            "Operational log context must not be null"
+        );
+
+        return executeAndValidate(
+            () -> collectionCollector.collect(
+                request,
+                context
+            )
+        );
+    }
+
+    private CollectionResult executeAndValidate(
+        Supplier<CollectionResult> collection
+    ) {
+
         try {
-            return collectionCollector.collect(
-                    new CollectionRequest(DEALS_SOURCE)
-            );
+
+            CollectionResult result =
+                Objects.requireNonNull(
+                    collection.get(),
+                    "Collection collector must not return null"
+                );
+
+            SourceRestrictionType restriction =
+                detectRestriction(
+                    result.content()
+                );
+
+            if (restriction != null) {
+
+                throw new SourceRestrictionException(
+                    restriction
+                );
+            }
+
+            return result;
+
         } catch (CollectionException exception) {
+
             /*
-             * A exceção de coleta já possui significado operacional
-             * suficiente e deve atravessar este adaptador sem ser
-             * substituída por outra exceção.
+             * CollectionException já representa o contrato funcional
+             * correto, inclusive:
+             *
+             * - HTTP 403;
+             * - HTTP 429;
+             * - timeout;
+             * - SourceRestrictionException.
+             *
+             * Não substituímos a exceção nem perdemos seus metadados.
              */
             throw exception;
+
         } catch (Exception exception) {
-            /*
-             * Uma falha inesperada na fronteira da Amazon deve ser
-             * convertida para o contrato de erro da coleta.
-             */
+
             throw new CollectionException(
-                    "Amazon deals collection failed",
-                    exception
+                "Amazon deals collection failed",
+                exception
             );
         }
+    }
+
+    /**
+     * Detecta apenas evidências explícitas conhecidas de proteção.
+     *
+     * <p>A função é propositalmente conservadora: uma palavra isolada
+     * como "robot" ou "captcha" não é suficiente.</p>
+     *
+     * <p>Whitespace é normalizado antes das comparações porque HTML
+     * equivalente pode distribuir uma mesma mensagem em múltiplas
+     * linhas, tabs ou grupos de espaços.</p>
+     */
+    private SourceRestrictionType detectRestriction(
+        String content
+    ) {
+
+        String normalized =
+            normalizeContent(
+                content
+            );
+
+        /*
+         * CAPTCHA é testado antes de challenge porque algumas páginas
+         * de CAPTCHA também podem possuir linguagem relacionada a
+         * verificação de robô.
+         */
+        if (normalized.contains(
+            CAPTCHA_FORM_MARKER
+        )
+            || normalized.contains(
+            CAPTCHA_INSTRUCTION_MARKER
+        )
+            || normalized.contains(
+            CAPTCHA_IMAGE_INSTRUCTION_MARKER
+        )) {
+
+            return SourceRestrictionType.CAPTCHA;
+        }
+
+        if (normalized.contains(
+            ROBOT_CHALLENGE_MARKER
+        )
+            || normalized.contains(
+            ROBOT_CHECK_TITLE_MARKER
+        )) {
+
+            return SourceRestrictionType.CHALLENGE;
+        }
+
+        if (normalized.contains(
+            AUTOMATED_ACCESS_BLOCK_MARKER
+        )) {
+
+            return SourceRestrictionType.BLOCKED;
+        }
+
+        return null;
+    }
+
+    /**
+     * Normaliza somente características irrelevantes para os marcadores
+     * textuais utilizados nesta fronteira.
+     *
+     * <p>Não existe parsing, interpretação de DOM ou transformação do
+     * conteúdo funcional. O resultado serve exclusivamente para
+     * detecção defensiva de restrições da fonte.</p>
+     */
+    private String normalizeContent(
+        String content
+    ) {
+
+        Objects.requireNonNull(
+            content,
+            "Collection content must not be null"
+        );
+
+        return content
+            .toLowerCase(
+                Locale.ROOT
+            )
+            .replaceAll(
+                "\\s+",
+                " "
+            )
+            .trim();
     }
 }

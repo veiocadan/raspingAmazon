@@ -35,15 +35,27 @@ public final class OperationalCliUsage {
           alerts
               list
 
+          schedules
+              status <schedule-key>
+              pause <schedule-key>
+              resume <schedule-key>
+              interval <schedule-key> <duration>
+
         Ajuda:
           help
           --help
           -h
 
         Observacao:
-          A interface operacional observa o pipeline.
-          Ela nao autoriza o pipeline a funcionar e nao executa
-          aprovacao humana obrigatoria.
+          A interface operacional permite observar fatos persistidos
+          do pipeline e administrar o agendamento recorrente.
+
+          Os comandos schedules alteram somente o estado operacional
+          do agendamento. Eles nao executam coleta, parsing, avaliacao
+          ou publicacao diretamente.
+
+          Pausar um schedule impede novas execucoes automaticas, mas
+          nao cancela trabalho que ja tenha sido adquirido.
 
           alerts list realiza apenas uma avaliacao do estado
           persistido. Ele nao inicia monitoramento continuo.
@@ -53,6 +65,7 @@ public final class OperationalCliUsage {
     }
 
     public static String text() {
+
         return TEXT;
     }
 

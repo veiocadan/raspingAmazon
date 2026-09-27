@@ -1,6 +1,6 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, orquestração durável, geração auditável de publicações e operação por interface Java** de ofertas da Amazon Brasil.
+Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, orquestração durável, geração auditável de publicações, observabilidade, agendamento e execução contínua** de ofertas da Amazon Brasil.
 
 O projeto prioriza:
 
@@ -10,16 +10,18 @@ O projeto prioriza:
 - auditabilidade;
 - evolução incremental;
 - persistência durável;
-- escalabilidade orientada por necessidade real.
+- configuração explícita;
+- segurança operacional;
+- escalabilidade guiada por necessidade real.
 
-> **Estado atual: FASE 16 concluída localmente.**
+> **Estado atual: FASE 17 concluída localmente.**
 >
-> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, uma **interface operacional Java em CLI, não bloqueante**, suíte PostgreSQL autocontida e uma camada de **observabilidade operacional correlacionada por execução**, com logs estruturados, métricas persistidas de integrações, detalhe de `ProcessingRun`, alertas sob consulta e prova real contra a fonte Amazon.
+> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, interface operacional Java em CLI, observabilidade correlacionada por execução e, a partir da FASE 17, **scheduler persistido, prevenção de sobreposição, pausa operacional e runtime contínuo com scheduler + worker**.
 >
-> Gate local final da FASE 16:
+> Gate local final da FASE 17:
 >
 > ```text
-> Tests run: 931
+> Tests run: 1047
 > Failures: 0
 > Errors: 0
 > Skipped: 0
@@ -27,21 +29,11 @@ O projeto prioriza:
 > BUILD SUCCESS
 > ```
 >
-> A prova real da FASE 16 concluiu com `SUCCESS`, HTTP 200, persistência visível por segunda conexão PostgreSQL e métricas exibidas por `runs show`.
+> O catálogo Flyway alcança **V24**.
 >
-> O catálogo Flyway alcança **V22**.
+> A FASE 17 possui prova de concorrência entre duas instâncias e prova operacional hermética de múltiplos ciclos automáticos usando PostgreSQL real.
 >
-> O encerramento remoto da FASE 16 ainda depende de:
->
-> ```text
-> documentação final
-> +
-> push da branch
-> +
-> Pull Request
-> +
-> CI remoto verde
-> ```
+> O encerramento remoto da FASE 17 ainda depende de integração da documentação final, commit, push, Pull Request e CI remoto verde.
 
 ---
 
@@ -72,48 +64,26 @@ momentum versionado
   ↓
 orquestração durável
   ↓
+agendamento recorrente
+  ↓
 geração de Publication
   ↓
 seleção operacional futura
   ↓
-outbox / entrega futura
+aprovação / outbox futura
   ↓
-canais
+canais futuros
 ```
 
 permaneçam desacoplados.
 
-A interface operacional observa esse fluxo por fora:
+A ordem das fases deve ser preservada.
 
-```text
-                     ┌──────────────────────┐
-                     │ Interface operacional│
-                     │ consulta / diagnóstico│
-                     └──────────┬───────────┘
-                                │
-                                ▼
-coleta → avaliação → publicação → entrega futura
-```
-
-Princípio da FASE 14:
-
-```text
-A interface observa e administra o pipeline.
-A interface não autoriza o pipeline a funcionar.
-```
-
-Princípio da FASE 16:
-
-```text
-Observabilidade explica fatos persistidos.
-Observabilidade não redefine decisões.
-```
-
-A ordem das fases deve ser preservada e responsabilidades futuras não devem ser antecipadas sem decisão explícita.
+Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ---
 
-## 2. Estado atual
+## 2. Estado atual das fases
 
 | Fase | Descrição | Status |
 |---|---|---|
@@ -137,10 +107,12 @@ A ordem das fases deve ser preservada e responsabilidades futuras não devem ser
 | FASE 13 | Geração de publicação e link de associado | CONCLUÍDA |
 | FASE 14 | Interface operacional não bloqueante | CONCLUÍDA |
 | FASE 15 | Qualidade integrada | CONCLUÍDA |
-| FASE 16 | Observabilidade | CONCLUÍDA LOCALMENTE |
-| FASE 17 | Agendamento e execução contínua | PRÓXIMA APÓS GATE REMOTO |
-| FASE 18 | Contrato de canais / outbox | PLANEJADA |
-| FASE 19+ | Canais, hardening e escala | PLANEJADA |
+| FASE 16 | Observabilidade, auditoria e operação | CONCLUÍDA |
+| FASE 17 | Agendamento e execução contínua | CONCLUÍDA LOCALMENTE |
+| FASE 18 | Contrato de canais e outbox de publicação | PRÓXIMA APÓS GATE REMOTO |
+| FASE 19 | Telegram e WhatsApp | PLANEJADA |
+| FASE 20 | Resiliência, recuperação e falhas de produção | PLANEJADA |
+| FASE 21 | Segurança, governança e fechamento da versão 1.0 | PLANEJADA |
 
 ---
 
@@ -172,7 +144,7 @@ Responsabilidades:
 
 - `domain`: conceitos, invariantes e regras de negócio sem dependência de infraestrutura;
 - `application`: contratos, ports, read models e coordenação dos casos de uso;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon, bootstrap e composition roots;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon, bootstrap, composition roots e runtime;
 - `presentation`: adaptadores de interação com o operador, atualmente CLI.
 
 Dependência conceitual:
@@ -202,21 +174,12 @@ PostgreSQL
 Flyway
 JDBC
 CLI
+scheduler
 Telegram
 WhatsApp
 ```
 
-A apresentação não conhece:
-
-```text
-Connection
-DriverManager
-SQL
-adapters JDBC
-HTML Amazon
-collector
-parser
-```
+O scheduler da FASE 17 também não conhece regras de domínio.
 
 O projeto permanece em um único módulo Maven enquanto não houver pressão arquitetural real para decomposição.
 
@@ -235,31 +198,31 @@ O projeto permanece em um único módulo Maven enquanto não houver pressão arq
 - jsoup
 - Docker / Docker Compose
 - GitHub Actions
-- Exec Maven Plugin para execução local da CLI operacional
-- Playwright apenas no profile de diagnóstico externo
+- Exec Maven Plugin para execução explícita da CLI operacional
+- Playwright somente no profile de diagnóstico externo quando aplicável
 
 ---
 
-## 5. Build
+## 5. Build e gate local
 
-Use o Maven Wrapper versionado.
+O projeto utiliza o Maven Wrapper versionado.
 
-### Windows
+Windows:
 
 ```powershell
 .\mvnw.cmd clean test
 ```
 
-### Linux/macOS/CI
+Linux/macOS/CI:
 
 ```bash
 ./mvnw clean test
 ```
 
-Gate local final da FASE 16:
+Gate local final da FASE 17:
 
 ```text
-Tests run: 931
+Tests run: 1047
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -267,9 +230,9 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-A probe real da FASE 16 é explícita e não participa automaticamente da suíte hermética padrão.
+A suíte padrão permanece hermética em relação à Amazon real.
 
-O gate normal não executa automaticamente a CLI.
+Probes externas são executadas de forma explícita e separada.
 
 ---
 
@@ -277,7 +240,7 @@ O gate normal não executa automaticamente a CLI.
 
 A configuração principal da aplicação permanece baseada em ambiente.
 
-Variáveis documentadas:
+Variáveis centrais já existentes incluem:
 
 ```text
 APP_ENV
@@ -291,29 +254,19 @@ AMAZON_ASSOCIATE_TAG
 
 Regras:
 
-- `DB_PASSWORD` é obrigatório;
-- `AMAZON_ASSOCIATE_TAG` é usado somente no fluxo de publicação;
-- `.env` local não é versionado;
-- `.env.example` documenta o formato sem conter segredos reais;
-- thresholds operacionais da FASE 16 são carregados por configuração explícita, sem defaults de negócio arbitrários.
+- `DB_PASSWORD` é segredo e não possui valor real versionado;
+- `AMAZON_ASSOCIATE_TAG` pertence ao fluxo de publicação;
+- `.env` local não deve ser versionado;
+- configuração funcional não deve ser escondida em constantes semânticas;
+- segredos nunca devem aparecer em logs estruturados.
 
-Exemplo:
-
-```dotenv
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=rasping_amazon
-DB_USER=rasping
-DB_PASSWORD=CHANGE_ME
-
-AMAZON_ASSOCIATE_TAG=CHANGE_ME
-```
+A FASE 17 adicionou configuração própria do runtime contínuo, documentada em seção específica.
 
 ---
 
 ## 7. Modelo de oferta
 
-`OfferSnapshot` representa uma observação temporal da oferta.
+`OfferSnapshot` representa uma observação temporal de uma oferta.
 
 Campos relevantes:
 
@@ -336,10 +289,11 @@ paymentConditions
 
 Princípios:
 
-- `basisPrice` não é `previousPrice`;
-- ausência de informação não é convertida em zero;
-- preços Pix/NuPay não são inferidos;
-- condições comerciais são persistidas de forma estruturada.
+- `basisPrice` é diferente de `previousPrice`;
+- ausência não equivale a zero;
+- preço Pix/NuPay não é inferido;
+- condições comerciais são persistidas de forma estruturada;
+- evidências relevantes permanecem rastreáveis.
 
 ---
 
@@ -352,7 +306,7 @@ PaymentConditionType.CASH
 PaymentConditionType.CREDIT_INSTALLMENT
 ```
 
-Métodos reconhecidos incluem:
+Métodos conhecidos:
 
 ```text
 PIX
@@ -360,7 +314,7 @@ NUPAY_ADDITIONAL_LIMIT
 CREDIT_CARD
 ```
 
-Uma condição pode registrar:
+Uma condição pode preservar:
 
 ```text
 price
@@ -404,14 +358,15 @@ score
 ranking
 momentum
 apresentação de publicação
-política futura de seleção
+seleção operacional de publicação
+scheduling
 ```
 
 ---
 
 ## 10. Filtros comerciais
 
-Perfil ativo após V16:
+Perfil ativo consolidado:
 
 ```text
 COMMERCIAL_FILTER_V2
@@ -419,7 +374,7 @@ COMMERCIAL_FILTER_V2
 
 A V2 utiliza desconto sobre preço-base como critério comercial principal de desconto.
 
-Configuração ativada pela migration V16:
+Configuração introduzida pela evolução V16:
 
 ```text
 minBasisDiscountPercentage = 20.0000
@@ -427,26 +382,33 @@ minRating = 4.30
 minReviewCount = 100
 ```
 
-A versão anterior:
+A versão anterior permanece histórica:
 
 ```text
 COMMERCIAL_FILTER_V1
 ```
 
-permanece histórica.
-
-O sistema distingue dado ausente de dado presente abaixo do limite.
-
 Mudanças semânticas de filtros são versionadas.
+
+Dado ausente continua diferente de dado presente abaixo do limite.
 
 ---
 
 ## 11. Score e ranking
 
-Perfil ativo após V16:
+Perfil ativo:
 
 ```text
 SCORE_V2
+```
+
+Fatores:
+
+```text
+SOLD_PERCENTAGE
+BASIS_DISCOUNT
+RATING
+REVIEW_COUNT
 ```
 
 Pesos configurados:
@@ -458,26 +420,17 @@ RATING          = 20
 REVIEW_COUNT    = 15
 ```
 
-O limiar de `reviewCount` para pontuação cheia permanece:
-
-```text
-1000
-```
-
 Características:
 
 - score reproduzível;
 - fatores explicáveis;
 - fatores persistidos;
-- soma das contribuições validada;
 - ranking determinístico;
 - versão histórica preservada.
 
-`SCORE_V1` permanece disponível como versão histórica.
+`SCORE_V1` permanece como versão histórica.
 
-O score não deve absorver penalidade de recorrência de publicação.
-
-A prioridade operacional futura de publicação é conceito separado.
+Histórico de publicação não altera retroativamente o score.
 
 ---
 
@@ -504,11 +457,10 @@ MOMENTUM_V1
 Momentum:
 
 - interpreta evolução temporal;
-- não altera elegibilidade estrutural;
-- não altera o significado do score;
-- pode ser indisponível quando não há base histórica suficiente;
-- possui auditoria própria;
-- é apresentado pela interface a partir do estado persistido.
+- não altera elegibilidade;
+- não altera score;
+- pode ser indisponível quando falta base histórica;
+- possui auditoria própria.
 
 ---
 
@@ -516,7 +468,7 @@ Momentum:
 
 A FASE 12 introduziu processamento assíncrono baseado em PostgreSQL.
 
-Entidades principais:
+Entidades:
 
 ```text
 ProcessingRun
@@ -542,21 +494,20 @@ EVALUATE_DEAL
 DealEvaluation
 ```
 
-A fila utiliza PostgreSQL e suporta:
+A fila suporta:
 
 - jobs persistidos;
 - claim concorrente;
 - `FOR UPDATE SKIP LOCKED`;
 - retry;
 - backoff;
-- leases;
-- recuperação de leases expirados;
+- leases de job;
+- recuperação prevista pela orquestração;
 - múltiplos workers;
 - idempotência por etapa;
-- falhas transitórias e permanentes;
-- estados terminais.
+- falhas transitórias e permanentes.
 
-Estados de job:
+Estados:
 
 ```text
 PENDING
@@ -566,7 +517,7 @@ SUCCEEDED
 DEAD
 ```
 
-Tipos atuais:
+Tipos:
 
 ```text
 COLLECT_DEALS
@@ -574,13 +525,13 @@ ENRICH_DEAL
 EVALUATE_DEAL
 ```
 
-A fila da FASE 12 não possui um tipo artificial de publicação.
+O scheduler da FASE 17 reutiliza esse pipeline.
 
 ---
 
 ## 14. Geração de publicação — FASE 13
 
-A FASE 13 transforma uma `DealEvaluation` persistida em uma `Publication` auditável.
+A FASE 13 transforma uma `DealEvaluation` persistida em `Publication`.
 
 Fluxo:
 
@@ -613,18 +564,16 @@ reavalia elegibilidade
 reexecuta filtros
 recalcula score
 recalcula momentum
-seleciona quota de publicação
-aplica cooldown
-envia para canais
+envia para canal
 ```
 
 ---
 
 ## 15. Dados de publicação
 
-`PublicationData` é construído a partir de dados persistidos.
+`PublicationData` é construído a partir do estado persistido.
 
-A cadeia auditável permanece:
+Cadeia:
 
 ```text
 Publication
@@ -636,11 +585,9 @@ OfferSnapshot
 Product
 ```
 
-A publicação não duplica todos os dados históricos.
+A publicação não duplica todos os fatos históricos.
 
-O gerador recebe uma avaliação já selecionada.
-
-Política futura de seleção não pertence ao `PublicationGenerator`.
+Ela referencia a decisão que a originou.
 
 ---
 
@@ -652,7 +599,7 @@ Contrato:
 CommercialPresentationPolicy
 ```
 
-Implementação atual:
+Implementação:
 
 ```text
 AmazonCommercialPresentationV1
@@ -664,19 +611,18 @@ Versão:
 AMAZON_COMMERCIAL_PRESENTATION_V1
 ```
 
-A política de apresentação não decide:
+Essa política não decide:
 
 ```text
 elegibilidade
-filtros
 score
 ranking
 recorrência
 quota
-cadência
+cadência de scheduler
 ```
 
-Ela somente define como fatos já aceitos serão apresentados.
+Ela define como fatos já aceitos são apresentados.
 
 ---
 
@@ -688,37 +634,11 @@ Contrato:
 PublicationTemplate
 ```
 
-Implementação:
+A versão de template é persistida.
 
-```text
-AmazonPublicationV1
-```
+Templates não são misturados com a coleta, avaliação ou scheduler.
 
-Versão:
-
-```text
-AMAZON_PUBLICATION_V1
-```
-
-O template recebe dados já preparados e não conhece:
-
-```text
-SQL
-JDBC
-score
-filtros
-geração de URL de afiliado
-Telegram
-WhatsApp
-```
-
-Exemplo conceitual:
-
-```text
-Produto exemplo
-Preço atual: R$ 99,90
-Link patrocinado: https://www.amazon.com.br/dp/ASIN?tag=...
-```
+A reprodução da mensagem usa fatos persistidos e versão explícita.
 
 ---
 
@@ -730,679 +650,58 @@ Contrato:
 AffiliateLinkGenerator
 ```
 
-Implementação usada para novas publicações:
+A tag de associado vem de configuração externa.
 
-```text
-AmazonAffiliateLinkGeneratorV2
-```
-
-A V2 preserva paths já percent-encoded sem dupla codificação.
-
-A versão anterior permanece disponível para reprodução histórica:
-
-```text
-AmazonAffiliateLinkGeneratorV1
-```
-
-Fluxo:
-
-```text
-Product.productUrl
-        ↓
-AffiliateLinkGenerator
-        ↓
-AffiliateLink
-```
-
-O associate tag é fornecido por configuração externa.
+O restante da aplicação não concatena parâmetros de afiliado manualmente.
 
 ---
 
 ## 19. `Publication`
 
-`Publication` preserva:
+A entidade `Publication` preserva relação com:
 
 ```text
 DealEvaluation
 templateVersion
-commercialPresentationVersion
-affiliateLinkVersion
-generatedText
-affiliateUrl
+conteúdo gerado
+affiliateLink
 status
-createdAt
+timestamps
 ```
 
-Estados existentes:
+Geração não equivale a entrega externa.
 
-```text
-CREATED
-READY
-PUBLISHED
-FAILED
-```
-
-A geração da FASE 13 cria inicialmente:
-
-```text
-CREATED
-```
-
-Semântica arquitetural adotada pela ADR-0009:
-
-```text
-CREATED
-Publication gerada e persistida.
-
-READY
-Publication liberada pelas regras automáticas aplicáveis
-para prosseguir ao mecanismo de despacho futuro.
-
-PUBLISHED
-Entrega confirmada pelo mecanismo responsável pelo canal.
-
-FAILED
-Falha posterior tratável conforme as regras da etapa responsável.
-```
-
-Esses estados não representam etapas obrigatórias de aprovação humana.
-
-A FASE 16 não implementa scheduler, outbox ou entrega por canal.
+Outbox e canais continuam em fases posteriores.
 
 ---
 
 ## 20. Idempotência da publicação
 
-Identidade lógica:
+A geração de publicação preserva identidade lógica por avaliação e versão/política aplicável.
 
-```text
-deal_evaluation_id
-+
-template_version
-+
-commercial_presentation_version
-+
-affiliate_link_version
-```
+Reprocessar o mesmo comando não deve produzir duplicação arbitrária.
 
-Proteção no PostgreSQL:
-
-```text
-UNIQUE (...)
-```
-
-Persistência:
-
-```text
-INSERT
-ON CONFLICT DO NOTHING
-RETURNING id
-```
-
-Reentrada da mesma geração:
-
-```text
-mesma identidade
-      ↓
-mesma Publication
-      ↓
-sem sobrescrever o fato histórico original
-```
+Idempotência de **entrega em canal** continua sendo responsabilidade futura da outbox.
 
 ---
 
-## 21. Composition root de publicação
+## 21. Interface operacional — FASE 14
 
-Composition root:
-
-```text
-AmazonPublicationComposition
-```
-
-Composição atual:
+A interface operacional segue:
 
 ```text
-JdbcOfferSnapshotEvaluationLoadAdapter
-        ↓
-JdbcPublicationDataQueryAdapter
-        ↓
-AmazonCommercialPresentationV1
-        ↓
-AmazonAffiliateLinkGeneratorV2
-        ↓
-AmazonPublicationV1
-        ↓
-PublicationJdbcRepository
-        ↓
-PublicationGenerator
-```
-
-A composição apenas monta dependências.
-
-Ela não executa regras de seleção, recorrência, quota ou canal.
-
----
-
-## 22. Interface operacional — FASE 14
-
-A FASE 14 implementou a primeira apresentação operacional do projeto como CLI Java.
-
-Objetivo:
-
-```text
-observação
-consulta histórica
-diagnóstico
-administração explícita
-```
-
-Sem tornar o operador parte obrigatória do pipeline.
-
-A CLI opera sobre casos de uso e read models da camada `application`.
-
-Não existe SQL na apresentação.
-
-Não existe recomputação de decisão histórica na apresentação.
-
----
-
-## 23. Read side operacional de avaliações
-
-Pacote:
-
-```text
-application/operation/evaluation
-```
-
-Principais contratos:
-
-```text
-DealEvaluationCursor
-DealEvaluationPage
-DealEvaluationSearchCriteria
-DealEvaluationSummary
-DealEvaluationDetail
-OperationalEvaluationRuleResult
-OperationalScoreFactorResult
-OperationalMomentumAudit
-ListDealEvaluationsUseCase
-GetDealEvaluationDetailUseCase
-DealEvaluationOperationalQueryPort
-DealEvaluationOperationalDetailQueryPort
-```
-
-Listagem disponível:
-
-```text
-evaluations list
-```
-
-Filtros incluem:
-
-```text
-eligible
-ASIN
-minScore
-maxScore
-evaluatedFrom
-evaluatedUntil
-cursor
-limit
-```
-
-Ordenação keyset:
-
-```text
-evaluatedAt DESC
-evaluationId DESC
-```
-
-Detalhe:
-
-```text
-evaluations show <evaluation-id>
-```
-
-O detalhe apresenta fatos persistidos de:
-
-```text
-oferta
-elegibilidade
-versões
-rule results
-score factors
-momentum audit
-```
-
-sem executar novamente os motores de decisão.
-
----
-
-## 24. Read side operacional de runs e jobs
-
-Runs:
-
-```text
-runs list
-runs show <run-id>
-```
-
-Ordenação:
-
-```text
-requestedAt DESC
-runId DESC
-```
-
-O detalhe de uma execução, ampliado na FASE 16, expõe:
-
-```text
-RUN
-PIPELINE
-JOBS
-INTEGRATIONS
-```
-
-Jobs:
-
-```text
-jobs list
-```
-
-Filtros incluem:
-
-```text
-type
-status
-lastFailureType
-processingRunId
-dealCandidateId
-offerSnapshotId
-createdFrom
-createdUntil
-cursor
-limit
-```
-
-Ordenação:
-
-```text
-createdAt DESC
-jobId DESC
-```
-
-O filtro por `processingRunId` representa o vínculo direto persistido no job.
-
-A FASE 16 ampliou a correlação operacional sem transformar ASIN em identidade de execução.
-
-A interface não adiciona retry arbitrário nem pause/resume falso à CLI.
-
----
-
-## 25. Read side operacional de publicações
-
-Comandos:
-
-```text
-publications list
-publications show <publication-id>
-```
-
-Filtros da listagem incluem:
-
-```text
-status
-ASIN
-dealEvaluationId
-createdFrom
-createdUntil
-cursor
-limit
-```
-
-Ordenação:
-
-```text
-createdAt DESC
-publicationId DESC
-```
-
-O resumo evita carregar desnecessariamente:
-
-```text
-generatedText
-affiliateUrl
-```
-
-O detalhe apresenta esses campos somente quando solicitado.
-
----
-
-## 26. Composition root operacional
-
-Composition root:
-
-```text
-OperationalInterfaceComposition
-```
-
-Casos de uso expostos:
-
-```text
-listDealEvaluations()
-getDealEvaluationDetail()
-listProcessingRuns()
-getProcessingRunDetail()
-listProcessingJobs()
-listPublications()
-getPublicationDetail()
-getOperationalAlerts()
-```
-
-A composição:
-
-- abre a conexão;
-- compartilha a conexão entre os adapters operacionais;
-- implementa `AutoCloseable`;
-- é responsável pelo fechamento da conexão;
-- não contém regra comercial;
-- não executa score;
-- não executa momentum;
-- não faz retry;
-- não implementa scheduler;
-- não altera status de `Publication`.
-
----
-
-## 27. CLI operacional
-
-Pacote:
-
-```text
-com.raspingamazon.presentation.cli
-```
-
-Núcleo:
-
-```text
-CliExitCode
-CliUsageException
-CliCommandHandler
-CliText
-CliValueParser
-OperationalCliUsage
-OperationalCli
-OperationalCliFactory
-```
-
-Recursos disponíveis:
-
-```text
-evaluations list
-evaluations show <evaluation-id>
-
-runs list
-runs show <run-id>
-
-jobs list
-
-publications list
-publications show <publication-id>
-
-alerts list
-```
-
-Códigos de saída:
-
-```text
-0 SUCCESS
-1 OPERATIONAL_ERROR
-2 USAGE_ERROR
-3 NOT_FOUND
-```
-
-`OperationalCli` retorna o código de saída.
-
-Ele não chama `System.exit()`.
-
----
-
-## 28. Bootstrap e entrypoint
-
-Pacote:
-
-```text
-com.raspingamazon.infrastructure.bootstrap
-```
-
-Componentes:
-
-```text
-OperationalCliBootstrap
-OperationalCliMain
-```
-
-Fluxo:
-
-```text
-OperationalCliMain
-        ↓
-OperationalCliBootstrap
-        ↓
-OperationalInterfaceComposition
-        ↓
-application use cases
-        ↓
-OperationalCliFactory
-        ↓
-OperationalCli
-```
-
-Ajuda global e comando top-level inválido não precisam abrir PostgreSQL.
-
-Comandos operacionais reais abrem a composição.
-
-`System.exit()` fica restrito ao entrypoint de processo.
-
----
-
-## 29. Executando a CLI
-
-O projeto usa `exec-maven-plugin` somente quando solicitado explicitamente.
-
-### Ajuda
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=help"
-```
-
-### Avaliações
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=evaluations list --limit 5"
-```
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=evaluations show 123"
-```
-
-### Runs
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=runs list --limit 5"
-```
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=runs show 123"
-```
-
-### Jobs
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=jobs list --limit 5"
-```
-
-### Publicações
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=publications list --limit 5"
-```
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=publications show 123"
-```
-
-### Alertas
-
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=alerts list"
-```
-
-O plugin não está associado a uma fase padrão do lifecycle.
-
-`clean test` continua sendo apenas o gate de build/testes.
-
----
-
-## 30. Smoke tests reais da FASE 14
-
-Ajuda sem banco:
-
-```text
-mvn compile exec:java -Dexec.args=help
-
-→ ajuda exibida
-→ BUILD SUCCESS
-```
-
-Consulta real com PostgreSQL:
-
-```text
-mvn compile exec:java -Dexec.args=evaluations list --limit 5
-
-→ composição aberta
-→ PostgreSQL consultado
-→ cabeçalho operacional exibido
-→ BUILD SUCCESS
-```
-
-No smoke test observado, não havia linhas correspondentes no banco e apenas o cabeçalho foi retornado.
-
-O caminho real foi validado:
-
-```text
-CLI
-↓
-bootstrap
-↓
-composition
-↓
-JDBC
-↓
-PostgreSQL
-↓
-application
-↓
 presentation
+      ↓
+application
+      ↓
+ports
+      ↓
+infrastructure
 ```
 
----
+Ela não executa SQL direto.
 
-## 31. PostgreSQL e Flyway
-
-Estado estrutural atual:
-
-```text
-PostgreSQL 18.6
-catálogo de migrations até V22
-```
-
-Migrations:
-
-```text
-V1__initial_schema.sql
-V2__commercial_offer_conditions.sql
-V3__offer_evidence_provenance.sql
-V4__deal_evaluation_versions.sql
-V5__deal_evaluation_rule_results.sql
-V6__offer_snapshot_idempotency.sql
-V7__commercial_filter_profile.sql
-V8__score_profile_and_factors.sql
-V9__momentum_audit.sql
-V10__historical_read_indexes.sql
-V11__processing_orchestration.sql
-V12__evaluation_processing_idempotency.sql
-V13__deal_candidate_idempotency.sql
-V14__publication_generation_audit.sql
-V15__prepare_basis_discount_filter_and_score_v2.sql
-V16__activate_basis_discount_filter_and_score_v2.sql
-V17__operational_deal_evaluation_read.sql
-V18__operational_processing_read_indexes.sql
-V19__operational_publication_read_indexes.sql
-V20__processing_observability_correlation.sql
-V21__processing_run_observability_read_index.sql
-V22__integration_observation.sql
-```
-
-Migrations diretamente atribuídas ao read side da FASE 14:
-
-```text
-V17
-V18
-V19
-```
-
-Migrations diretamente atribuídas à FASE 16:
-
-```text
-V20
-V21
-V22
-```
-
-V15 e V16 pertencem à evolução comercial anterior de filtro/score.
-
-Regra de evolução:
-
-```text
-não editar migrations aplicadas
-```
-
-Toda mudança estrutural deve ser feita por nova migration versionada.
-
----
-
-## 32. ADRs relevantes
-
-Documentação arquitetural versionada em:
-
-```text
-docs/adr/
-```
-
-Catálogo atual:
-
-```text
-ADR-0001 — Semântica de filtros comerciais e apresentação de pagamentos
-ADR-0002 — Semântica de score, ranking e explicabilidade
-ADR-0003 — Semântica de histórico e momentum
-ADR-0004 — Semântica de geração de publicação e link de associado
-ADR-0005 — Semântica de desconto, preço-base e preço efetivo
-ADR-0006 — Semântica de SCORE_V2 / desconto sobre preço-base
-ADR-0007 — Fallback de rating/review na página de produto
-ADR-0008 — Correção versionada do link de associado / percent-encoding
-ADR-0009 — Interface operacional não bloqueante
-ADR-0010 — Política de seleção, recorrência e cadência de publicações
-ADR-0011 — Observabilidade, correlação e métricas operacionais
-```
-
-### ADR-0009
-
-Status:
-
-```text
-ACEITA
-```
+Ela não chama parser Amazon diretamente.
 
 Princípio:
 
@@ -1411,210 +710,192 @@ A interface observa e administra o pipeline.
 A interface não autoriza o pipeline a funcionar.
 ```
 
-Aprovação humana obrigatória não faz parte do caminho crítico.
+Esse princípio continua válido após a introdução do daemon da FASE 17.
 
-### ADR-0010
+---
 
-Status:
+## 22. Read side operacional de avaliações
 
-```text
-PROPOSTA
-```
+A interface consegue consultar avaliações persistidas sem recalcular decisão.
 
-Relacionada principalmente a:
+Informações podem incluir:
 
 ```text
-FASE 17
-FASE 18
+ASIN
+produto
+preço
+desconto
+rating
+reviewCount
+seller
+delivery
+score
+momentum
+regras avaliadas
+motivos de rejeição
 ```
 
-Define fronteiras futuras para:
+Consulta não altera o pipeline.
+
+---
+
+## 23. Read side operacional de runs e jobs
+
+A CLI expõe leitura de:
 
 ```text
-PublicationSelectionPolicy
-recorrência
-cooldown
-quota
-cadência
-escopo por canal/destino
-auditabilidade da seleção
+ProcessingRun
+ProcessingJob
 ```
 
-Essas regras não pertencem à CLI nem à observabilidade da FASE 16.
+O operador pode consultar estado sem acessar PostgreSQL manualmente.
 
-### ADR-0011
+A observabilidade da FASE 16 ampliou o detalhe de uma run.
 
-Status:
+---
+
+## 24. Read side operacional de publicações
+
+A interface consegue consultar:
 
 ```text
-ACEITA
+Publication
+status
+template
+conteúdo
+affiliateLink
+relação com avaliação
+timestamps
 ```
+
+sem gerar novamente a publicação apenas para exibição.
+
+---
+
+## 25. CLI operacional
+
+Pacote:
+
+```text
+com.raspingamazon.presentation.cli
+```
+
+Áreas consolidadas incluem:
+
+```text
+evaluations
+runs
+jobs
+publications
+alerts
+schedules
+```
+
+A CLI permanece não bloqueante.
+
+O daemon contínuo possui entrypoint separado.
+
+---
+
+## 26. Schedules na CLI
+
+A FASE 17 adicionou comandos de administração de schedule equivalentes a:
+
+```text
+status
+pause
+resume
+interval
+```
+
+Fluxo:
+
+```text
+SchedulesCliCommand
+      ↓
+application use case
+      ↓
+ProcessingSchedulePort
+      ↓
+JdbcProcessingScheduleAdapter
+```
+
+A CLI não contém SQL.
+
+---
+
+## 27. PostgreSQL e Flyway
+
+PostgreSQL continua sendo o estado operacional principal.
+
+Estado estrutural ao final da FASE 17:
+
+```text
+Flyway V24
+```
+
+A evolução preserva migrations anteriores.
+
+Mudanças estruturais novas devem receber nova migration versionada.
+
+---
+
+## 28. Migrations de orquestração e operação
+
+Migrations relevantes das fases recentes incluem:
+
+```text
+V11  processing orchestration
+V12  evaluation processing idempotency
+V13  deal candidate idempotency
+V14  publication generation audit
+V15  preparação de basis discount / score V2
+V16  ativação de basis discount / score V2
+V17  leitura operacional de evaluation
+V18  índices de leitura de processing
+V19  índices de leitura de publication
+V20  correlação de observabilidade
+V21  índice de leitura por ProcessingRun
+V22  integration observation
+V23  processing schedule
+V24  índice do guard de sobreposição do scheduler
+```
+
+Nenhuma migration histórica é reescrita para introduzir scheduler.
+
+---
+
+## 29. Qualidade integrada — FASE 15
+
+A FASE 15 consolidou a execução autocontida dos testes PostgreSQL.
+
+O gate normal prepara o schema necessário e valida jornadas críticas.
 
 Princípios:
 
 ```text
-PostgreSQL = verdade operacional durável
-logs estruturados = evidência complementar
-correlação usa identidades reais
-ASIN é atributo, não identidade de execução
-EXTERNAL / INTERNAL é distinto de TRANSIENT / PERMANENT
-observabilidade explica fatos sem recalcular decisões
-alertas da FASE 16 não introduzem scheduler
+testes herméticos
+fixtures pequenas
+Amazon real separada
+schema reproduzível
 ```
+
+A FASE 17 continua usando essa base.
 
 ---
 
-## 33. Resultado consolidado da FASE 14
+## 30. Observabilidade — FASE 16
 
-Documento:
-
-```text
-docs/phases/FASE_14_RESULTADO.md
-```
-
-Capacidades concluídas:
+Princípio:
 
 ```text
-evaluations list          OK
-evaluations show <id>     OK
-runs list                 OK
-jobs list                 OK
-publications list         OK
-publications show <id>    OK
-composition operacional   OK
-factory da CLI            OK
-bootstrap                 OK
-entrypoint                OK
-execução Maven            OK
-smoke real PostgreSQL     OK
+Observabilidade explica fatos persistidos.
+Observabilidade não redefine decisões.
 ```
 
-Gate:
+A correlação utiliza identidades reais do pipeline.
 
-```text
-Tests run: 820
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-Critérios arquiteturais da ADR-0009:
-
-```text
-10 / 10 atendidos localmente
-```
-
----
-
-## 34. Qualidade integrada — FASE 15
-
-A FASE 15 resolveu o débito de preparação de schema identificado ao final da FASE 14.
-
-O problema observado era a existência de testes JDBC que dependiam de um PostgreSQL previamente migrado.
-
-Foi criada infraestrutura compartilhada em:
-
-```text
-src/test/java/com/raspingamazon/testsupport/database/
-```
-
-Componentes:
-
-```text
-PostgresIntegrationTest
-PostgresSchemaExtension
-PostgresTestDatabase
-```
-
-Foram normalizadas:
-
-```text
-38 classes de integração PostgreSQL
-```
-
-Os testes comuns passaram a declarar:
-
-```text
-@PostgresIntegrationTest
-```
-
-A infraestrutura aplica as migrations reais da aplicação antes da execução dos consumidores PostgreSQL.
-
-Os testes cujo objeto de verificação é a própria migration continuam executando `DatabaseMigration.migrate(...)` explicitamente.
-
-A solução foi validada contra um database PostgreSQL completamente vazio:
-
-```text
-database vazio
-    ↓
-mvn clean test
-    ↓
-primeiro teste PostgreSQL
-    ↓
-Flyway
-    ↓
-restante da suíte
-```
-
-Resultado da FASE 15:
-
-```text
-Tests run: 820
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-O CI também deixou de executar `DatabaseMigrationTest` como bootstrap separado antes da suíte.
-
-Commit principal:
-
-```text
-9895220 test: make PostgreSQL integration suite self-contained
-```
-
-Baseline integrado usado para iniciar a FASE 16:
-
-```text
-64e544c
-Merge pull request #6 from veiocadan/feat/fase-15-qualidade-integrada
-```
-
----
-
-## 35. Observabilidade, auditoria e operação — FASE 16
-
-A fonte primária da FASE 16 exige:
-
-```text
-logs estruturados
-métricas de quantidade coletada, enriquecida, rejeitada e publicada
-métricas de latência e falhas por integração
-correlação por execução, ASIN e publicação
-auditoria de decisões relevantes
-alertas para falhas recorrentes
-alertas para mudanças suspeitas na coleta
-dashboard operacional simples
-```
-
-Critérios oficiais:
-
-```text
-é possível responder o que aconteceu em uma execução
-sem depender de planilhas
-
-falhas externas podem ser diferenciadas de falhas internas
-```
-
-Os dois critérios estão atendidos localmente.
-
-### Correlação
-
-Contexto operacional suportado:
+Contexto suportado pode incluir:
 
 ```text
 runId
@@ -1628,30 +909,9 @@ asin
 integration
 ```
 
-Regra:
+---
 
-```text
-ASIN = atributo
-IDs persistidos = identidade operacional
-```
-
-A correlação não infere `ProcessingRun` pelo ASIN.
-
-A migration V20 completou a cadeia persistida necessária para relacionar:
-
-```text
-ProcessingRun
-      ↓
-DealCandidate
-      ↓
-OfferSnapshot
-      ↓
-DealEvaluation
-      ↓
-Publication
-```
-
-### Logs estruturados
+## 31. Logs estruturados
 
 Componentes:
 
@@ -1670,9 +930,13 @@ Formato:
 JSON Lines
 ```
 
-A observabilidade do worker é best effort e não redefine o resultado de processamento.
+A observabilidade do worker é best effort.
 
-### Observações de integração
+Falha de logging não deve transformar sucesso funcional em falha.
+
+---
+
+## 32. Observações de integração
 
 Modelo:
 
@@ -1686,57 +950,64 @@ Persistência:
 integration_observation
 ```
 
-Adapter:
+Dados incluem:
 
 ```text
-JdbcIntegrationObservationPersistenceAdapter
+observedAt
+integration
+operation
+outcome
+durationMs
+processingRunId
+processingJobId
+jobType
+candidateId
+snapshotId
+evaluationId
+publicationId
+asin
+failureOrigin
+failureType
+errorCode
+httpStatusCode
 ```
 
-Integrações instrumentadas:
-
-```text
-amazon-deals-http
-amazon-product-page
-```
-
-A latência é medida na fronteira externa concreta.
-
-Não são persistidos:
+Não são persistidos nessa tabela:
 
 ```text
 segredos
 payload HTTP completo
-HTML
+HTML integral
 credenciais
 ```
 
-### Origem da falha
+---
+
+## 33. Origem e tipo de falha
 
 Origem operacional:
 
 ```text
-OperationalFailureOrigin.EXTERNAL
-OperationalFailureOrigin.INTERNAL
+EXTERNAL
+INTERNAL
 ```
 
-Classificação de processamento preservada:
+Classificação para retry:
 
 ```text
-ProcessingFailureType.TRANSIENT
-ProcessingFailureType.PERMANENT
+TRANSIENT
+PERMANENT
 ```
 
-As dimensões são deliberadamente separadas.
+As duas dimensões são diferentes.
 
-### Detalhe operacional por run
+A FASE 17 preserva essa separação.
 
-Modelo:
+---
 
-```text
-ProcessingRunDetail
-```
+## 34. Métricas por `ProcessingRun`
 
-Com:
+`ProcessingRunDetail` agrega:
 
 ```text
 summary
@@ -1745,79 +1016,27 @@ jobs
 integrations
 ```
 
-`ProcessingRunPipelineMetrics`:
+Métricas podem expor:
 
 ```text
-collectedCandidates
-enrichedCandidates
-pendingEnrichmentCandidates
+candidates coletados
+candidates enriquecidos
 evaluations
-eligibleEvaluations
-rejectedEvaluations
-publicationsGenerated
+eligible/rejected
+publications geradas
+jobs por status
+tentativas
+falhas de integração
+latência média/máxima por integração
 ```
 
-`ProcessingRunJobMetrics`:
+O scheduler não recalcula essas métricas.
 
-```text
-totalJobs
-pendingJobs
-runningJobs
-retryWaitJobs
-succeededJobs
-deadJobs
-totalAttempts
-retryAttempts
-```
+---
 
-`ProcessingRunIntegrationMetrics`:
+## 35. Alertas operacionais
 
-```text
-integration
-observations
-successes
-failures
-externalFailures
-internalFailures
-averageDurationMs
-maximumDurationMs
-```
-
-`publicationsGenerated` significa Publication gerada/persistida, não entrega em canal.
-
-### Dashboard operacional simples
-
-Comando:
-
-```text
-runs show <run-id>
-```
-
-Seções:
-
-```text
-RUN
-PIPELINE
-JOBS
-INTEGRATIONS
-```
-
-A seção `INTEGRATIONS` apresenta:
-
-```text
-INTEGRATION
-OBSERVATIONS
-SUCCESSES
-FAILURES
-EXTERNAL_FAILURES
-INTERNAL_FAILURES
-AVERAGE_DURATION_MS
-MAXIMUM_DURATION_MS
-```
-
-### Alertas
-
-Tipos:
+Tipos consolidados na FASE 16 incluem:
 
 ```text
 REPEATED_EXTERNAL_FAILURES
@@ -1826,493 +1045,1454 @@ ZERO_CANDIDATES
 SUSPICIOUS_COLLECTION_DROP
 ```
 
-Comando:
+Alertas são derivados de fatos persistidos.
+
+Eles não agendam processamento.
+
+---
+
+# FASE 17 — AGENDAMENTO E EXECUÇÃO CONTÍNUA
+
+## 36. Objetivo da FASE 17
+
+A FASE 17 transforma a aplicação em um sistema capaz de executar ciclos automaticamente.
+
+Fluxo oficial:
 
 ```text
-alerts list
-```
-
-A avaliação é pontual.
-
-Não existe na FASE 16:
-
-```text
-loop
-polling
 scheduler
-daemon
-sleep operacional
+   ↓
+ProcessingRun
+   ↓
+orquestração da FASE 12
 ```
 
-Agendamento pertence à FASE 17.
+O scheduler não contém regras de coleta, parser ou avaliação.
 
-### Métricas deliberadamente não inventadas
+---
 
-O relatório de auditoria também cita:
+## 37. Modelo `ProcessingSchedule`
+
+Estado persistido:
 
 ```text
-duração por etapa
-taxa de descarte
-taxa de UNKNOWN
+scheduleKey
+source
+enabled
+interval
+nextRunAt
+leaseOwner
+leaseExpiresAt
+lastScheduledFor
+lastProcessingRunId
+createdAt
+updatedAt
 ```
 
-Essas métricas não receberam fórmula arbitrária.
+O modelo descreve scheduling.
 
-Motivos:
+Não descreve regra de negócio.
+
+---
+
+## 38. `ProcessingSchedulePort`
+
+Porta de aplicação:
 
 ```text
-duração por etapa
-→ retries e múltiplas tentativas exigem semântica explícita
-
-taxa de descarte
-→ denominador precisa ser formalizado
-
-taxa de UNKNOWN
-→ população e etapa de referência precisam ser formalizadas
+saveIfAbsent
+findByKey
+tryAcquireDue
+confirmScheduled
+releaseLease
+pause
+resume
+changeInterval
 ```
 
-A FASE 16 expõe os fatos concretos necessários para evolução posterior.
+O PostgreSQL implementa a coordenação concreta.
 
-### Prova real
+---
 
-Classe:
+## 39. Migration V23
+
+Migration:
 
 ```text
-Phase16ObservabilityRealSourceIT
+V23__processing_schedule.sql
 ```
 
-Fluxo comprovado:
+Tabela:
 
 ```text
-Amazon real
-    ↓
-HTTP real
-    ↓
-HttpCollectionCollector
-    ↓
-IntegrationObservation
-    ↓
+processing_schedule
+```
+
+A migration não semeia uma frequência funcional fixa.
+
+O schedule inicial é criado por caso de uso de bootstrap.
+
+### 39.1. Migration V24 — suporte ao guard de sobreposição
+
+Migration:
+
+```text
+V24__processing_schedule_overlap_guard_index.sql
+```
+
+Índice parcial:
+
+```text
+idx_processing_job_active_collect_by_run
+```
+
+O índice cobre somente jobs:
+
+```text
+job_type = COLLECT_DEALS
+status IN (PENDING, RUNNING, RETRY_WAIT)
+processing_run_id IS NOT NULL
+```
+
+A finalidade é sustentar a consulta executada pelo scheduler a cada tentativa de aquisição sem transformar `processing_job` em varredura completa.
+
+A V24 não introduz uma segunda fila, não altera o ciclo de vida dos jobs e não muda a semântica da FASE 12. Ela apenas otimiza a verificação de que a coleta automática anterior ainda não terminou.
+
+---
+
+## 40. Frequência configurável
+
+A frequência funcional do processamento fica em:
+
+```text
+ProcessingSchedule.interval
+```
+
+O valor inicial é recebido por configuração externa.
+
+Variável obrigatória:
+
+```text
+PROCESSING_SCHEDULE_INTERVAL
+```
+
+Formato:
+
+```text
+Duration ISO-8601
+```
+
+Exemplos:
+
+```text
+PT15M
+PT1H
+PT30S
+```
+
+A frequência não fica hardcoded.
+
+---
+
+## 41. Fonte operacional de verdade
+
+Regra:
+
+```text
+configuração externa
+→ cria o schedule quando ausente
+
+depois:
 PostgreSQL
-    ↓
-segunda conexão JDBC
-    ↓
-agregação por ProcessingRun
-    ↓
-runs show
+→ fonte operacional de verdade
 ```
 
-Resultado observado em 27/09/2026:
+Reiniciar o processo não sobrescreve:
 
 ```text
-Status: SUCCESS
-Source: https://www.amazon.com.br/deals
-HTTP status: 200
-Content length: 647728
-Integration: amazon-deals-http
-Observations: 1
-Successes: 1
-Failures: 0
-Average duration ms: 2146
-Maximum duration ms: 2146
-Cross-connection persistence visibility: true
-runs show integration visibility: true
-```
-
-JUnit da prova real:
-
-```text
-Tests run: 1
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-A probe externa é executada explicitamente e não participa da suíte hermética diária.
-
-### Gate local
-
-```text
-Tests run: 931
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-Flyway:
-
-```text
-Successfully validated 22 migrations
-Current version of schema "public": 22
-Schema "public" is up to date
-```
-
-Diff da implementação da FASE 16 contra o baseline `64e544c`, antes da documentação final:
-
-```text
-76 files changed
-21208 insertions(+)
-288 deletions(-)
+pause
+interval alterado
+nextRunAt
+lastScheduledFor
+lastProcessingRunId
 ```
 
 ---
 
-## 36. O que ainda não foi implementado
+## 42. `EnsureProcessingScheduleUseCase`
 
-Para preservar a ordem do roadmap, permanecem fora do escopo após a FASE 16:
+Responsabilidade:
 
-- aprovação humana obrigatória;
-- `PublicationSelectionPolicy` efetivamente aplicada;
-- cooldown de publicação;
-- quota temporal;
-- cadência de mensagens;
-- scheduler definitivo;
-- execução periódica contínua;
-- prevenção de execuções concorrentes indesejadas da FASE 17;
-- pause/resume real;
-- outbox de canais;
-- worker de entrega;
-- `PublicationChannel`;
-- Telegram;
-- WhatsApp;
-- envio automático;
-- autenticação/autorização de uma futura interface web;
-- dashboard analítico sofisticado;
-- plataforma externa de métricas sem necessidade concreta;
-- circuit breaker sem evidência operacional;
-- hardening de produção;
-- empacotamento final de distribuição da CLI;
-- Excel/CSV como integração opcional;
-- mecanismos adicionais de escala sem evidência operacional.
+```text
+garantir schedule inicial sem sobrescrever estado existente
+```
 
-Esses itens pertencem às fases posteriores.
+Novo schedule:
+
+```text
+enabled = true
+nextRunAt = now
+```
+
+A primeira janela fica imediatamente disponível.
 
 ---
 
-## 37. Fluxo vertical atual
+## 43. Lease de scheduling
+
+Uma janela de execução possui ownership temporário.
+
+Conceito:
 
 ```text
-Amazon / deals
+schedule devido
       ↓
-coleta
+tryAcquireDue
       ↓
-parser
-      ↓
-DealCandidate
-      ↓
-enrichment
-      ↓
-Product + OfferSnapshot + PaymentConditions + Evidence
-      ↓
-eligibility
-      ↓
-filters
-      ↓
-score
-      ↓
-history / momentum
-      ↓
-DealEvaluation
-      ↓
-PublicationGenerator
-      ↓
-Publication
+leaseOwner
+leaseExpiresAt
 ```
 
-Persistência:
+O lease é persistido.
+
+Coordenação não depende de lock local da JVM.
+
+---
+
+## 44. Prevenção de sobreposição
+
+A proteção possui duas camadas distintas.
+
+A primeira impede duplicação da mesma janela lógica:
 
 ```text
-PostgreSQL
+mesma janela
+2 schedulers
+→ 1 vencedor do lease
+→ 1 ProcessingRun
+→ 1 COLLECT_DEALS
 ```
 
-Orquestração:
+A segunda impede que a janela seguinte seja criada enquanto o `COLLECT_DEALS` da `lastProcessingRunId` ainda estiver não terminal.
+
+Estados que bloqueiam nova aquisição:
+
+```text
+PENDING
+RUNNING
+RETRY_WAIT
+```
+
+Estados terminais que liberam o avanço da próxima janela:
+
+```text
+SUCCEEDED
+DEAD
+```
+
+A regra é aplicada atomicamente dentro de `JdbcProcessingScheduleAdapter.tryAcquireDue()` por `NOT EXISTS` sobre o job `COLLECT_DEALS` da última `ProcessingRun`.
+
+Isso é deliberadamente diferente de olhar apenas `ProcessingRun.status`.
+
+Uma `ProcessingRun` pode estar `FAILED` enquanto o job técnico responsável pela coleta continua em `RETRY_WAIT`. Nesse cenário, criar nova coleta automática geraria sobreposição indevida. O estado técnico do `COLLECT_DEALS` é, portanto, a autoridade usada pelo guard.
+
+O teste JDBC de concorrência prova:
+
+```text
+PENDING
+→ próxima janela bloqueada
+
+RUNNING
+→ próxima janela bloqueada
+
+RETRY_WAIT
+→ próxima janela bloqueada
+
+SUCCEEDED
+→ próxima janela liberada
+
+janela liberada + 2 schedulers
+→ exatamente 1 nova ProcessingRun
+→ exatamente 1 novo COLLECT_DEALS
+```
+
+A V24 adiciona índice parcial específico para esse caminho crítico.
+
+---
+
+## 45. `ScheduleProcessingRunUseCase`
+
+Responsabilidades:
+
+```text
+adquirir janela
+criar ProcessingRun
+criar COLLECT_DEALS
+confirmar janela
+calcular nextRunAt
+```
+
+As operações são tratadas como uma unidade transacional.
+
+O caso de uso não executa coleta.
+
+---
+
+## 46. Identidade de janela
+
+`ProcessingRun.run_key`:
+
+```text
+scheduled:<scheduleKey>:<scheduledFor.toInstant()>
+```
+
+A identidade usa instante normalizado.
+
+Offsets diferentes que representam o mesmo instante não criam duplicação lógica.
+
+---
+
+## 47. Idempotência do primeiro job
+
+O `COLLECT_DEALS` inicial utiliza:
+
+```text
+collect:<processingRunId>
+```
+
+A fila durável continua protegida por:
+
+```text
+job_type + idempotency_key
+```
+
+Lease e constraints trabalham em conjunto.
+
+---
+
+## 48. Atomicidade do scheduling
+
+Unidade:
+
+```text
+lease
++
+run
++
+job
++
+confirmação
+```
+
+Falha intermediária:
+
+```text
+rollback
+```
+
+A FASE 17 possui prova JDBC de rollback e reaproveitamento posterior da janela.
+
+---
+
+## 49. Política após downtime
+
+Não existe catch-up ilimitado.
+
+Regra:
+
+```text
+naturalNext = scheduledFor + interval
+```
+
+Se `naturalNext` ainda está no futuro:
+
+```text
+nextRunAt = naturalNext
+```
+
+Se já ficou no passado:
+
+```text
+nextRunAt = now + interval
+```
+
+Downtime não gera automaticamente uma rajada de janelas históricas.
+
+---
+
+## 50. Pausa operacional
+
+`pause` impede novas execuções.
+
+Não apaga:
 
 ```text
 ProcessingRun
 ProcessingJob
+histórico
+observações
+última execução
 ```
 
-Operação:
+Trabalho já durável não é apagado por pausa.
+
+---
+
+## 51. Resume e alteração de intervalo
+
+O operador pode:
 
 ```text
-CLI Java
+resume
+changeInterval
 ```
 
-Observabilidade:
+As operações preservam histórico.
+
+Conflitos com lease ativo são protegidos atomicamente.
+
+---
+
+## 52. Scheduler runner
+
+Classe:
 
 ```text
-logs estruturados
-integration_observation
-runs show
-métricas por run
-alerts list
+ContinuousProcessingSchedulerRunner
 ```
 
-Entrega automática em canais:
+Dependências:
 
 ```text
-AINDA NÃO
+ScheduledProcessingTrigger
+scheduleKey
+schedulerInstanceId
+pollInterval
+ProcessingSchedulerWaitStrategy
+```
+
+O runner não conhece PostgreSQL diretamente.
+
+Ele não conhece Amazon.
+
+---
+
+## 53. Polling técnico
+
+`PROCESSING_SCHEDULER_POLL_INTERVAL` define a frequência técnica de consulta ao schedule.
+
+Isso é diferente de:
+
+```text
+PROCESSING_SCHEDULE_INTERVAL
+```
+
+que define a cadência funcional das runs.
+
+Os dois conceitos não são misturados.
+
+---
+
+## 54. Worker runner
+
+Classe:
+
+```text
+ContinuousProcessingWorkerRunner
+```
+
+Comportamento:
+
+```text
+ProcessingWorker.runOnce()
+      ↓
+job?
+ ├─ sim → próxima rodada imediatamente
+ └─ não → aguardar idleDelay
+```
+
+O runner não implementa retry.
+
+Retry continua pertencendo à FASE 12.
+
+---
+
+## 55. Restrições da fonte Amazon
+
+A FASE 17 formalizou:
+
+```text
+SourceRestrictionType
+SourceRestrictionException
+```
+
+Tipos atuais:
+
+```text
+CHALLENGE
+CAPTCHA
+BLOCKED
+```
+
+O objetivo é classificar restrição.
+
+Não contornar proteção.
+
+---
+
+## 56. HTTP 429, 403 e timeout
+
+Classificação atual:
+
+```text
+429
+→ TRANSIENT
+
+timeout
+→ TRANSIENT
+
+403
+→ PERMANENT
+
+challenge/CAPTCHA/blocked
+→ PERMANENT com código de source restriction
+```
+
+A política usa o retry já existente.
+
+Nenhum segundo mecanismo de retry foi criado.
+
+---
+
+## 57. Decorator Amazon no runtime contínuo
+
+Fluxo de produção:
+
+```text
+JavaHttpTransport
+      ↓
+HttpCollectionCollector
+      ↓
+AmazonDealsCollector
+      ↓
+CollectDealsUseCase
+```
+
+Assim, restrições específicas da Amazon passam pela fronteira correta.
+
+---
+
+## 58. Não contorno
+
+Não fazem parte do projeto:
+
+```text
+CAPTCHA solver
+proxy rotation para evasão
+fingerprint spoofing
+bypass de challenge
+```
+
+Restrições são tratadas como falhas ou limitações da fonte.
+
+---
+
+## 59. Fonte futura
+
+A arquitetura continua apta a receber futuramente:
+
+```text
+AmazonHtmlSource
+AmazonCreatorsApiSource
+```
+
+ou combinação equivalente.
+
+A v1 não depende da Creators API.
+
+O scheduler permanece independente do tipo concreto de fonte.
+
+---
+
+## 60. Composition root contínuo
+
+Classe:
+
+```text
+ContinuousProcessingComposition
+```
+
+Ela monta:
+
+```text
+scheduler side
+worker side
+```
+
+sem iniciar threads.
+
+---
+
+## 61. Duas Connections
+
+A composition exige duas instâncias distintas:
+
+```text
+schedulerConnection
+workerConnection
+```
+
+Razão:
+
+```text
+scheduler e worker executam concorrentemente
+```
+
+Transações dos dois loops não devem compartilhar a mesma `Connection`.
+
+---
+
+## 62. Lado scheduler
+
+Componentes:
+
+```text
+JdbcProcessingScheduleAdapter
+JdbcProcessingRunRepositoryAdapter
+JdbcProcessingJobQueueAdapter
+JdbcTransactionAdapter
+ScheduleProcessingRunUseCase
+ContinuousProcessingSchedulerRunner
+```
+
+Esse lado cria trabalho durável.
+
+Não processa o trabalho.
+
+---
+
+## 63. Lado worker
+
+O worker reutiliza a FASE 12:
+
+```text
+CollectDealsUseCase
+EnrichDealUseCase
+EvaluateDealUseCase
+DefaultProcessingJobExecutor
+ProcessingJobFailureHandler
+ProcessingWorker
+ContinuousProcessingWorkerRunner
+```
+
+Não existe pipeline paralelo de recorrência.
+
+---
+
+## 64. Observabilidade no daemon
+
+O bootstrap contínuo monta:
+
+```text
+JsonStructuredOperationalLogAdapter
+JdbcIntegrationObservationPersistenceAdapter
+BestEffortIntegrationObservationRecorder
+```
+
+Coleta e enrichment continuam observáveis.
+
+A FASE 17 não desabilita a FASE 16.
+
+---
+
+## 65. Runtime
+
+Classe:
+
+```text
+ContinuousProcessingRuntime
+```
+
+Coordena:
+
+```text
+scheduler thread
+worker thread
+```
+
+Sinal compartilhado:
+
+```text
+keepRunning
+```
+
+O runtime não contém regra de negócio.
+
+---
+
+## 66. Falha terminal
+
+Se um dos loops termina inesperadamente durante operação ativa:
+
+```text
+primeira falha é preservada
+outro loop recebe parada
+runtime termina
+```
+
+O sistema não deve continuar silenciosamente com somente metade do daemon.
+
+---
+
+## 67. Shutdown coordenado
+
+Pedido de shutdown:
+
+```text
+keepRunning = false
+```
+
+Waits são acordados por interrupção.
+
+Após observar a parada:
+
+```text
+scheduler não cria nova janela
+worker não inicia nova unidade
+```
+
+O estado funcional permanece durável no PostgreSQL.
+
+---
+
+## 68. `ContinuousProcessingApplication`
+
+Classe responsável pelo ownership operacional de:
+
+```text
+runtime
+schedulerConnection
+workerConnection
+```
+
+A composition não fecha Connections.
+
+A application encerra runtime e recursos.
+
+---
+
+## 69. `ContinuousProcessingBootstrap`
+
+Responsabilidades:
+
+```text
+carregar configuração
+abrir Connections
+garantir schedule
+montar observabilidade
+montar integrações Amazon
+montar composition
+montar runtime
+transferir ownership
+```
+
+Se a montagem falha, recursos parciais são fechados best effort.
+
+---
+
+## 70. `ContinuousProcessingMain`
+
+Entrypoint do daemon.
+
+Responsabilidades:
+
+```text
+bootstrap
+shutdown hook
+start
+awaitTermination
+cleanup
+exit code
+```
+
+O entrypoint da CLI permanece separado:
+
+```text
+OperationalCliMain
 ```
 
 ---
 
-## 38. Roadmap simplificado
+## 71. Configuração da FASE 17
+
+Variáveis:
+
+```text
+PROCESSING_SCHEDULE_INTERVAL
+PROCESSING_SCHEDULE_KEY
+PROCESSING_SOURCE_URI
+PROCESSING_SCHEDULER_INSTANCE_ID
+PROCESSING_WORKER_ID
+PROCESSING_SCHEDULER_POLL_INTERVAL
+PROCESSING_SCHEDULER_LEASE_DURATION
+PROCESSING_WORKER_IDLE_DELAY
+PROCESSING_COLLECTION_MAX_ATTEMPTS
+PROCESSING_ENRICHMENT_MAX_ATTEMPTS
+PROCESSING_EVALUATION_MAX_ATTEMPTS
+PROCESSING_RETRY_BASE_DELAY
+PROCESSING_RETRY_MAX_DELAY
+```
+
+`PROCESSING_SCHEDULE_INTERVAL` é obrigatório para o bootstrap inicial.
+
+Parâmetros técnicos podem possuir defaults operacionais.
+
+---
+
+## 72. Prova de concorrência
+
+Teste:
+
+```text
+ScheduleProcessingRunConcurrencyJdbcIntegrationTest
+```
+
+Cenários:
+
+```text
+duas instâncias / mesma janela
+duas janelas recorrentes
+takeover após lease expirado
+downtime sem catch-up burst
+```
+
+Todos passaram contra PostgreSQL real.
+
+---
+
+## 73. Prova de múltiplos ciclos
+
+Teste:
+
+```text
+ContinuousProcessingMultipleCyclesJdbcIntegrationTest
+```
+
+Utiliza:
+
+```text
+scheduler real
+worker real
+runtime real
+threads reais
+PostgreSQL real
+collector hermético
+parser hermético
+```
+
+Resultado exigido:
+
+```text
+pelo menos 3 ciclos automáticos COMPLETED
+```
+
+Sem intervenção manual entre ciclos.
+
+---
+
+## 74. Por que a prova é hermética
+
+A prova de scheduler não precisa validar disponibilidade atual da Amazon.
+
+Ela precisa validar:
+
+```text
+recorrência
+coordenação
+pipeline durável
+worker
+shutdown
+```
+
+Por isso a fonte do teste é determinística.
+
+A Amazon real permanece em probes separadas.
+
+---
+
+## 75. ADR-0010 e seleção de publicação
+
+ADR-0010 continua proposta para:
+
+```text
+PublicationSelectionPolicy
+cooldown
+quota
+cadência de publicações
+priorização de itens nunca publicados
+```
+
+A FASE 17 não implementa essa política.
+
+O scheduler de processamento e a política de publicação são conceitos diferentes.
+
+---
+
+## 76. ADR-0011 e observabilidade
+
+ADR-0011 permanece válida.
+
+A FASE 17 preserva:
+
+```text
+PostgreSQL como verdade durável
+logs como evidência complementar
+métricas persistidas quando necessário
+observabilidade sem redefinir negócio
+```
+
+---
+
+## 77. ADR-0012
+
+Documento:
+
+```text
+docs/adr/0012-agendamento-e-execucao-continua.md
+```
+
+Status final da decisão:
+
+```text
+ACEITA
+```
+
+A ADR formaliza:
+
+```text
+schedule persistido
+lease PostgreSQL
+frequência configurável
+atomicidade
+idempotência
+pause/resume
+sem catch-up storm
+runtime scheduler + worker
+duas Connections
+restrições Amazon
+fronteiras com FASE 18/20
+```
+
+---
+
+## 78. Testes da FASE 17
+
+Cobertura específica inclui:
+
+```text
+ProcessingSchedule
+lease
+adapter JDBC
+atomicidade
+rollback
+scheduler use case
+worker runner
+scheduler runner
+source restrictions
+failure classifier
+operational use cases
+CLI schedules
+composition
+runtime
+environment config
+concorrência de duas instâncias
+takeover de lease
+downtime
+múltiplos ciclos
+```
+
+Os testes históricos continuam executando.
+
+---
+
+## 79. Progressão da suíte
+
+```text
+baseline FASE 17     931
+modelo/ports         946
+persistência         954
+trigger              964
+atomicidade JDBC     966
+worker contínuo      972
+controle operacional 1010
+scheduler runner     1021
+composition          1028
+runtime              1037
+bootstrap/config     1042
+concorrência         1046
+múltiplos ciclos     1047
+```
+
+Crescimento líquido:
+
+```text
+116 testes
+```
+
+---
+
+## 80. Gate final local da FASE 17
+
+```text
+Tests run: 1047
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+Também foi executado:
+
+```text
+git diff --check
+```
+
+Sem erro de whitespace.
+
+Foram observados avisos de normalização CRLF → LF em dois arquivos Amazon, sem falha de gate.
+
+---
+
+## 81. Fluxo vertical atual
+
+```text
+ContinuousProcessingMain
+        ↓
+ContinuousProcessingBootstrap
+        ↓
+EnsureProcessingScheduleUseCase
+        ↓
+processing_schedule
+        ↓
+ContinuousProcessingRuntime
+        ├───────────────────────────────┐
+        ↓                               ↓
+scheduler                            worker
+        ↓                               ↓
+ScheduleProcessingRunUseCase         ProcessingWorker
+        ↓                               ↓
+ProcessingRun                       COLLECT_DEALS
+        ↓                               ↓
+COLLECT_DEALS                       DealCandidate
+                                        ↓
+                                     ENRICH_DEAL
+                                        ↓
+                                     OfferSnapshot
+                                        ↓
+                                     EVALUATE_DEAL
+                                        ↓
+                                     DealEvaluation
+                                        ↓
+                              Publication pode ser gerada
+                              pelos casos de uso existentes
+```
+
+A FASE 17 automatiza o processamento.
+
+Ela não transforma geração de publicação em envio automático.
+
+---
+
+## 82. Separação entre processamento e publicação externa
+
+Atualmente:
+
+```text
+scheduler de processamento
+→ implementado
+
+geração de Publication
+→ implementada
+
+outbox
+→ ainda não
+
+Telegram
+→ ainda não
+
+WhatsApp
+→ ainda não
+```
+
+Essa separação é deliberada.
+
+---
+
+## 83. O que ainda não foi implementado
+
+Após a FASE 17 continuam fora do escopo:
+
+- `PublicationSelectionPolicy` efetivamente aplicada;
+- cooldown operacional de publicação;
+- quota diária/horária de publicação;
+- outbox;
+- aprovação antes de envio;
+- `PublicationChannel`;
+- `PublicationCommand`;
+- `PublicationResult` de canal;
+- Telegram;
+- WhatsApp;
+- `PublicationAttempt` de canal;
+- retry específico de canal;
+- circuit breaker global;
+- nova dead-letter;
+- infraestrutura distribuída adicional;
+- particionamento;
+- cache distribuído;
+- read replica;
+- microserviços.
+
+---
+
+## 84. Próxima fase — FASE 18
+
+Objetivo do roadmap:
+
+```text
+Contrato de canais e outbox de publicação
+```
+
+Conceitos esperados:
+
+```text
+PublicationChannel
+PublicationCommand
+PublicationResult
+Outbox
+aprovação
+idempotência de entrega
+```
+
+O canal receberá conteúdo pronto.
+
+Ele não deverá consultar diretamente `OfferSnapshot` ou `DealEvaluation` para remontar a mensagem.
+
+---
+
+## 85. FASE 19
+
+Adapters concretos:
+
+```text
+TelegramChannel
+WhatsAppChannel
+```
+
+Também entram:
+
+```text
+destino
+tentativa
+status
+providerReference
+retry de canal
+formatação específica
+```
+
+Credenciais permanecerão externas ao código.
+
+---
+
+## 86. FASE 20
+
+Hardening de produção.
+
+Temas:
+
+```text
+taxonomia ampla de falhas
+restart
+recovery
+dead-letter
+reprocessamento
+alertas
+circuit breaker somente se necessário
+```
+
+A fase deverá ser guiada por evidência operacional.
+
+---
+
+## 87. FASE 21
+
+Fechamento da v1.
+
+Temas:
+
+```text
+segredos
+governança
+least privilege
+backup/restore
+retenção
+release reproduzível
+segurança operacional
+```
+
+Não é uma nova fase de regras comerciais.
+
+---
+
+## 88. Roadmap simplificado
 
 ```text
 FASES 0–8
 Fundação + coleta + dados + validação
               ↓
 FASE 8.5
-Consolidação do núcleo
+Consolidação
               ↓
 FASES 9–11
 Motor de decisão
               ↓
-FASE 12
-Orquestração durável
+FASES 12–14
+Pipeline durável + publicação + operação
               ↓
-FASE 13
-Geração de publicação
+FASES 15–17
+Qualidade + observabilidade + execução contínua
               ↓
-FASE 14
-Interface operacional
+FASES 18–19
+Outbox + canais
               ↓
-FASE 15
-Qualidade integrada
-              ↓
-FASE 16
-Observabilidade
-              ↓
-FASE 17
-Agendamento e execução contínua
-              ↓
-FASE 18
-Contrato de canais / outbox
-              ↓
-FASES 19+
-Canais + hardening + escala
+FASES 20–21
+Hardening + fechamento v1
 ```
 
 ---
 
-## 39. Princípios preservados
+## 89. Princípios preservados
 
 O projeto mantém:
 
 - Java como núcleo;
 - PostgreSQL como estado operacional principal;
-- Flyway;
-- JDBC explícito na infraestrutura;
-- migrations imutáveis;
-- domínio sem dependência de infraestrutura;
-- presentation sem JDBC;
-- adapters Amazon isolados;
-- seller/delivery fail closed;
-- dados ausentes não inventados;
-- versões auditáveis;
-- idempotência no banco;
-- score semanticamente separado de recorrência;
-- publicação desacoplada de canais;
-- interface desacoplada do caminho crítico;
-- observabilidade desacoplada das decisões comerciais;
-- origem EXTERNAL/INTERNAL separada de TRANSIENT/PERMANENT;
+- migrations Flyway append-only;
+- domínio independente de infraestrutura;
+- ports entre aplicação e adapters;
+- regras comerciais versionadas;
+- ausência diferente de zero;
+- idempotência explícita;
+- testes herméticos como gate principal;
+- fonte real separada;
+- observabilidade sem redefinir negócio;
+- scheduler sem regras de domínio;
+- publicação sem dependência de canal;
 - segredos fora do código;
 - evolução incremental;
 - escalabilidade guiada por necessidade real.
 
 ---
 
-## 40. Comandos úteis
+## 90. Princípio de escala
 
-### Suíte completa
+A arquitetura atual não introduz por antecipação:
 
-```powershell
-.\mvnw.cmd clean test
+```text
+Kafka
+RabbitMQ
+microservices
+distributed cache
+read replicas
+partitioning
 ```
 
-### Ajuda da interface operacional
+Decisão:
 
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=help"
+```text
+medir primeiro
+otimizar depois
 ```
 
-### Consulta operacional simples
+PostgreSQL continua adequado para:
 
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=evaluations list --limit 5"
+```text
+estado
+fila durável
+leases
+schedule
+coordenação
 ```
 
-### Detalhe operacional de uma run
+no estágio atual.
 
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=runs show 123"
+---
+
+## 91. Documentação por fases
+
+Documentos de resultado continuam em:
+
+```text
+docs/phases/
 ```
 
-### Alertas operacionais
+A FASE 17 acrescenta:
 
-```powershell
-.\mvnw.cmd compile exec:java "-Dexec.args=alerts list"
+```text
+docs/phases/FASE_17_RESULTADO.md
 ```
 
-### Ver status Git
+O documento registra:
 
-```powershell
-git status
-```
-
-### Validar whitespace/diff
-
-```powershell
-git diff --check
-```
-
-### Histórico recente
-
-```powershell
-git log --oneline -25
+```text
+decisões
+arquitetura
+persistência
+runtime
+concorrência
+provas
+gate local
+fronteiras futuras
 ```
 
 ---
 
-## 41. Estado consolidado
+## 92. ADRs relevantes
+
+Diretório:
+
+```text
+docs/adr/
+```
+
+ADRs particularmente relevantes para o estado atual:
+
+```text
+0001 — filtros e apresentação comercial
+0002 — score / ranking / explicabilidade
+0003 — histórico e momentum
+0004 — geração de publicação e link
+0005 — desconto / preço-base / preço efetivo
+0006 — SCORE_V2 / basis discount
+0007 — fallback rating/review
+0008 — correção versionada de affiliate link
+0009 — interface operacional não bloqueante
+0010 — seleção, recorrência e cadência de publicações
+0011 — observabilidade e correlação
+0012 — agendamento e execução contínua
+```
+
+A ADR-0012 está aceita após implementação e gate local.
+
+---
+
+## 93. Estado consolidado
 
 ```text
 Java 25
 PostgreSQL 18.6
-Flyway migrations até V22
+Flyway V24
+1047 testes verdes
 
-Filtros ativos:
-COMMERCIAL_FILTER_V2
+pipeline comercial
+→ implementado
 
-Score ativo:
-SCORE_V2
-
-Momentum:
-MOMENTUM_V1
-
-Geração:
-AMAZON_COMMERCIAL_PRESENTATION_V1
-AMAZON_PUBLICATION_V1
-AmazonAffiliateLinkGeneratorV2
-
-FASE 12:
 orquestração durável
-retry
-lease
-idempotência
-workers
+→ implementada
 
-FASE 13:
-PublicationData
-PublicationGenerator
-PublicationJdbcRepository
-AmazonPublicationComposition
+geração de Publication
+→ implementada
 
-FASE 14:
-read models operacionais
-evaluations list/show
-runs list
-jobs list
-publications list/show
-OperationalInterfaceComposition
-OperationalCli
-OperationalCliFactory
-OperationalCliBootstrap
-OperationalCliMain
+CLI operacional
+→ implementada
 
-FASE 15:
-PostgresIntegrationTest
-PostgresSchemaExtension
-PostgresTestDatabase
-38 testes PostgreSQL normalizados
-schema autocontido por Flyway
-CI sem bootstrap separado de DatabaseMigrationTest
+observabilidade
+→ implementada
 
-FASE 16:
-ADR-0011
-logs estruturados
-correlação durável
-integration_observation
-runs show
-métricas de pipeline/jobs/integrações
-falhas EXTERNAL/INTERNAL
-alerts list
-prova real Amazon + PostgreSQL + CLI
+scheduler persistido
+→ implementado
 
-Gate local:
-931 testes
-0 falhas
-0 erros
-0 ignorados
-BUILD SUCCESS
+worker contínuo
+→ implementado
 
-Flyway:
-22 migrations
-schema V22
+runtime scheduler + worker
+→ implementado
 
-Gate remoto:
-PENDENTE
+pausa/resume/intervalo
+→ implementados
 
-Próximo gate:
-documentação final
-+
-push
-+
-Pull Request
-+
-CI remoto verde
+concorrência entre schedulers
+→ validada
 
-Próxima fase após gate remoto:
-FASE 17 — Agendamento e execução contínua
+múltiplos ciclos automáticos
+→ validados
+
+outbox
+→ próxima fase
+
+canais
+→ fases posteriores
 ```
 
 ---
 
-## 42. Commits da FASE 16
-
-Implementação local da FASE 16:
+## 94. Estado formal da FASE 17
 
 ```text
-8a29d6d docs: define phase 16 observability architecture
-4861624 feat: persist processing observability correlation
-0d3ae48 feat: add processing run operational detail
-f052d35 feat: add structured processing observability logs
-54addad feat: persist integration observability metrics
-013cb23 feat: wire collection observability in production
-cb3ad8d feat: observe product page enrichment
-bf649f5 feat: define operational alert contracts
-ea0470e feat: detect operational alerts from postgres
-026b60a feat: load operational alert policy from environment
-6f509b2 feat: wire operational alerts in composition
-ca6c3bf feat: expose operational alerts through cli
-b3c6965 fix: preserve suspicious collection alert reference
-84ce5b4 feat: correlate integration observations with processing runs
-193e1c2 feat: aggregate integration observability by processing run
-f8868e3 feat: show integration observability in run detail
-1ecaf9a test: prove phase 16 observability against real source
+gate técnico local = FECHADO
+gate funcional local = FECHADO
+gate concorrente = FECHADO
+gate de múltiplos ciclos = FECHADO
+documentação final = GERADA
+commit final = PENDENTE
+push = PENDENTE
+Pull Request = PENDENTE
+CI remoto = PENDENTE
+merge = PENDENTE
+```
+
+Portanto:
+
+```text
+FASE 17 = CONCLUÍDA LOCALMENTE
 ```
 
 ---
 
-## 43. Regra operacional atual
+## 95. Resultado final
 
-> **Coletar fatos sem inventá-los.**
->
-> **Persistir antes de decidir.**
->
-> **Versionar decisões auditáveis.**
->
-> **Separar elegibilidade, filtros, score, histórico, apresentação, seleção e publicação.**
->
-> **Usar PostgreSQL como defesa final de idempotência.**
->
-> **Gerar publicação somente a partir de fatos persistidos.**
->
-> **A interface observa e administra; não autoriza o pipeline a funcionar.**
->
-> **Observabilidade explica fatos persistidos; não redefine decisões.**
->
-> **Não antecipar scheduler, outbox ou canais antes das fases correspondentes.**
+O Rasping Amazon agora possui execução contínua estruturada sobre o pipeline durável já existente.
+
+Fluxo resumido:
+
+```text
+configuração
+      ↓
+ProcessingSchedule persistido
+      ↓
+scheduler
+      ↓
+ProcessingRun
+      ↓
+COLLECT_DEALS
+      ↓
+ProcessingWorker
+      ↓
+pipeline durável
+      ↓
+estado persistido
+      ↓
+observabilidade operacional
+```
+
+A implementação preserva separação entre:
+
+```text
+agendar
+processar
+decidir
+gerar publicação
+entregar em canal
+```
+
+O próximo passo arquitetural, depois do gate remoto da FASE 17, é a **FASE 18 — contrato de canais e outbox de publicação**.

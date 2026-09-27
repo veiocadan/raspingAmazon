@@ -1,6 +1,8 @@
 package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
+import com.raspingamazon.application.collection.contract.SourceRestrictionException;
+import com.raspingamazon.application.collection.contract.SourceRestrictionType;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import org.junit.jupiter.api.Test;
 
@@ -63,6 +65,37 @@ class DefaultProcessingFailureClassifierTest {
             "COLLECTION_HTTP_429",
             result.code()
         );
+
+        assertTrue(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldClassifyForbiddenCollectionAsPermanent() {
+
+        FailureClassification result =
+            classifier.classify(
+                new CollectionException(
+                    "forbidden",
+                    403,
+                    "access denied"
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            "COLLECTION_HTTP_403",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
     }
 
     @Test
@@ -107,6 +140,84 @@ class DefaultProcessingFailureClassifierTest {
 
         assertEquals(
             "COLLECTION_HTTP_404",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldClassifyCaptchaRestrictionAsPermanent() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceRestrictionException(
+                    SourceRestrictionType.CAPTCHA
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            "SOURCE_RESTRICTION_CAPTCHA",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldClassifyChallengeRestrictionAsPermanent() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceRestrictionException(
+                    SourceRestrictionType.CHALLENGE
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            "SOURCE_RESTRICTION_CHALLENGE",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldClassifyBlockedRestrictionAsPermanent() {
+
+        FailureClassification result =
+            classifier.classify(
+                new RuntimeException(
+                    "wrapper",
+                    new SourceRestrictionException(
+                        SourceRestrictionType.BLOCKED
+                    )
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            "SOURCE_RESTRICTION_BLOCKED",
             result.code()
         );
 

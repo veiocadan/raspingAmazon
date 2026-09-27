@@ -1,6 +1,7 @@
 package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
+import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 
 import java.net.ConnectException;
@@ -18,12 +19,14 @@ import java.util.Objects;
  *
  * <ul>
  *     <li>falhas claramente transitórias recebem retry;</li>
+ *     <li>restrições explícitas da fonte não recebem retry automático;</li>
  *     <li>falhas de entrada/regra/programação não recebem retry;</li>
  *     <li>falhas desconhecidas são permanentes até serem classificadas
  *     explicitamente.</li>
  * </ul>
  *
- * <p>Isso evita loops automáticos de retry para bugs ou dados inválidos.</p>
+ * <p>Isso evita loops automáticos de retry para bugs, dados inválidos
+ * ou páginas de proteção de uma fonte externa.</p>
  */
 public final class DefaultProcessingFailureClassifier
     implements ProcessingFailureClassifier {
@@ -38,6 +41,28 @@ public final class DefaultProcessingFailureClassifier
             "failure must not be null"
         );
 
+        /*
+         * SourceRestrictionException também é CollectionException.
+         *
+         * Portanto ela precisa ser localizada antes da regra genérica
+         * de CollectionException sem status HTTP.
+         */
+        SourceRestrictionException sourceRestriction =
+            findCause(
+                failure,
+                SourceRestrictionException.class
+            );
+
+        if (sourceRestriction != null) {
+
+            return permanentFailure(
+                "SOURCE_RESTRICTION_"
+                    + sourceRestriction.restrictionType()
+                    .name(),
+                sourceRestriction
+            );
+        }
+
         CollectionException collectionException =
             findCause(
                 failure,
@@ -45,6 +70,7 @@ public final class DefaultProcessingFailureClassifier
             );
 
         if (collectionException != null) {
+
             return classifyCollection(
                 collectionException
             );
@@ -127,10 +153,11 @@ public final class DefaultProcessingFailureClassifier
             failure.httpStatusCode();
 
         /*
-         * Ausência de status significa que a coleta falhou antes
-         * de obter uma resposta HTTP válida.
+         * Ausência de status em uma CollectionException genérica
+         * significa que a coleta falhou antes de obter uma resposta
+         * HTTP utilizável.
          *
-         * Esse cenário é normalmente transporte, timeout, DNS etc.
+         * SourceRestrictionException já foi tratada anteriormente.
          */
         if (statusCode == null) {
 
@@ -169,6 +196,8 @@ public final class DefaultProcessingFailureClassifier
         /*
          * Outros 4xx normalmente representam uma requisição que
          * não será corrigida repetindo exatamente o mesmo job.
+         *
+         * Isso inclui HTTP 403.
          */
         if (statusCode >= 400
             && statusCode <= 499) {
@@ -179,9 +208,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Outros códigos inesperados são tratados como permanentes.
-         */
         return permanentFailure(
             "COLLECTION_HTTP_UNEXPECTED",
             failure
