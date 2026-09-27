@@ -12,6 +12,7 @@ public final class RunsCliUsage {
         """
         Uso:
           rasping-amazon runs list [opcoes]
+          rasping-amazon runs show <run-id>
 
         Opcoes de list:
           --status <PENDING|RUNNING|COMPLETED|FAILED>
@@ -24,10 +25,19 @@ public final class RunsCliUsage {
         Paginacao:
           --after-at e --after-id devem ser informados juntos.
 
+        Detalhe:
+          runs show exibe os fatos persistidos da ProcessingRun,
+          as metricas do pipeline e as metricas dos ProcessingJobs.
+
+          PUBLICATIONS_GENERATED representa artefatos Publication
+          gerados e persistidos. Nao significa envio ou entrega em
+          canal externo.
+
         Exemplos:
           rasping-amazon runs list
           rasping-amazon runs list --status FAILED
           rasping-amazon runs list --from 2026-09-24T00:00:00-03:00 --limit 25
+          rasping-amazon runs show 101
         """;
 
     private RunsCliUsage() {

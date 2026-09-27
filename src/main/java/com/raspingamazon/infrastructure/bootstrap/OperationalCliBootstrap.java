@@ -13,11 +13,11 @@ import java.util.Set;
 /**
  * Bootstrap da interface operacional.
  *
- * <p>Esta classe pertence à borda externa da aplicação e pode
+ * <p>Esta classe pertence a borda externa da aplicacao e pode
  * conhecer simultaneamente a composition root de infraestrutura
- * e a factory da apresentação.</p>
+ * e a factory da apresentacao.</p>
  *
- * <p>Ela abre a composição somente para comandos que realmente
+ * <p>Ela abre a composicao somente para comandos que realmente
  * dependem dos casos de uso operacionais.</p>
  */
 public final class OperationalCliBootstrap {
@@ -27,7 +27,8 @@ public final class OperationalCliBootstrap {
             "evaluations",
             "runs",
             "jobs",
-            "publications"
+            "publications",
+            "alerts"
         );
 
     private OperationalCliBootstrap() {
@@ -74,9 +75,11 @@ public final class OperationalCliBootstrap {
                     composition.listDealEvaluations(),
                     composition.getDealEvaluationDetail(),
                     composition.listProcessingRuns(),
+                    composition.getProcessingRunDetail(),
                     composition.listProcessingJobs(),
                     composition.listPublications(),
                     composition.getPublicationDetail(),
+                    composition.getOperationalAlerts(),
                     out,
                     err
                 );

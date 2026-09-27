@@ -2,7 +2,9 @@ package com.raspingamazon.presentation.cli;
 
 import com.raspingamazon.application.operation.evaluation.GetDealEvaluationDetailUseCase;
 import com.raspingamazon.application.operation.evaluation.ListDealEvaluationsUseCase;
+import com.raspingamazon.application.operation.observability.alert.GetOperationalAlertsUseCase;
 import com.raspingamazon.application.operation.orchestration.job.ListProcessingJobsUseCase;
+import com.raspingamazon.application.operation.orchestration.run.GetProcessingRunDetailUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.publication.GetPublicationDetailUseCase;
 import com.raspingamazon.application.operation.publication.ListPublicationsUseCase;
@@ -15,11 +17,11 @@ import java.util.Objects;
 /**
  * Factory da interface operacional.
  *
- * <p>Conecta os casos de uso da camada de aplicação aos handlers
- * da camada de apresentação.</p>
+ * <p>Conecta os casos de uso da camada de aplicacao aos handlers
+ * da camada de apresentacao.</p>
  *
- * <p>Esta classe não conhece JDBC, Connection, adapters concretos
- * ou configuração de infraestrutura.</p>
+ * <p>Esta classe nao conhece JDBC, Connection, adapters concretos
+ * ou configuracao de infraestrutura.</p>
  */
 public final class OperationalCliFactory {
 
@@ -30,9 +32,11 @@ public final class OperationalCliFactory {
         ListDealEvaluationsUseCase listDealEvaluationsUseCase,
         GetDealEvaluationDetailUseCase getDealEvaluationDetailUseCase,
         ListProcessingRunsUseCase listProcessingRunsUseCase,
+        GetProcessingRunDetailUseCase getProcessingRunDetailUseCase,
         ListProcessingJobsUseCase listProcessingJobsUseCase,
         ListPublicationsUseCase listPublicationsUseCase,
         GetPublicationDetailUseCase getPublicationDetailUseCase,
+        GetOperationalAlertsUseCase getOperationalAlertsUseCase,
         PrintWriter out,
         PrintWriter err
     ) {
@@ -53,6 +57,11 @@ public final class OperationalCliFactory {
         );
 
         Objects.requireNonNull(
+            getProcessingRunDetailUseCase,
+            "getProcessingRunDetailUseCase must not be null"
+        );
+
+        Objects.requireNonNull(
             listProcessingJobsUseCase,
             "listProcessingJobsUseCase must not be null"
         );
@@ -65,6 +74,11 @@ public final class OperationalCliFactory {
         Objects.requireNonNull(
             getPublicationDetailUseCase,
             "getPublicationDetailUseCase must not be null"
+        );
+
+        Objects.requireNonNull(
+            getOperationalAlertsUseCase,
+            "getOperationalAlertsUseCase must not be null"
         );
 
         Objects.requireNonNull(
@@ -91,7 +105,8 @@ public final class OperationalCliFactory {
         handlers.put(
             "runs",
             new RunsCliCommand(
-                listProcessingRunsUseCase
+                listProcessingRunsUseCase,
+                getProcessingRunDetailUseCase
             )
         );
 
@@ -107,6 +122,13 @@ public final class OperationalCliFactory {
             new PublicationsCliCommand(
                 listPublicationsUseCase,
                 getPublicationDetailUseCase
+            )
+        );
+
+        handlers.put(
+            "alerts",
+            new AlertsCliCommand(
+                getOperationalAlertsUseCase
             )
         );
 

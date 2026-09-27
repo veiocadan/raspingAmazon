@@ -12,14 +12,14 @@ O projeto prioriza:
 - persistência durável;
 - escalabilidade orientada por necessidade real.
 
-> **Estado atual: FASE 15 concluída localmente.**
+> **Estado atual: FASE 16 concluída localmente.**
 >
-> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, uma **interface operacional Java em CLI, não bloqueante** e uma suíte de integração PostgreSQL autocontida, capaz de preparar seu schema via Flyway sem bootstrap Maven separado.
+> O sistema possui pipeline de decisão persistido, orquestração assíncrona durável em PostgreSQL, retry/lease/idempotência, geração de publicação versionada, uma **interface operacional Java em CLI, não bloqueante**, suíte PostgreSQL autocontida e uma camada de **observabilidade operacional correlacionada por execução**, com logs estruturados, métricas persistidas de integrações, detalhe de `ProcessingRun`, alertas sob consulta e prova real contra a fonte Amazon.
 >
-> Gate local final da FASE 15:
+> Gate local final da FASE 16:
 >
 > ```text
-> Tests run: 820
+> Tests run: 931
 > Failures: 0
 > Errors: 0
 > Skipped: 0
@@ -27,11 +27,15 @@ O projeto prioriza:
 > BUILD SUCCESS
 > ```
 >
-> O catálogo Flyway alcança **V19**.
+> A prova real da FASE 16 concluiu com `SUCCESS`, HTTP 200, persistência visível por segunda conexão PostgreSQL e métricas exibidas por `runs show`.
 >
-> O encerramento remoto da FASE 15 ainda depende de:
+> O catálogo Flyway alcança **V22**.
+>
+> O encerramento remoto da FASE 16 ainda depende de:
 >
 > ```text
+> documentação final
+> +
 > push da branch
 > +
 > Pull Request
@@ -98,6 +102,13 @@ A interface observa e administra o pipeline.
 A interface não autoriza o pipeline a funcionar.
 ```
 
+Princípio da FASE 16:
+
+```text
+Observabilidade explica fatos persistidos.
+Observabilidade não redefine decisões.
+```
+
 A ordem das fases deve ser preservada e responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 
 ---
@@ -125,9 +136,9 @@ A ordem das fases deve ser preservada e responsabilidades futuras não devem ser
 | FASE 12 | Orquestração assíncrona e processamento durável | CONCLUÍDA |
 | FASE 13 | Geração de publicação e link de associado | CONCLUÍDA |
 | FASE 14 | Interface operacional não bloqueante | CONCLUÍDA |
-| FASE 15 | Qualidade integrada | CONCLUÍDA LOCALMENTE |
-| FASE 16 | Observabilidade | PRÓXIMA APÓS GATE REMOTO |
-| FASE 17 | Agendamento e execução contínua | PLANEJADA |
+| FASE 15 | Qualidade integrada | CONCLUÍDA |
+| FASE 16 | Observabilidade | CONCLUÍDA LOCALMENTE |
+| FASE 17 | Agendamento e execução contínua | PRÓXIMA APÓS GATE REMOTO |
 | FASE 18 | Contrato de canais / outbox | PLANEJADA |
 | FASE 19+ | Canais, hardening e escala | PLANEJADA |
 
@@ -245,16 +256,18 @@ Use o Maven Wrapper versionado.
 ./mvnw clean test
 ```
 
-Gate local final da FASE 15:
+Gate local final da FASE 16:
 
 ```text
-Tests run: 820
+Tests run: 931
 Failures: 0
 Errors: 0
 Skipped: 0
 
 BUILD SUCCESS
 ```
+
+A probe real da FASE 16 é explícita e não participa automaticamente da suíte hermética padrão.
 
 O gate normal não executa automaticamente a CLI.
 
@@ -281,7 +294,8 @@ Regras:
 - `DB_PASSWORD` é obrigatório;
 - `AMAZON_ASSOCIATE_TAG` é usado somente no fluxo de publicação;
 - `.env` local não é versionado;
-- `.env.example` documenta o formato sem conter segredos reais.
+- `.env.example` documenta o formato sem conter segredos reais;
+- thresholds operacionais da FASE 16 são carregados por configuração explícita, sem defaults de negócio arbitrários.
 
 Exemplo:
 
@@ -793,7 +807,7 @@ Falha posterior tratável conforme as regras da etapa responsável.
 
 Esses estados não representam etapas obrigatórias de aprovação humana.
 
-A FASE 14 não implementa scheduler, outbox ou entrega por canal.
+A FASE 16 não implementa scheduler, outbox ou entrega por canal.
 
 ---
 
@@ -970,6 +984,7 @@ Runs:
 
 ```text
 runs list
+runs show <run-id>
 ```
 
 Ordenação:
@@ -977,6 +992,15 @@ Ordenação:
 ```text
 requestedAt DESC
 runId DESC
+```
+
+O detalhe de uma execução, ampliado na FASE 16, expõe:
+
+```text
+RUN
+PIPELINE
+JOBS
+INTEGRATIONS
 ```
 
 Jobs:
@@ -1009,9 +1033,9 @@ jobId DESC
 
 O filtro por `processingRunId` representa o vínculo direto persistido no job.
 
-A interface não o apresenta como rastreamento completo de linhagem.
+A FASE 16 ampliou a correlação operacional sem transformar ASIN em identidade de execução.
 
-A FASE 14 não adiciona retry arbitrário nem pause/resume falso à CLI.
+A interface não adiciona retry arbitrário nem pause/resume falso à CLI.
 
 ---
 
@@ -1068,9 +1092,11 @@ Casos de uso expostos:
 listDealEvaluations()
 getDealEvaluationDetail()
 listProcessingRuns()
+getProcessingRunDetail()
 listProcessingJobs()
 listPublications()
 getPublicationDetail()
+getOperationalAlerts()
 ```
 
 A composição:
@@ -1116,11 +1142,14 @@ evaluations list
 evaluations show <evaluation-id>
 
 runs list
+runs show <run-id>
 
 jobs list
 
 publications list
 publications show <publication-id>
+
+alerts list
 ```
 
 Códigos de saída:
@@ -1203,6 +1232,10 @@ O projeto usa `exec-maven-plugin` somente quando solicitado explicitamente.
 .\mvnw.cmd compile exec:java "-Dexec.args=runs list --limit 5"
 ```
 
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=runs show 123"
+```
+
 ### Jobs
 
 ```powershell
@@ -1217,6 +1250,12 @@ O projeto usa `exec-maven-plugin` somente quando solicitado explicitamente.
 
 ```powershell
 .\mvnw.cmd compile exec:java "-Dexec.args=publications show 123"
+```
+
+### Alertas
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=alerts list"
 ```
 
 O plugin não está associado a uma fase padrão do lifecycle.
@@ -1275,7 +1314,7 @@ Estado estrutural atual:
 
 ```text
 PostgreSQL 18.6
-catálogo de migrations até V19
+catálogo de migrations até V22
 ```
 
 Migrations:
@@ -1300,6 +1339,9 @@ V16__activate_basis_discount_filter_and_score_v2.sql
 V17__operational_deal_evaluation_read.sql
 V18__operational_processing_read_indexes.sql
 V19__operational_publication_read_indexes.sql
+V20__processing_observability_correlation.sql
+V21__processing_run_observability_read_index.sql
+V22__integration_observation.sql
 ```
 
 Migrations diretamente atribuídas ao read side da FASE 14:
@@ -1308,6 +1350,14 @@ Migrations diretamente atribuídas ao read side da FASE 14:
 V17
 V18
 V19
+```
+
+Migrations diretamente atribuídas à FASE 16:
+
+```text
+V20
+V21
+V22
 ```
 
 V15 e V16 pertencem à evolução comercial anterior de filtro/score.
@@ -1343,6 +1393,7 @@ ADR-0007 — Fallback de rating/review na página de produto
 ADR-0008 — Correção versionada do link de associado / percent-encoding
 ADR-0009 — Interface operacional não bloqueante
 ADR-0010 — Política de seleção, recorrência e cadência de publicações
+ADR-0011 — Observabilidade, correlação e métricas operacionais
 ```
 
 ### ADR-0009
@@ -1389,7 +1440,27 @@ escopo por canal/destino
 auditabilidade da seleção
 ```
 
-Essas regras não pertencem à CLI.
+Essas regras não pertencem à CLI nem à observabilidade da FASE 16.
+
+### ADR-0011
+
+Status:
+
+```text
+ACEITA
+```
+
+Princípios:
+
+```text
+PostgreSQL = verdade operacional durável
+logs estruturados = evidência complementar
+correlação usa identidades reais
+ASIN é atributo, não identidade de execução
+EXTERNAL / INTERNAL é distinto de TRANSIENT / PERMANENT
+observabilidade explica fatos sem recalcular decisões
+alertas da FASE 16 não introduzem scheduler
+```
 
 ---
 
@@ -1437,38 +1508,7 @@ Critérios arquiteturais da ADR-0009:
 
 ---
 
-## 34. O que ainda não foi implementado
-
-Para preservar a ordem do roadmap, permanecem fora do escopo da FASE 14:
-
-- aprovação humana obrigatória;
-- `PublicationSelectionPolicy`;
-- cooldown de publicação;
-- quota temporal;
-- cadência de mensagens;
-- scheduler definitivo;
-- execução periódica contínua;
-- pause/resume real;
-- outbox de canais;
-- worker de entrega;
-- `PublicationChannel`;
-- Telegram;
-- WhatsApp;
-- envio automático;
-- autenticação/autorização de uma futura interface web;
-- dashboard avançado;
-- métricas avançadas;
-- alertas;
-- hardening de produção;
-- empacotamento final de distribuição da CLI;
-- Excel/CSV como integração opcional;
-- mecanismos adicionais de escala sem evidência operacional.
-
-Esses itens pertencem às fases posteriores.
-
----
-
-## 35. Qualidade integrada — FASE 15
+## 34. Qualidade integrada — FASE 15
 
 A FASE 15 resolveu o débito de preparação de schema identificado ao final da FASE 14.
 
@@ -1502,7 +1542,7 @@ Os testes comuns passaram a declarar:
 
 A infraestrutura aplica as migrations reais da aplicação antes da execução dos consumidores PostgreSQL.
 
-Os seis testes cujo objeto de verificação é a própria migration continuam executando `DatabaseMigration.migrate(...)` explicitamente.
+Os testes cujo objeto de verificação é a própria migration continuam executando `DatabaseMigration.migrate(...)` explicitamente.
 
 A solução foi validada contra um database PostgreSQL completamente vazio:
 
@@ -1513,12 +1553,12 @@ mvn clean test
     ↓
 primeiro teste PostgreSQL
     ↓
-Flyway V1 até V19
+Flyway
     ↓
 restante da suíte
 ```
 
-Resultado:
+Resultado da FASE 15:
 
 ```text
 Tests run: 820
@@ -1537,18 +1577,422 @@ Commit principal:
 9895220 test: make PostgreSQL integration suite self-contained
 ```
 
-O fechamento remoto da FASE 15 ainda depende de:
+Baseline integrado usado para iniciar a FASE 16:
 
 ```text
-push da branch
-+
-Pull Request
-+
-CI remoto verde
+64e544c
+Merge pull request #6 from veiocadan/feat/fase-15-qualidade-integrada
 ```
+
 ---
 
-## 36. Fluxo vertical atual
+## 35. Observabilidade, auditoria e operação — FASE 16
+
+A fonte primária da FASE 16 exige:
+
+```text
+logs estruturados
+métricas de quantidade coletada, enriquecida, rejeitada e publicada
+métricas de latência e falhas por integração
+correlação por execução, ASIN e publicação
+auditoria de decisões relevantes
+alertas para falhas recorrentes
+alertas para mudanças suspeitas na coleta
+dashboard operacional simples
+```
+
+Critérios oficiais:
+
+```text
+é possível responder o que aconteceu em uma execução
+sem depender de planilhas
+
+falhas externas podem ser diferenciadas de falhas internas
+```
+
+Os dois critérios estão atendidos localmente.
+
+### Correlação
+
+Contexto operacional suportado:
+
+```text
+runId
+jobId
+jobType
+candidateId
+snapshotId
+evaluationId
+publicationId
+asin
+integration
+```
+
+Regra:
+
+```text
+ASIN = atributo
+IDs persistidos = identidade operacional
+```
+
+A correlação não infere `ProcessingRun` pelo ASIN.
+
+A migration V20 completou a cadeia persistida necessária para relacionar:
+
+```text
+ProcessingRun
+      ↓
+DealCandidate
+      ↓
+OfferSnapshot
+      ↓
+DealEvaluation
+      ↓
+Publication
+```
+
+### Logs estruturados
+
+Componentes:
+
+```text
+OperationalLogLevel
+OperationalFailureOrigin
+OperationalLogContext
+OperationalLogEvent
+StructuredOperationalLogPort
+JsonStructuredOperationalLogAdapter
+```
+
+Formato:
+
+```text
+JSON Lines
+```
+
+A observabilidade do worker é best effort e não redefine o resultado de processamento.
+
+### Observações de integração
+
+Modelo:
+
+```text
+IntegrationObservation
+```
+
+Persistência:
+
+```text
+integration_observation
+```
+
+Adapter:
+
+```text
+JdbcIntegrationObservationPersistenceAdapter
+```
+
+Integrações instrumentadas:
+
+```text
+amazon-deals-http
+amazon-product-page
+```
+
+A latência é medida na fronteira externa concreta.
+
+Não são persistidos:
+
+```text
+segredos
+payload HTTP completo
+HTML
+credenciais
+```
+
+### Origem da falha
+
+Origem operacional:
+
+```text
+OperationalFailureOrigin.EXTERNAL
+OperationalFailureOrigin.INTERNAL
+```
+
+Classificação de processamento preservada:
+
+```text
+ProcessingFailureType.TRANSIENT
+ProcessingFailureType.PERMANENT
+```
+
+As dimensões são deliberadamente separadas.
+
+### Detalhe operacional por run
+
+Modelo:
+
+```text
+ProcessingRunDetail
+```
+
+Com:
+
+```text
+summary
+pipeline
+jobs
+integrations
+```
+
+`ProcessingRunPipelineMetrics`:
+
+```text
+collectedCandidates
+enrichedCandidates
+pendingEnrichmentCandidates
+evaluations
+eligibleEvaluations
+rejectedEvaluations
+publicationsGenerated
+```
+
+`ProcessingRunJobMetrics`:
+
+```text
+totalJobs
+pendingJobs
+runningJobs
+retryWaitJobs
+succeededJobs
+deadJobs
+totalAttempts
+retryAttempts
+```
+
+`ProcessingRunIntegrationMetrics`:
+
+```text
+integration
+observations
+successes
+failures
+externalFailures
+internalFailures
+averageDurationMs
+maximumDurationMs
+```
+
+`publicationsGenerated` significa Publication gerada/persistida, não entrega em canal.
+
+### Dashboard operacional simples
+
+Comando:
+
+```text
+runs show <run-id>
+```
+
+Seções:
+
+```text
+RUN
+PIPELINE
+JOBS
+INTEGRATIONS
+```
+
+A seção `INTEGRATIONS` apresenta:
+
+```text
+INTEGRATION
+OBSERVATIONS
+SUCCESSES
+FAILURES
+EXTERNAL_FAILURES
+INTERNAL_FAILURES
+AVERAGE_DURATION_MS
+MAXIMUM_DURATION_MS
+```
+
+### Alertas
+
+Tipos:
+
+```text
+REPEATED_EXTERNAL_FAILURES
+DEAD_JOBS
+ZERO_CANDIDATES
+SUSPICIOUS_COLLECTION_DROP
+```
+
+Comando:
+
+```text
+alerts list
+```
+
+A avaliação é pontual.
+
+Não existe na FASE 16:
+
+```text
+loop
+polling
+scheduler
+daemon
+sleep operacional
+```
+
+Agendamento pertence à FASE 17.
+
+### Métricas deliberadamente não inventadas
+
+O relatório de auditoria também cita:
+
+```text
+duração por etapa
+taxa de descarte
+taxa de UNKNOWN
+```
+
+Essas métricas não receberam fórmula arbitrária.
+
+Motivos:
+
+```text
+duração por etapa
+→ retries e múltiplas tentativas exigem semântica explícita
+
+taxa de descarte
+→ denominador precisa ser formalizado
+
+taxa de UNKNOWN
+→ população e etapa de referência precisam ser formalizadas
+```
+
+A FASE 16 expõe os fatos concretos necessários para evolução posterior.
+
+### Prova real
+
+Classe:
+
+```text
+Phase16ObservabilityRealSourceIT
+```
+
+Fluxo comprovado:
+
+```text
+Amazon real
+    ↓
+HTTP real
+    ↓
+HttpCollectionCollector
+    ↓
+IntegrationObservation
+    ↓
+PostgreSQL
+    ↓
+segunda conexão JDBC
+    ↓
+agregação por ProcessingRun
+    ↓
+runs show
+```
+
+Resultado observado em 27/09/2026:
+
+```text
+Status: SUCCESS
+Source: https://www.amazon.com.br/deals
+HTTP status: 200
+Content length: 647728
+Integration: amazon-deals-http
+Observations: 1
+Successes: 1
+Failures: 0
+Average duration ms: 2146
+Maximum duration ms: 2146
+Cross-connection persistence visibility: true
+runs show integration visibility: true
+```
+
+JUnit da prova real:
+
+```text
+Tests run: 1
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+A probe externa é executada explicitamente e não participa da suíte hermética diária.
+
+### Gate local
+
+```text
+Tests run: 931
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+Flyway:
+
+```text
+Successfully validated 22 migrations
+Current version of schema "public": 22
+Schema "public" is up to date
+```
+
+Diff da implementação da FASE 16 contra o baseline `64e544c`, antes da documentação final:
+
+```text
+76 files changed
+21208 insertions(+)
+288 deletions(-)
+```
+
+---
+
+## 36. O que ainda não foi implementado
+
+Para preservar a ordem do roadmap, permanecem fora do escopo após a FASE 16:
+
+- aprovação humana obrigatória;
+- `PublicationSelectionPolicy` efetivamente aplicada;
+- cooldown de publicação;
+- quota temporal;
+- cadência de mensagens;
+- scheduler definitivo;
+- execução periódica contínua;
+- prevenção de execuções concorrentes indesejadas da FASE 17;
+- pause/resume real;
+- outbox de canais;
+- worker de entrega;
+- `PublicationChannel`;
+- Telegram;
+- WhatsApp;
+- envio automático;
+- autenticação/autorização de uma futura interface web;
+- dashboard analítico sofisticado;
+- plataforma externa de métricas sem necessidade concreta;
+- circuit breaker sem evidência operacional;
+- hardening de produção;
+- empacotamento final de distribuição da CLI;
+- Excel/CSV como integração opcional;
+- mecanismos adicionais de escala sem evidência operacional.
+
+Esses itens pertencem às fases posteriores.
+
+---
+
+## 37. Fluxo vertical atual
 
 ```text
 Amazon / deals
@@ -1597,6 +2041,16 @@ Operação:
 CLI Java
 ```
 
+Observabilidade:
+
+```text
+logs estruturados
+integration_observation
+runs show
+métricas por run
+alerts list
+```
+
 Entrega automática em canais:
 
 ```text
@@ -1605,7 +2059,7 @@ AINDA NÃO
 
 ---
 
-## 37. Roadmap simplificado
+## 38. Roadmap simplificado
 
 ```text
 FASES 0–8
@@ -1644,7 +2098,7 @@ Canais + hardening + escala
 
 ---
 
-## 38. Princípios preservados
+## 39. Princípios preservados
 
 O projeto mantém:
 
@@ -1663,13 +2117,15 @@ O projeto mantém:
 - score semanticamente separado de recorrência;
 - publicação desacoplada de canais;
 - interface desacoplada do caminho crítico;
+- observabilidade desacoplada das decisões comerciais;
+- origem EXTERNAL/INTERNAL separada de TRANSIENT/PERMANENT;
 - segredos fora do código;
 - evolução incremental;
 - escalabilidade guiada por necessidade real.
 
 ---
 
-## 39. Comandos úteis
+## 40. Comandos úteis
 
 ### Suíte completa
 
@@ -1689,6 +2145,18 @@ O projeto mantém:
 .\mvnw.cmd compile exec:java "-Dexec.args=evaluations list --limit 5"
 ```
 
+### Detalhe operacional de uma run
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=runs show 123"
+```
+
+### Alertas operacionais
+
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.args=alerts list"
+```
+
 ### Ver status Git
 
 ```powershell
@@ -1704,17 +2172,17 @@ git diff --check
 ### Histórico recente
 
 ```powershell
-git log --oneline -15
+git log --oneline -25
 ```
 
 ---
 
-## 40. Estado consolidado
+## 41. Estado consolidado
 
 ```text
 Java 25
 PostgreSQL 18.6
-Flyway migrations até V19
+Flyway migrations até V22
 
 Filtros ativos:
 COMMERCIAL_FILTER_V2
@@ -1763,12 +2231,30 @@ PostgresTestDatabase
 schema autocontido por Flyway
 CI sem bootstrap separado de DatabaseMigrationTest
 
+FASE 16:
+ADR-0011
+logs estruturados
+correlação durável
+integration_observation
+runs show
+métricas de pipeline/jobs/integrações
+falhas EXTERNAL/INTERNAL
+alerts list
+prova real Amazon + PostgreSQL + CLI
+
 Gate local:
-820 testes
+931 testes
 0 falhas
 0 erros
 0 ignorados
 BUILD SUCCESS
+
+Flyway:
+22 migrations
+schema V22
+
+Gate remoto:
+PENDENTE
 
 Próximo gate:
 documentação final
@@ -1779,13 +2265,39 @@ Pull Request
 +
 CI remoto verde
 
-Próxima fase:
-FASE 16 — Observabilidade
+Próxima fase após gate remoto:
+FASE 17 — Agendamento e execução contínua
 ```
 
 ---
 
-## 41. Regra operacional atual
+## 42. Commits da FASE 16
+
+Implementação local da FASE 16:
+
+```text
+8a29d6d docs: define phase 16 observability architecture
+4861624 feat: persist processing observability correlation
+0d3ae48 feat: add processing run operational detail
+f052d35 feat: add structured processing observability logs
+54addad feat: persist integration observability metrics
+013cb23 feat: wire collection observability in production
+cb3ad8d feat: observe product page enrichment
+bf649f5 feat: define operational alert contracts
+ea0470e feat: detect operational alerts from postgres
+026b60a feat: load operational alert policy from environment
+6f509b2 feat: wire operational alerts in composition
+ca6c3bf feat: expose operational alerts through cli
+b3c6965 fix: preserve suspicious collection alert reference
+84ce5b4 feat: correlate integration observations with processing runs
+193e1c2 feat: aggregate integration observability by processing run
+f8868e3 feat: show integration observability in run detail
+1ecaf9a test: prove phase 16 observability against real source
+```
+
+---
+
+## 43. Regra operacional atual
 
 > **Coletar fatos sem inventá-los.**
 >
@@ -1800,5 +2312,7 @@ FASE 16 — Observabilidade
 > **Gerar publicação somente a partir de fatos persistidos.**
 >
 > **A interface observa e administra; não autoriza o pipeline a funcionar.**
+>
+> **Observabilidade explica fatos persistidos; não redefine decisões.**
 >
 > **Não antecipar scheduler, outbox ou canais antes das fases correspondentes.**

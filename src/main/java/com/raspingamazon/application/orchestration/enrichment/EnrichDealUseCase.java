@@ -9,8 +9,10 @@ import com.raspingamazon.application.deal.port.ProductPersistencePort;
 import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingJobSubmission;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.port.DealCandidateRepositoryPort;
 import com.raspingamazon.application.orchestration.port.EnrichedOfferLookupPort;
 import com.raspingamazon.application.orchestration.port.ProcessingJobQueuePort;
@@ -33,6 +35,7 @@ import java.util.OptionalLong;
  *     <li>detectar enriquecimento previamente concluído;</li>
  *     <li>executar enriquecimento externo quando necessário;</li>
  *     <li>persistir Product, OfferSnapshot, condições e evidências;</li>
+ *     <li>correlacionar DealCandidate e OfferSnapshot;</li>
  *     <li>criar o job EVALUATE_DEAL.</li>
  * </ol>
  *
@@ -211,16 +214,20 @@ public final class EnrichDealUseCase {
                 existingSnapshotId.getAsLong();
 
             /*
-             * O enqueue é idempotente.
+             * O vínculo candidato -> snapshot e o enqueue são
+             * executados na mesma transação.
              *
-             * Assim, caso a execução anterior também tenha criado
-             * o EVALUATE_DEAL, nenhuma duplicata será produzida.
+             * O enqueue continua idempotente.
              *
-             * Caso o snapshot tenha vindo do fluxo síncrono legado,
-             * esta chamada cria o trabalho de avaliação que faltava
-             * para o novo pipeline.
+             * Assim:
+             *
+             * - retries não duplicam EVALUATE_DEAL;
+             * - snapshots produzidos anteriormente passam a possuir
+             *   correlação explícita com o candidato;
+             * - não existe commit do enqueue sem commit da correlação.
              */
-            enqueueEvaluation(
+            linkAndEnqueueEvaluation(
+                dealCandidateId,
                 snapshotId
             );
 
@@ -235,7 +242,12 @@ public final class EnrichDealUseCase {
          */
         ProductEnrichmentResult enrichmentResult =
             enrichmentClient.enrich(
-                parsedDeal
+                parsedDeal,
+                enrichmentObservationContext(
+                    candidate,
+                    dealCandidateId,
+                    parsedDeal
+                )
             );
 
         OffsetDateTime persistedAt =
@@ -245,6 +257,7 @@ public final class EnrichDealUseCase {
 
         return transactionPort.execute(
             () -> persistEnrichment(
+                dealCandidateId,
                 parsedDeal,
                 enrichmentResult,
                 persistedAt
@@ -252,7 +265,34 @@ public final class EnrichDealUseCase {
         );
     }
 
+    /**
+     * Correlação disponível antes da chamada externa de enrichment.
+     *
+     * <p>A run, o candidate, o tipo da etapa e o ASIN já são fatos
+     * persistidos/conhecidos. snapshotId ainda não existe neste ponto
+     * e jobId não pertence ao contrato deste caso de uso.</p>
+     */
+    private OperationalLogContext enrichmentObservationContext(
+        DealCandidate candidate,
+        long dealCandidateId,
+        ParsedDeal parsedDeal
+    ) {
+
+        return new OperationalLogContext(
+            candidate.processingRunId(),
+            null,
+            ProcessingJobType.ENRICH_DEAL,
+            dealCandidateId,
+            null,
+            null,
+            null,
+            parsedDeal.asin(),
+            null
+        );
+    }
+
     private long persistEnrichment(
+        long dealCandidateId,
         ParsedDeal parsedDeal,
         ProductEnrichmentResult enrichmentResult,
         OffsetDateTime persistedAt
@@ -308,6 +348,18 @@ public final class EnrichDealUseCase {
             );
         }
 
+        /*
+         * A correlação faz parte da mesma unidade de trabalho que
+         * persiste o enrichment e cria EVALUATE_DEAL.
+         *
+         * Se qualquer operação posterior falhar, JdbcTransactionAdapter
+         * desfaz também este vínculo.
+         */
+        dealCandidateRepository.linkOfferSnapshot(
+            dealCandidateId,
+            snapshotId
+        );
+
         processingJobQueue.enqueue(
             ProcessingJobSubmission.evaluateDeal(
                 snapshotId,
@@ -322,7 +374,8 @@ public final class EnrichDealUseCase {
         return snapshotId;
     }
 
-    private void enqueueEvaluation(
+    private void linkAndEnqueueEvaluation(
+        long dealCandidateId,
         long snapshotId
     ) {
 
@@ -333,6 +386,11 @@ public final class EnrichDealUseCase {
 
         transactionPort.execute(
             () -> {
+
+                dealCandidateRepository.linkOfferSnapshot(
+                    dealCandidateId,
+                    snapshotId
+                );
 
                 processingJobQueue.enqueue(
                     ProcessingJobSubmission.evaluateDeal(
