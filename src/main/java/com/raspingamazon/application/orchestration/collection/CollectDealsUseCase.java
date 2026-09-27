@@ -4,8 +4,10 @@ import com.raspingamazon.application.collection.contract.CollectionCollector;
 import com.raspingamazon.application.collection.contract.CollectionRequest;
 import com.raspingamazon.application.collection.contract.CollectionResult;
 import com.raspingamazon.application.deal.port.TransactionPort;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingJobSubmission;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.ProcessingRun;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
 import com.raspingamazon.application.orchestration.port.DealCandidateRepositoryPort;
@@ -206,6 +208,9 @@ public final class CollectDealsUseCase {
                 collectionCollector.collect(
                     new CollectionRequest(
                         runningRun.source()
+                    ),
+                    collectionObservationContext(
+                        runningRun.id()
                     )
                 );
 
@@ -239,6 +244,30 @@ public final class CollectDealsUseCase {
 
             throw exception;
         }
+    }
+
+    /**
+     * Correlação disponível antes da chamada externa de coleta.
+     *
+     * <p>A ProcessingRun e o tipo da etapa já são conhecidos neste
+     * ponto. jobId não pertence ao contrato deste caso de uso e,
+     * portanto, não é inventado.</p>
+     */
+    private OperationalLogContext collectionObservationContext(
+        long processingRunId
+    ) {
+
+        return new OperationalLogContext(
+            processingRunId,
+            null,
+            ProcessingJobType.COLLECT_DEALS,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     /**

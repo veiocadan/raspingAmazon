@@ -7,8 +7,10 @@ import com.raspingamazon.application.collection.contract.HttpTransportResponse;
 import com.raspingamazon.application.observability.IntegrationObservation;
 import com.raspingamazon.application.observability.IntegrationObservationOutcome;
 import com.raspingamazon.application.observability.OperationalFailureOrigin;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.observability.port.IntegrationObservationRecorder;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.failure.FailureClassification;
 import com.raspingamazon.application.orchestration.failure.ProcessingFailureClassifier;
 import org.junit.jupiter.api.Test;
@@ -383,6 +385,84 @@ class HttpCollectionCollectorTest {
         assertNull(
             observation.context()
                 .asin()
+        );
+
+        assertEquals(
+            INTEGRATION,
+            observation.context()
+                .integration()
+        );
+    }
+
+    @Test
+    void shouldPreserveCollectionCorrelationProvidedByApplication() {
+
+        RecordingObservationRecorder recorder =
+            new RecordingObservationRecorder();
+
+        HttpTransport transport =
+            uri ->
+                new HttpTransportResponse(
+                    200,
+                    "payload"
+                );
+
+        ProcessingFailureClassifier classifier =
+            failure -> {
+                throw new AssertionError(
+                    "classifier must not run on success"
+                );
+            };
+
+        HttpCollectionCollector collector =
+            observedCollector(
+                transport,
+                recorder,
+                classifier,
+                nanoTime(
+                    2_000_000_000L,
+                    2_010_000_000L
+                )
+            );
+
+        OperationalLogContext context =
+            new OperationalLogContext(
+                77L,
+                null,
+                ProcessingJobType.COLLECT_DEALS,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            );
+
+        collector.collect(
+            new CollectionRequest(
+                SOURCE
+            ),
+            context
+        );
+
+        IntegrationObservation observation =
+            recorder.observations.getFirst();
+
+        assertEquals(
+            77L,
+            observation.context()
+                .runId()
+        );
+
+        assertEquals(
+            ProcessingJobType.COLLECT_DEALS,
+            observation.context()
+                .jobType()
+        );
+
+        assertNull(
+            observation.context()
+                .jobId()
         );
 
         assertEquals(

@@ -178,10 +178,32 @@ public final class HttpCollectionCollector
         CollectionRequest request
     ) {
 
+        return collect(
+            request,
+            OperationalLogContext.empty()
+        );
+    }
+
+    @Override
+    public CollectionResult collect(
+        CollectionRequest request,
+        OperationalLogContext context
+    ) {
+
         Objects.requireNonNull(
             request,
             "Collection request must not be null"
         );
+
+        Objects.requireNonNull(
+            context,
+            "Operational log context must not be null"
+        );
+
+        OperationalLogContext observationContext =
+            observationContext(
+                context
+            );
 
         /*
          * O marcador inicial é obtido imediatamente antes da chamada
@@ -217,7 +239,8 @@ public final class HttpCollectionCollector
                 exception,
                 OperationalFailureOrigin.EXTERNAL,
                 durationMs,
-                exception.httpStatusCode()
+                exception.httpStatusCode(),
+                observationContext
             );
 
             throw exception;
@@ -247,7 +270,8 @@ public final class HttpCollectionCollector
                 wrapped,
                 OperationalFailureOrigin.INTERNAL,
                 durationMs,
-                null
+                null,
+                observationContext
             );
 
             throw wrapped;
@@ -277,7 +301,8 @@ public final class HttpCollectionCollector
                 failure,
                 OperationalFailureOrigin.INTERNAL,
                 durationMs,
-                null
+                null,
+                observationContext
             );
 
             throw failure;
@@ -308,7 +333,8 @@ public final class HttpCollectionCollector
                 failure,
                 OperationalFailureOrigin.EXTERNAL,
                 durationMs,
-                response.statusCode()
+                response.statusCode(),
+                observationContext
             );
 
             throw failure;
@@ -354,7 +380,8 @@ public final class HttpCollectionCollector
                 wrapped,
                 OperationalFailureOrigin.INTERNAL,
                 durationMs,
-                response.statusCode()
+                response.statusCode(),
+                observationContext
             );
 
             throw wrapped;
@@ -362,7 +389,8 @@ public final class HttpCollectionCollector
 
         recordSuccessBestEffort(
             durationMs,
-            response.statusCode()
+            response.statusCode(),
+            observationContext
         );
 
         return result;
@@ -378,7 +406,8 @@ public final class HttpCollectionCollector
      */
     private void recordSuccessBestEffort(
         long durationMs,
-        int httpStatusCode
+        int httpStatusCode,
+        OperationalLogContext context
     ) {
 
         try {
@@ -393,7 +422,7 @@ public final class HttpCollectionCollector
                     OBSERVED_OPERATION,
                     IntegrationObservationOutcome.SUCCESS,
                     durationMs,
-                    observationContext(),
+                    context,
                     null,
                     null,
                     null,
@@ -423,7 +452,8 @@ public final class HttpCollectionCollector
         Throwable failure,
         OperationalFailureOrigin failureOrigin,
         long durationMs,
-        Integer httpStatusCode
+        Integer httpStatusCode,
+        OperationalLogContext context
     ) {
 
         try {
@@ -446,7 +476,7 @@ public final class HttpCollectionCollector
                     OBSERVED_OPERATION,
                     IntegrationObservationOutcome.FAILURE,
                     durationMs,
-                    observationContext(),
+                    context,
                     failureOrigin,
                     classification.type(),
                     classification.code(),
@@ -467,23 +497,26 @@ public final class HttpCollectionCollector
     }
 
     /**
-     * O collector genérico não conhece runId, jobId, candidateId ou ASIN.
+     * Preserva a correlação fornecida pela aplicação e acrescenta o
+     * identificador da integração pertencente a esta fronteira.
      *
-     * <p>Somente a integração conhecida nesta fronteira é registrada.
-     * Nenhuma identidade é inventada e nenhuma consulta adicional é
-     * executada apenas para enriquecer observabilidade.</p>
+     * <p>Nenhuma identidade ausente é inferida. Em particular, ASIN,
+     * candidateId e jobId permanecem null quando o chamador não os
+     * conhece.</p>
      */
-    private OperationalLogContext observationContext() {
+    private OperationalLogContext observationContext(
+        OperationalLogContext context
+    ) {
 
         return new OperationalLogContext(
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            context.runId(),
+            context.jobId(),
+            context.jobType(),
+            context.candidateId(),
+            context.snapshotId(),
+            context.evaluationId(),
+            context.publicationId(),
+            context.asin(),
             integration
         );
     }

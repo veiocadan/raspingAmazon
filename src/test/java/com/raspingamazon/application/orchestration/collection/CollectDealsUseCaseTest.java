@@ -1,8 +1,10 @@
 package com.raspingamazon.application.orchestration.collection;
 
 import com.raspingamazon.application.collection.contract.CollectionCollector;
+import com.raspingamazon.application.collection.contract.CollectionRequest;
 import com.raspingamazon.application.collection.contract.CollectionResult;
 import com.raspingamazon.application.deal.port.TransactionPort;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingFailure;
 import com.raspingamazon.application.orchestration.ProcessingJob;
@@ -30,6 +32,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -76,20 +79,63 @@ class CollectDealsUseCaseTest {
             );
 
         CollectionCollector collector =
-            request -> {
+            new CollectionCollector() {
 
-                events.add(
-                    "collect"
-                );
+                @Override
+                public CollectionResult collect(
+                    CollectionRequest request
+                ) {
 
-                assertEquals(
-                    URI.create(
-                        "https://www.amazon.com.br/deals"
-                    ),
-                    request.source()
-                );
+                    throw new AssertionError(
+                        "Contextual collection overload was expected"
+                    );
+                }
 
-                return collectionResult();
+                @Override
+                public CollectionResult collect(
+                    CollectionRequest request,
+                    OperationalLogContext context
+                ) {
+
+                    events.add(
+                        "collect"
+                    );
+
+                    assertEquals(
+                        URI.create(
+                            "https://www.amazon.com.br/deals"
+                        ),
+                        request.source()
+                    );
+
+                    assertEquals(
+                        RUN_ID,
+                        context.runId()
+                    );
+
+                    assertEquals(
+                        ProcessingJobType.COLLECT_DEALS,
+                        context.jobType()
+                    );
+
+                    assertNull(
+                        context.jobId()
+                    );
+
+                    assertNull(
+                        context.candidateId()
+                    );
+
+                    assertNull(
+                        context.asin()
+                    );
+
+                    assertNull(
+                        context.integration()
+                    );
+
+                    return collectionResult();
+                }
             };
 
         DealsParser parser =

@@ -330,9 +330,26 @@ public final class AmazonProductPageEnrichmentClient
         ParsedDeal parsedDeal
     ) {
 
+        return enrich(
+            parsedDeal,
+            OperationalLogContext.empty()
+        );
+    }
+
+    @Override
+    public ProductEnrichmentResult enrich(
+        ParsedDeal parsedDeal,
+        OperationalLogContext context
+    ) {
+
         Objects.requireNonNull(
             parsedDeal,
             "Parsed deal must not be null"
+        );
+
+        Objects.requireNonNull(
+            context,
+            "Operational log context must not be null"
         );
 
         String productUrl =
@@ -362,6 +379,12 @@ public final class AmazonProductPageEnrichmentClient
                 exception
             );
         }
+
+        OperationalLogContext observationContext =
+            observationContext(
+                context,
+                parsedDeal.asin()
+            );
 
         ProductPageContent pageContent;
 
@@ -398,10 +421,10 @@ public final class AmazonProductPageEnrichmentClient
              * instrumentação não introduz uma nova política de retry.
              */
             recordFailureBestEffort(
-                parsedDeal.asin(),
                 exception,
                 OperationalFailureOrigin.EXTERNAL,
-                durationMs
+                durationMs,
+                observationContext
             );
 
             /*
@@ -427,10 +450,10 @@ public final class AmazonProductPageEnrichmentClient
              * é relançada, preservando o comportamento anterior.
              */
             recordFailureBestEffort(
-                parsedDeal.asin(),
                 exception,
                 OperationalFailureOrigin.INTERNAL,
-                durationMs
+                durationMs,
+                observationContext
             );
 
             throw exception;
@@ -446,8 +469,8 @@ public final class AmazonProductPageEnrichmentClient
             );
 
         recordSuccessBestEffort(
-            parsedDeal.asin(),
-            durationMs
+            durationMs,
+            observationContext
         );
 
         String html =
@@ -491,8 +514,8 @@ public final class AmazonProductPageEnrichmentClient
      * quando o contrato ProductPageContent não fornece essa informação.</p>
      */
     private void recordSuccessBestEffort(
-        String asin,
-        long durationMs
+        long durationMs,
+        OperationalLogContext context
     ) {
 
         try {
@@ -507,9 +530,7 @@ public final class AmazonProductPageEnrichmentClient
                     OBSERVED_OPERATION,
                     IntegrationObservationOutcome.SUCCESS,
                     durationMs,
-                    observationContext(
-                        asin
-                    ),
+                    context,
                     null,
                     null,
                     null,
@@ -533,10 +554,10 @@ public final class AmazonProductPageEnrichmentClient
      * Esta classe não cria uma segunda taxonomia e não modifica retry.</p>
      */
     private void recordFailureBestEffort(
-        String asin,
         Throwable failure,
         OperationalFailureOrigin failureOrigin,
-        long durationMs
+        long durationMs,
+        OperationalLogContext context
     ) {
 
         try {
@@ -559,9 +580,7 @@ public final class AmazonProductPageEnrichmentClient
                     OBSERVED_OPERATION,
                     IntegrationObservationOutcome.FAILURE,
                     durationMs,
-                    observationContext(
-                        asin
-                    ),
+                    context,
                     failureOrigin,
                     classification.type(),
                     classification.code(),
@@ -579,24 +598,26 @@ public final class AmazonProductPageEnrichmentClient
     }
 
     /**
-     * O ASIN já é conhecido pelo enrichment e pode ser correlacionado sem
-     * inferência ou consulta adicional.
+     * Preserva a correlação fornecida pela aplicação e acrescenta os
+     * atributos que pertencem a esta fronteira concreta.
      *
-     * <p>runId, jobId, candidateId e snapshotId não estão disponíveis
-     * nesta interface síncrona e permanecem null.</p>
+     * <p>O ASIN vem do ParsedDeal efetivamente enriquecido. O nome da
+     * integração pertence ao adapter. Identidades que ainda não existem,
+     * como snapshotId, continuam ausentes em vez de serem inferidas.</p>
      */
     private OperationalLogContext observationContext(
+        OperationalLogContext context,
         String asin
     ) {
 
         return new OperationalLogContext(
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            context.runId(),
+            context.jobId(),
+            context.jobType(),
+            context.candidateId(),
+            context.snapshotId(),
+            context.evaluationId(),
+            context.publicationId(),
             asin,
             integration
         );

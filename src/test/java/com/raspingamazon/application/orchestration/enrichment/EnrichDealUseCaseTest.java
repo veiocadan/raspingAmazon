@@ -11,10 +11,12 @@ import com.raspingamazon.application.enrichment.contract.DeliveryEvidence;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
 import com.raspingamazon.application.enrichment.contract.SellerEvidence;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingFailure;
 import com.raspingamazon.application.orchestration.ProcessingJob;
 import com.raspingamazon.application.orchestration.ProcessingJobStatus;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.ProcessingJobSubmission;
 import com.raspingamazon.application.orchestration.port.DealCandidateRepositoryPort;
 import com.raspingamazon.application.orchestration.port.EnrichedOfferLookupPort;
@@ -40,6 +42,7 @@ import java.util.OptionalLong;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class EnrichDealUseCaseTest {
@@ -92,13 +95,62 @@ class EnrichDealUseCaseTest {
             };
 
         ProductEnrichmentClient enrichmentClient =
-            parsedDeal -> {
+            new ProductEnrichmentClient() {
 
-                events.add(
-                    "enrich"
-                );
+                @Override
+                public ProductEnrichmentResult enrich(
+                    ParsedDeal parsedDeal
+                ) {
 
-                return createEnrichmentResult();
+                    throw new AssertionError(
+                        "Contextual enrichment overload was expected"
+                    );
+                }
+
+                @Override
+                public ProductEnrichmentResult enrich(
+                    ParsedDeal parsedDeal,
+                    OperationalLogContext context
+                ) {
+
+                    events.add(
+                        "enrich"
+                    );
+
+                    assertEquals(
+                        10L,
+                        context.runId()
+                    );
+
+                    assertEquals(
+                        ProcessingJobType.ENRICH_DEAL,
+                        context.jobType()
+                    );
+
+                    assertEquals(
+                        CANDIDATE_ID,
+                        context.candidateId()
+                    );
+
+                    assertEquals(
+                        "B087WLJH8Y",
+                        context.asin()
+                    );
+
+                    assertNull(
+                        context.jobId()
+                    );
+
+                    assertNull(
+                        context.snapshotId()
+                    );
+
+                    assertNull(
+                        context.integration()
+                    );
+
+                    return createEnrichmentResult();
+                }
             };
 
         ProductPersistencePort productPort =

@@ -4,8 +4,10 @@ import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult
 import com.raspingamazon.application.observability.IntegrationObservation;
 import com.raspingamazon.application.observability.IntegrationObservationOutcome;
 import com.raspingamazon.application.observability.OperationalFailureOrigin;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.observability.port.IntegrationObservationRecorder;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.failure.FailureClassification;
 import com.raspingamazon.application.orchestration.failure.ProcessingFailureClassifier;
 import com.raspingamazon.application.parsing.contract.ParsedDeal;
@@ -332,6 +334,106 @@ class AmazonProductPageEnrichmentClientTest {
          */
         assertNull(
             observation.httpStatusCode()
+        );
+    }
+
+    @Test
+    void shouldPreserveEnrichmentCorrelationProvidedByApplication()
+        throws Exception {
+
+        String html =
+            loadFixture(
+                "amazon-amazon.html"
+            );
+
+        RecordingObservationRecorder recorder =
+            new RecordingObservationRecorder();
+
+        ProcessingFailureClassifier classifier =
+            failure -> {
+                throw new AssertionError(
+                    "classifier must not run on acquisition success"
+                );
+            };
+
+        ProductPageContentProvider provider =
+            uri ->
+                new ProductPageContent(
+                    uri,
+                    uri,
+                    html,
+                    OffsetDateTime.parse(
+                        "2026-09-26T16:59:00Z"
+                    )
+                );
+
+        AmazonProductPageEnrichmentClient client =
+            observedClient(
+                provider,
+                recorder,
+                classifier,
+                nanoTime(
+                    2_000_000_000L,
+                    2_015_000_000L
+                )
+            );
+
+        OperationalLogContext context =
+            new OperationalLogContext(
+                77L,
+                null,
+                ProcessingJobType.ENRICH_DEAL,
+                88L,
+                null,
+                null,
+                null,
+                null,
+                null
+            );
+
+        client.enrich(
+            createParsedDeal(
+                "https://example.com/product"
+            ),
+            context
+        );
+
+        IntegrationObservation observation =
+            recorder.observations.getFirst();
+
+        assertEquals(
+            77L,
+            observation.context()
+                .runId()
+        );
+
+        assertEquals(
+            ProcessingJobType.ENRICH_DEAL,
+            observation.context()
+                .jobType()
+        );
+
+        assertEquals(
+            88L,
+            observation.context()
+                .candidateId()
+        );
+
+        assertEquals(
+            "B000000001",
+            observation.context()
+                .asin()
+        );
+
+        assertEquals(
+            INTEGRATION,
+            observation.context()
+                .integration()
+        );
+
+        assertNull(
+            observation.context()
+                .snapshotId()
         );
     }
 

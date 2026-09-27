@@ -9,8 +9,10 @@ import com.raspingamazon.application.deal.port.ProductPersistencePort;
 import com.raspingamazon.application.deal.port.TransactionPort;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentClient;
 import com.raspingamazon.application.enrichment.contract.ProductEnrichmentResult;
+import com.raspingamazon.application.observability.OperationalLogContext;
 import com.raspingamazon.application.orchestration.DealCandidate;
 import com.raspingamazon.application.orchestration.ProcessingJobSubmission;
+import com.raspingamazon.application.orchestration.ProcessingJobType;
 import com.raspingamazon.application.orchestration.port.DealCandidateRepositoryPort;
 import com.raspingamazon.application.orchestration.port.EnrichedOfferLookupPort;
 import com.raspingamazon.application.orchestration.port.ProcessingJobQueuePort;
@@ -240,7 +242,12 @@ public final class EnrichDealUseCase {
          */
         ProductEnrichmentResult enrichmentResult =
             enrichmentClient.enrich(
-                parsedDeal
+                parsedDeal,
+                enrichmentObservationContext(
+                    candidate,
+                    dealCandidateId,
+                    parsedDeal
+                )
             );
 
         OffsetDateTime persistedAt =
@@ -255,6 +262,32 @@ public final class EnrichDealUseCase {
                 enrichmentResult,
                 persistedAt
             )
+        );
+    }
+
+    /**
+     * Correlação disponível antes da chamada externa de enrichment.
+     *
+     * <p>A run, o candidate, o tipo da etapa e o ASIN já são fatos
+     * persistidos/conhecidos. snapshotId ainda não existe neste ponto
+     * e jobId não pertence ao contrato deste caso de uso.</p>
+     */
+    private OperationalLogContext enrichmentObservationContext(
+        DealCandidate candidate,
+        long dealCandidateId,
+        ParsedDeal parsedDeal
+    ) {
+
+        return new OperationalLogContext(
+            candidate.processingRunId(),
+            null,
+            ProcessingJobType.ENRICH_DEAL,
+            dealCandidateId,
+            null,
+            null,
+            null,
+            parsedDeal.asin(),
+            null
         );
     }
 
