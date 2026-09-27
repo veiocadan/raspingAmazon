@@ -3,7 +3,10 @@ package com.raspingamazon.application.operation.orchestration.run;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -171,6 +174,146 @@ class ProcessingRunDetailTest {
     }
 
     @Test
+    void shouldRepresentIntegrationMetrics() {
+
+        ProcessingRunIntegrationMetrics metrics =
+            new ProcessingRunIntegrationMetrics(
+                "amazon-product-page",
+                4L,
+                2L,
+                2L,
+                1L,
+                1L,
+                new BigDecimal(
+                    "125.5"
+                ),
+                250L
+            );
+
+        assertEquals(
+            "amazon-product-page",
+            metrics.integration()
+        );
+
+        assertEquals(
+            4L,
+            metrics.observations()
+        );
+
+        assertEquals(
+            2L,
+            metrics.successes()
+        );
+
+        assertEquals(
+            2L,
+            metrics.failures()
+        );
+
+        assertEquals(
+            1L,
+            metrics.externalFailures()
+        );
+
+        assertEquals(
+            1L,
+            metrics.internalFailures()
+        );
+
+        assertEquals(
+            new BigDecimal(
+                "125.5"
+            ),
+            metrics.averageDurationMs()
+        );
+
+        assertEquals(
+            250L,
+            metrics.maximumDurationMs()
+        );
+
+        assertTrue(
+            metrics.hasFailures()
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidIntegrationMetrics() {
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ProcessingRunIntegrationMetrics(
+                " ",
+                1L,
+                1L,
+                0L,
+                0L,
+                0L,
+                BigDecimal.ZERO,
+                0L
+            )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ProcessingRunIntegrationMetrics(
+                "amazon-deals-http",
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                BigDecimal.ZERO,
+                0L
+            )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ProcessingRunIntegrationMetrics(
+                "amazon-deals-http",
+                2L,
+                2L,
+                1L,
+                1L,
+                0L,
+                BigDecimal.ONE,
+                1L
+            )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ProcessingRunIntegrationMetrics(
+                "amazon-deals-http",
+                2L,
+                1L,
+                1L,
+                1L,
+                1L,
+                BigDecimal.ONE,
+                1L
+            )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ProcessingRunIntegrationMetrics(
+                "amazon-deals-http",
+                1L,
+                1L,
+                0L,
+                0L,
+                0L,
+                new BigDecimal(
+                    "2"
+                ),
+                1L
+            )
+        );
+    }
+
+    @Test
     void shouldRejectInconsistentJobStatusBreakdown() {
 
         assertThrows(
@@ -256,8 +399,79 @@ class ProcessingRunDetailTest {
             detail.jobs()
         );
 
+        assertTrue(
+            detail.integrations()
+                .isEmpty()
+        );
+
         assertFalse(
             jobs.hasActiveJobs()
+        );
+    }
+
+    @Test
+    void shouldRepresentRunDetailIntegrationMetricsWithDefensiveCopy() {
+
+        ProcessingRunIntegrationMetrics integration =
+            new ProcessingRunIntegrationMetrics(
+                "amazon-deals-http",
+                1L,
+                1L,
+                0L,
+                0L,
+                0L,
+                new BigDecimal(
+                    "42"
+                ),
+                42L
+            );
+
+        List<ProcessingRunIntegrationMetrics> mutable =
+            new ArrayList<>();
+
+        mutable.add(
+            integration
+        );
+
+        ProcessingRunDetail detail =
+            new ProcessingRunDetail(
+                summary(),
+                new ProcessingRunPipelineMetrics(
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L
+                ),
+                new ProcessingRunJobMetrics(
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L
+                ),
+                mutable
+            );
+
+        mutable.clear();
+
+        assertEquals(
+            List.of(
+                integration
+            ),
+            detail.integrations()
+        );
+
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> detail.integrations()
+                .add(
+                    integration
+                )
         );
     }
 
@@ -312,6 +526,16 @@ class ProcessingRunDetailTest {
             () -> new ProcessingRunDetail(
                 summary,
                 pipeline,
+                null
+            )
+        );
+
+        assertThrows(
+            NullPointerException.class,
+            () -> new ProcessingRunDetail(
+                summary,
+                pipeline,
+                jobs,
                 null
             )
         );

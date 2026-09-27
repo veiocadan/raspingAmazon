@@ -1,6 +1,7 @@
 package com.raspingamazon.infrastructure.persistence.adapter;
 
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunDetail;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunIntegrationMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunJobMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPipelineMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunSummary;
@@ -13,6 +14,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -220,6 +223,39 @@ public final class JdbcProcessingRunOperationalDetailQueryAdapter
         CROSS JOIN job_metrics jm
         """;
 
+    private static final String INTEGRATION_METRICS_SQL =
+        """
+        SELECT
+            observation.integration,
+            COUNT(*) AS observations,
+            COUNT(*) FILTER (
+                WHERE observation.outcome = 'SUCCESS'
+            ) AS successes,
+            COUNT(*) FILTER (
+                WHERE observation.outcome = 'FAILURE'
+            ) AS failures,
+            COUNT(*) FILTER (
+                WHERE observation.outcome = 'FAILURE'
+                  AND observation.failure_origin = 'EXTERNAL'
+            ) AS external_failures,
+            COUNT(*) FILTER (
+                WHERE observation.outcome = 'FAILURE'
+                  AND observation.failure_origin = 'INTERNAL'
+            ) AS internal_failures,
+            AVG(
+                observation.duration_ms::NUMERIC
+            ) AS average_duration_ms,
+            MAX(
+                observation.duration_ms
+            ) AS maximum_duration_ms
+        FROM integration_observation observation
+        WHERE observation.processing_run_id = ?
+        GROUP BY
+            observation.integration
+        ORDER BY
+            observation.integration ASC
+        """;
+
     private final Connection connection;
 
     public JdbcProcessingRunOperationalDetailQueryAdapter(
@@ -245,6 +281,46 @@ public final class JdbcProcessingRunOperationalDetailQueryAdapter
             );
         }
 
+        try {
+
+            ProcessingRunDetail baseDetail =
+                findBaseDetail(
+                    runId
+                );
+
+            if (baseDetail == null) {
+                return Optional.empty();
+            }
+
+            List<ProcessingRunIntegrationMetrics> integrations =
+                findIntegrationMetrics(
+                    runId
+                );
+
+            return Optional.of(
+                new ProcessingRunDetail(
+                    baseDetail.summary(),
+                    baseDetail.pipeline(),
+                    baseDetail.jobs(),
+                    integrations
+                )
+            );
+
+        } catch (SQLException exception) {
+
+            throw new PersistenceOperationException(
+                "Could not load operational detail "
+                    + "for ProcessingRun "
+                    + runId,
+                exception
+            );
+        }
+    }
+
+    private ProcessingRunDetail findBaseDetail(
+        long runId
+    ) throws SQLException {
+
         try (PreparedStatement statement =
                  connection.prepareStatement(
                      SQL
@@ -259,7 +335,7 @@ public final class JdbcProcessingRunOperationalDetailQueryAdapter
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
-                    return Optional.empty();
+                    return null;
                 }
 
                 ProcessingRunDetail detail =
@@ -276,19 +352,67 @@ public final class JdbcProcessingRunOperationalDetailQueryAdapter
                     );
                 }
 
-                return Optional.of(
-                    detail
+                return detail;
+            }
+        }
+    }
+
+    private List<ProcessingRunIntegrationMetrics> findIntegrationMetrics(
+        long runId
+    ) throws SQLException {
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     INTEGRATION_METRICS_SQL
+                 )) {
+
+            statement.setLong(
+                1,
+                runId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                List<ProcessingRunIntegrationMetrics> metrics =
+                    new ArrayList<>();
+
+                while (resultSet.next()) {
+
+                    metrics.add(
+                        new ProcessingRunIntegrationMetrics(
+                            resultSet.getString(
+                                "integration"
+                            ),
+                            resultSet.getLong(
+                                "observations"
+                            ),
+                            resultSet.getLong(
+                                "successes"
+                            ),
+                            resultSet.getLong(
+                                "failures"
+                            ),
+                            resultSet.getLong(
+                                "external_failures"
+                            ),
+                            resultSet.getLong(
+                                "internal_failures"
+                            ),
+                            resultSet.getBigDecimal(
+                                "average_duration_ms"
+                            ),
+                            resultSet.getLong(
+                                "maximum_duration_ms"
+                            )
+                        )
+                    );
+                }
+
+                return List.copyOf(
+                    metrics
                 );
             }
-
-        } catch (SQLException exception) {
-
-            throw new PersistenceOperationException(
-                "Could not load operational detail "
-                    + "for ProcessingRun "
-                    + runId,
-                exception
-            );
         }
     }
 

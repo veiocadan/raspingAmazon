@@ -3,6 +3,7 @@ package com.raspingamazon.infrastructure.persistence.adapter;
 import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
 
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunDetail;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunIntegrationMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunJobMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPipelineMetrics;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
@@ -16,6 +17,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -367,6 +369,212 @@ class JdbcProcessingRunOperationalDetailQueryAdapterTest {
     }
 
     @Test
+    void shouldAggregateIntegrationMetricsOnlyForRequestedRun()
+        throws Exception {
+
+        inTransaction(
+            connection -> {
+
+                long runId =
+                    insertRun(
+                        connection,
+                        "observability-integration-main-"
+                            + UUID.randomUUID()
+                    );
+
+                long foreignRunId =
+                    insertRun(
+                        connection,
+                        "observability-integration-foreign-"
+                            + UUID.randomUUID()
+                    );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-deals-http",
+                    "SUCCESS",
+                    120L,
+                    null
+                );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-deals-http",
+                    "FAILURE",
+                    180L,
+                    "EXTERNAL"
+                );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-deals-http",
+                    "FAILURE",
+                    240L,
+                    "INTERNAL"
+                );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-product-page",
+                    "SUCCESS",
+                    60L,
+                    null
+                );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-product-page",
+                    "SUCCESS",
+                    90L,
+                    null
+                );
+
+                insertIntegrationObservation(
+                    connection,
+                    runId,
+                    "amazon-product-page",
+                    "FAILURE",
+                    150L,
+                    "EXTERNAL"
+                );
+
+                /*
+                 * Esta observação pertence a outra run e não pode
+                 * contaminar nenhuma métrica da execução consultada.
+                 */
+                insertIntegrationObservation(
+                    connection,
+                    foreignRunId,
+                    "amazon-deals-http",
+                    "FAILURE",
+                    999L,
+                    "EXTERNAL"
+                );
+
+                JdbcProcessingRunOperationalDetailQueryAdapter adapter =
+                    new JdbcProcessingRunOperationalDetailQueryAdapter(
+                        connection
+                    );
+
+                ProcessingRunDetail detail =
+                    adapter.findById(
+                            runId
+                        )
+                        .orElseThrow();
+
+                List<ProcessingRunIntegrationMetrics> integrations =
+                    detail.integrations();
+
+                assertEquals(
+                    2,
+                    integrations.size()
+                );
+
+                ProcessingRunIntegrationMetrics collection =
+                    integrations.getFirst();
+
+                assertEquals(
+                    "amazon-deals-http",
+                    collection.integration()
+                );
+
+                assertEquals(
+                    3L,
+                    collection.observations()
+                );
+
+                assertEquals(
+                    1L,
+                    collection.successes()
+                );
+
+                assertEquals(
+                    2L,
+                    collection.failures()
+                );
+
+                assertEquals(
+                    1L,
+                    collection.externalFailures()
+                );
+
+                assertEquals(
+                    1L,
+                    collection.internalFailures()
+                );
+
+                assertEquals(
+                    0,
+                    new BigDecimal(
+                        "180"
+                    ).compareTo(
+                        collection.averageDurationMs()
+                    )
+                );
+
+                assertEquals(
+                    240L,
+                    collection.maximumDurationMs()
+                );
+
+                ProcessingRunIntegrationMetrics enrichment =
+                    integrations.get(
+                        1
+                    );
+
+                assertEquals(
+                    "amazon-product-page",
+                    enrichment.integration()
+                );
+
+                assertEquals(
+                    3L,
+                    enrichment.observations()
+                );
+
+                assertEquals(
+                    2L,
+                    enrichment.successes()
+                );
+
+                assertEquals(
+                    1L,
+                    enrichment.failures()
+                );
+
+                assertEquals(
+                    1L,
+                    enrichment.externalFailures()
+                );
+
+                assertEquals(
+                    0L,
+                    enrichment.internalFailures()
+                );
+
+                assertEquals(
+                    0,
+                    new BigDecimal(
+                        "100"
+                    ).compareTo(
+                        enrichment.averageDurationMs()
+                    )
+                );
+
+                assertEquals(
+                    150L,
+                    enrichment.maximumDurationMs()
+                );
+            }
+        );
+    }
+
+    @Test
     void shouldReturnZeroMetricsForRunWithoutPipelineActivity()
         throws Exception {
 
@@ -441,6 +649,11 @@ class JdbcProcessingRunOperationalDetailQueryAdapterTest {
                     0L,
                     jobs.retryAttempts()
                 );
+
+                assertTrue(
+                    detail.integrations()
+                        .isEmpty()
+                );
             }
         );
     }
@@ -504,6 +717,98 @@ class JdbcProcessingRunOperationalDetailQueryAdapterTest {
                 );
             }
         );
+    }
+
+    private void insertIntegrationObservation(
+        Connection connection,
+        long runId,
+        String integration,
+        String outcome,
+        long durationMs,
+        String failureOrigin
+    ) throws Exception {
+
+        String sql =
+            """
+            INSERT INTO integration_observation (
+                observed_at,
+                integration,
+                operation,
+                outcome,
+                duration_ms,
+                processing_run_id,
+                failure_origin,
+                failure_type,
+                error_code
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """;
+
+        boolean failure =
+            "FAILURE".equals(
+                outcome
+            );
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                BASE_TIME.minusMinutes(
+                    1
+                )
+            );
+
+            statement.setString(
+                2,
+                integration
+            );
+
+            statement.setString(
+                3,
+                "GET"
+            );
+
+            statement.setString(
+                4,
+                outcome
+            );
+
+            statement.setLong(
+                5,
+                durationMs
+            );
+
+            statement.setLong(
+                6,
+                runId
+            );
+
+            statement.setString(
+                7,
+                failure
+                    ? failureOrigin
+                    : null
+            );
+
+            statement.setString(
+                8,
+                failure
+                    ? "TRANSIENT"
+                    : null
+            );
+
+            statement.setString(
+                9,
+                failure
+                    ? "RUN_DETAIL_INTEGRATION_FAILURE"
+                    : null
+            );
+
+            statement.executeUpdate();
+        }
     }
 
     private void insertForeignRunContext(
