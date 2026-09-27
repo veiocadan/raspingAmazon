@@ -4,6 +4,7 @@ import com.raspingamazon.application.operation.orchestration.run.GetProcessingRu
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunCursor;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunDetail;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunIntegrationMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunJobMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPage;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPipelineMetrics;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -397,6 +399,110 @@ class RunsCliCommandTest {
         assertTrue(
             output.contains(
                 "RETRY_ATTEMPTS\t4"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "INTEGRATIONS"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "INTEGRATION\tOBSERVATIONS\tSUCCESSES\tFAILURES"
+                    + "\tEXTERNAL_FAILURES\tINTERNAL_FAILURES"
+                    + "\tAVERAGE_DURATION_MS\tMAXIMUM_DURATION_MS"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "amazon-deals-http\t1\t1\t0\t0\t0\t120\t120"
+            )
+        );
+
+        assertTrue(
+            output.contains(
+                "amazon-product-page\t4\t2\t2\t1\t1\t87.5\t125"
+            )
+        );
+
+        assertTrue(
+            console.stderr()
+                .isEmpty()
+        );
+    }
+
+    @Test
+    void shouldRenderIntegrationHeaderForRunWithoutObservations() {
+
+        ProcessingRunDetail detailWithoutIntegrations =
+            new ProcessingRunDetail(
+                summary(),
+                new ProcessingRunPipelineMetrics(
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L
+                ),
+                new ProcessingRunJobMetrics(
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L
+                ),
+                List.of()
+            );
+
+        RunsCliCommand command =
+            command(
+                criteria ->
+                    new ProcessingRunPage(
+                        List.of(),
+                        null
+                    ),
+                runId ->
+                    Optional.of(
+                        detailWithoutIntegrations
+                    )
+            );
+
+        TestConsole console =
+            new TestConsole();
+
+        CliExitCode result =
+            command.execute(
+                List.of(
+                    "show",
+                    "101"
+                ),
+                console.out(),
+                console.err()
+            );
+
+        assertEquals(
+            CliExitCode.SUCCESS,
+            result
+        );
+
+        String output =
+            console.stdout();
+
+        assertTrue(
+            output.contains(
+                "INTEGRATIONS"
+                    + System.lineSeparator()
+                    + "INTEGRATION\tOBSERVATIONS\tSUCCESSES\tFAILURES"
+                    + "\tEXTERNAL_FAILURES\tINTERNAL_FAILURES"
+                    + "\tAVERAGE_DURATION_MS\tMAXIMUM_DURATION_MS"
+                    + System.lineSeparator()
             )
         );
 
@@ -832,6 +938,32 @@ class RunsCliCommandTest {
                 1L,
                 14L,
                 4L
+            ),
+            List.of(
+                new ProcessingRunIntegrationMetrics(
+                    "amazon-deals-http",
+                    1L,
+                    1L,
+                    0L,
+                    0L,
+                    0L,
+                    new BigDecimal(
+                        "120.0000"
+                    ),
+                    120L
+                ),
+                new ProcessingRunIntegrationMetrics(
+                    "amazon-product-page",
+                    4L,
+                    2L,
+                    2L,
+                    1L,
+                    1L,
+                    new BigDecimal(
+                        "87.5000"
+                    ),
+                    125L
+                )
             )
         );
     }

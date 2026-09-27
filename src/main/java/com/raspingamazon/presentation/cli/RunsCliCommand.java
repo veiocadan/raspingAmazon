@@ -4,6 +4,7 @@ import com.raspingamazon.application.operation.orchestration.run.GetProcessingRu
 import com.raspingamazon.application.operation.orchestration.run.ListProcessingRunsUseCase;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunCursor;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunDetail;
+import com.raspingamazon.application.operation.orchestration.run.ProcessingRunIntegrationMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunJobMetrics;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPage;
 import com.raspingamazon.application.operation.orchestration.run.ProcessingRunPipelineMetrics;
@@ -790,7 +791,70 @@ public final class RunsCliCommand
             )
         );
 
+        out.println();
+
+        out.println(
+            "INTEGRATIONS"
+        );
+
+        out.println(
+            String.join(
+                "\t",
+                "INTEGRATION",
+                "OBSERVATIONS",
+                "SUCCESSES",
+                "FAILURES",
+                "EXTERNAL_FAILURES",
+                "INTERNAL_FAILURES",
+                "AVERAGE_DURATION_MS",
+                "MAXIMUM_DURATION_MS"
+            )
+        );
+
+        for (ProcessingRunIntegrationMetrics metrics
+            : detail.integrations()) {
+
+            out.println(
+                renderIntegrationMetrics(
+                    metrics
+                )
+            );
+        }
+
         out.flush();
+    }
+
+    private String renderIntegrationMetrics(
+        ProcessingRunIntegrationMetrics metrics
+    ) {
+
+        return String.join(
+            "\t",
+            CliText.text(
+                metrics.integration()
+            ),
+            Long.toString(
+                metrics.observations()
+            ),
+            Long.toString(
+                metrics.successes()
+            ),
+            Long.toString(
+                metrics.failures()
+            ),
+            Long.toString(
+                metrics.externalFailures()
+            ),
+            Long.toString(
+                metrics.internalFailures()
+            ),
+            metrics.averageDurationMs()
+                .stripTrailingZeros()
+                .toPlainString(),
+            Long.toString(
+                metrics.maximumDurationMs()
+            )
+        );
     }
 
     private void printField(
