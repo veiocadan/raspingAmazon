@@ -51,7 +51,6 @@ class PublicationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-
         try (Connection connection =
                  DatabaseConnection.open(
                      config
@@ -152,7 +151,6 @@ class PublicationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-
         try (Connection connection =
                  DatabaseConnection.open(
                      config
@@ -234,7 +232,6 @@ class PublicationJdbcRepositoryTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-
         try (Connection connection =
                  DatabaseConnection.open(
                      config
@@ -271,8 +268,261 @@ class PublicationJdbcRepositoryTest {
 
                 assertThrows(
                     IllegalArgumentException.class,
-                    () -> repository.save(
-                        publication
+                    () ->
+                        repository.save(
+                            publication
+                        )
+                );
+
+            } finally {
+
+                connection.rollback();
+            }
+        }
+    }
+
+    @Test
+    void shouldPersistCreatedToReadyStatusTransition()
+        throws Exception {
+
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        try (Connection connection =
+                 DatabaseConnection.open(
+                     config
+                 )) {
+
+            connection.setAutoCommit(
+                false
+            );
+
+            try {
+
+                DealEvaluation evaluation =
+                    createPersistedEvaluation(
+                        connection
+                    );
+
+                PublicationJdbcRepository repository =
+                    new PublicationJdbcRepository(
+                        connection
+                    );
+
+                Publication persisted =
+                    repository.save(
+                        newPublication(
+                            evaluation,
+                            "Texto para aprovação"
+                        )
+                    );
+
+                assertEquals(
+                    PublicationStatus.CREATED,
+                    persisted.status()
+                );
+
+                persisted.markReady();
+
+                repository.updateStatus(
+                    persisted,
+                    PublicationStatus.CREATED
+                );
+
+                assertEquals(
+                    PublicationStatus.READY,
+                    loadPublicationStatus(
+                        connection,
+                        persisted.id()
+                    )
+                );
+
+            } finally {
+
+                connection.rollback();
+            }
+        }
+    }
+
+    @Test
+    void shouldRejectStatusTransitionWhenExpectedStateIsStale()
+        throws Exception {
+
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        try (Connection connection =
+                 DatabaseConnection.open(
+                     config
+                 )) {
+
+            connection.setAutoCommit(
+                false
+            );
+
+            try {
+
+                DealEvaluation evaluation =
+                    createPersistedEvaluation(
+                        connection
+                    );
+
+                PublicationJdbcRepository repository =
+                    new PublicationJdbcRepository(
+                        connection
+                    );
+
+                Publication persisted =
+                    repository.save(
+                        newPublication(
+                            evaluation,
+                            "Texto concorrente"
+                        )
+                    );
+
+                persisted.markReady();
+
+                repository.updateStatus(
+                    persisted,
+                    PublicationStatus.CREATED
+                );
+
+                assertEquals(
+                    PublicationStatus.READY,
+                    loadPublicationStatus(
+                        connection,
+                        persisted.id()
+                    )
+                );
+
+                persisted.markPublished();
+
+                assertThrows(
+                    IllegalStateException.class,
+                    () ->
+                        repository.updateStatus(
+                            persisted,
+                            PublicationStatus.CREATED
+                        )
+                );
+
+                assertEquals(
+                    PublicationStatus.READY,
+                    loadPublicationStatus(
+                        connection,
+                        persisted.id()
+                    )
+                );
+
+            } finally {
+
+                connection.rollback();
+            }
+        }
+    }
+
+    @Test
+    void shouldRejectStatusUpdateForTransientPublication()
+        throws Exception {
+
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        try (Connection connection =
+                 DatabaseConnection.open(
+                     config
+                 )) {
+
+            connection.setAutoCommit(
+                false
+            );
+
+            try {
+
+                DealEvaluation evaluation =
+                    createPersistedEvaluation(
+                        connection
+                    );
+
+                Publication transientPublication =
+                    newPublication(
+                        evaluation,
+                        "Texto transitório"
+                    );
+
+                transientPublication.markReady();
+
+                PublicationJdbcRepository repository =
+                    new PublicationJdbcRepository(
+                        connection
+                    );
+
+                assertThrows(
+                    IllegalArgumentException.class,
+                    () ->
+                        repository.updateStatus(
+                            transientPublication,
+                            PublicationStatus.CREATED
+                        )
+                );
+
+            } finally {
+
+                connection.rollback();
+            }
+        }
+    }
+
+    @Test
+    void shouldRejectStatusUpdateWithoutActualTransition()
+        throws Exception {
+
+        ApplicationConfig config =
+            EnvironmentConfigProvider.load();
+
+        try (Connection connection =
+                 DatabaseConnection.open(
+                     config
+                 )) {
+
+            connection.setAutoCommit(
+                false
+            );
+
+            try {
+
+                DealEvaluation evaluation =
+                    createPersistedEvaluation(
+                        connection
+                    );
+
+                PublicationJdbcRepository repository =
+                    new PublicationJdbcRepository(
+                        connection
+                    );
+
+                Publication persisted =
+                    repository.save(
+                        newPublication(
+                            evaluation,
+                            "Texto sem transição"
+                        )
+                    );
+
+                assertThrows(
+                    IllegalArgumentException.class,
+                    () ->
+                        repository.updateStatus(
+                            persisted,
+                            PublicationStatus.CREATED
+                        )
+                );
+
+                assertEquals(
+                    PublicationStatus.CREATED,
+                    loadPublicationStatus(
+                        connection,
+                        persisted.id()
                     )
                 );
 
@@ -417,11 +667,12 @@ class PublicationJdbcRepositoryTest {
         long dealEvaluationId
     ) throws Exception {
 
-        String sql = """
-                SELECT COUNT(*) AS total
-                FROM publication
-                WHERE deal_evaluation_id = ?
-                """;
+        String sql =
+            """
+            SELECT COUNT(*) AS total
+            FROM publication
+            WHERE deal_evaluation_id = ?
+            """;
 
         try (PreparedStatement statement =
                  connection.prepareStatement(
@@ -440,6 +691,48 @@ class PublicationJdbcRepositoryTest {
 
                 return resultSet.getLong(
                     "total"
+                );
+            }
+        }
+    }
+
+    private PublicationStatus loadPublicationStatus(
+        Connection connection,
+        long publicationId
+    ) throws Exception {
+
+        String sql =
+            """
+            SELECT status
+            FROM publication
+            WHERE id = ?
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                publicationId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                if (!resultSet.next()) {
+
+                    throw new IllegalStateException(
+                        "Publication not found in test: "
+                            + publicationId
+                    );
+                }
+
+                return PublicationStatus.valueOf(
+                    resultSet.getString(
+                        "status"
+                    )
                 );
             }
         }
