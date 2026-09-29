@@ -3,7 +3,7 @@ package com.raspingamazon.application.publication;
 import com.raspingamazon.domain.publication.Publication;
 
 /**
- * Contrato de persistência de Publication.
+ * Contrato de persistência da geração de Publication.
  *
  * <p>A identidade idempotente da geração é formada por:</p>
  *
@@ -16,7 +16,12 @@ import com.raspingamazon.domain.publication.Publication;
  *
  * <p>Persistir novamente a mesma identidade deve devolver a
  * Publication já existente em vez de criar uma duplicata.</p>
+ *
+ * <p>Este contrato trata exclusivamente da criação idempotente.
+ * Alterações posteriores de estado pertencem a
+ * PublicationStatusRepository.</p>
  */
+@FunctionalInterface
 public interface PublicationRepository {
 
     /**
