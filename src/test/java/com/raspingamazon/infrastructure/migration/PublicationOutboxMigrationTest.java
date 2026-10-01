@@ -15,7 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifica o contrato estrutural introduzido pela migration V26.
+ * Verifica o contrato estrutural da publication_outbox.
+ *
+ * <p>A tabela foi introduzida pela migration V26 e recebeu
+ * evoluções posteriores. Este teste representa o schema atual
+ * resultante da aplicação sequencial das migrations.</p>
  */
 class PublicationOutboxMigrationTest {
 
@@ -173,6 +177,7 @@ class PublicationOutboxMigrationTest {
                 "content",
                 "quota_profile_version",
                 "quota_date",
+                "cadence_profile_version",
                 "status",
                 "available_at",
                 "locked_at",

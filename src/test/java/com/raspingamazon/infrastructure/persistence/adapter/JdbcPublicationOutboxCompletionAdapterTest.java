@@ -159,6 +159,18 @@ class JdbcPublicationOutboxCompletionAdapterTest {
                 );
 
                 assertEquals(
+                    NOW.toInstant(),
+                    attempt.startedAt()
+                        .toInstant()
+                );
+
+                assertEquals(
+                    COMPLETED_AT.toInstant(),
+                    attempt.finishedAt()
+                        .toInstant()
+                );
+
+                assertEquals(
                     COMPLETED_AT.toInstant(),
                     attempt.createdAt()
                         .toInstant()
@@ -1211,6 +1223,8 @@ class JdbcPublicationOutboxCompletionAdapterTest {
                 status,
                 provider_reference,
                 error_code,
+                started_at,
+                finished_at,
                 created_at
             FROM publication_attempt
             WHERE publication_outbox_id = ?
@@ -1259,6 +1273,14 @@ class JdbcPublicationOutboxCompletionAdapterTest {
                         ),
                         resultSet.getString(
                             "error_code"
+                        ),
+                        resultSet.getObject(
+                            "started_at",
+                            OffsetDateTime.class
+                        ),
+                        resultSet.getObject(
+                            "finished_at",
+                            OffsetDateTime.class
                         ),
                         resultSet.getObject(
                             "created_at",
@@ -1351,6 +1373,16 @@ class JdbcPublicationOutboxCompletionAdapterTest {
         Scenario scenario
     ) throws Exception {
 
+        OffsetDateTime previousStartedAt =
+            NOW.minusMinutes(
+                6
+            );
+
+        OffsetDateTime previousFinishedAt =
+            NOW.minusMinutes(
+                5
+            );
+
         String sql =
             """
             INSERT INTO publication_attempt (
@@ -1362,6 +1394,8 @@ class JdbcPublicationOutboxCompletionAdapterTest {
                 status,
                 provider_reference,
                 error_code,
+                started_at,
+                finished_at,
                 created_at
             )
             VALUES (
@@ -1373,6 +1407,8 @@ class JdbcPublicationOutboxCompletionAdapterTest {
                 'FAILED_TRANSIENT',
                 NULL,
                 'PREVIOUS_TRANSIENT_FAILURE',
+                ?,
+                ?,
                 ?
             )
             """;
@@ -1404,9 +1440,17 @@ class JdbcPublicationOutboxCompletionAdapterTest {
 
             statement.setObject(
                 5,
-                NOW.minusMinutes(
-                    5
-                )
+                previousStartedAt
+            );
+
+            statement.setObject(
+                6,
+                previousFinishedAt
+            );
+
+            statement.setObject(
+                7,
+                previousFinishedAt
             );
 
             statement.executeUpdate();
@@ -1472,6 +1516,8 @@ class JdbcPublicationOutboxCompletionAdapterTest {
         String status,
         String providerReference,
         String errorCode,
+        OffsetDateTime startedAt,
+        OffsetDateTime finishedAt,
         OffsetDateTime createdAt
     ) {
     }

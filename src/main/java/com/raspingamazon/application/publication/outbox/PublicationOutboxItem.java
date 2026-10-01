@@ -12,6 +12,22 @@ import java.util.Objects;
  * <p>A outbox contém o conteúdo final necessário para a entrega.
  * Portanto o worker não precisa reconstruir DealEvaluation,
  * OfferSnapshot ou Publication para publicar.</p>
+ *
+ * <p>Uma entrada pode representar:</p>
+ *
+ * <ul>
+ *     <li>
+ *         entrega primária, que possui quotaProfileVersion
+ *         e quotaDate;
+ *     </li>
+ *     <li>
+ *         entrega derivada, que reutiliza uma seleção já aprovada
+ *         e não reserva quota adicional.
+ *     </li>
+ * </ul>
+ *
+ * <p>Quota profile e quota date formam uma unidade semântica:
+ * ambos devem estar presentes ou ambos devem estar ausentes.</p>
  */
 public record PublicationOutboxItem(
     long id,
@@ -73,16 +89,19 @@ public record PublicationOutboxItem(
                 "content"
             );
 
-        quotaProfileVersion =
-            requireText(
-                quotaProfileVersion,
-                "quotaProfileVersion"
-            );
-
-        Objects.requireNonNull(
-            quotaDate,
-            "quotaDate must not be null"
+        validateQuotaReservation(
+            quotaProfileVersion,
+            quotaDate
         );
+
+        if (quotaProfileVersion != null) {
+
+            quotaProfileVersion =
+                requireText(
+                    quotaProfileVersion,
+                    "quotaProfileVersion"
+                );
+        }
 
         Objects.requireNonNull(
             status,
@@ -129,6 +148,24 @@ public record PublicationOutboxItem(
         );
     }
 
+    /**
+     * Informa se esta entrada representa a reserva real de uma
+     * posição da quota operacional.
+     */
+    public boolean reservesQuota() {
+
+        return quotaProfileVersion != null;
+    }
+
+    /**
+     * Informa se esta entrada é uma entrega derivada da seleção,
+     * sem consumo de uma segunda vaga de quota.
+     */
+    public boolean derivedDelivery() {
+
+        return !reservesQuota();
+    }
+
     public boolean processing() {
 
         return status
@@ -143,6 +180,26 @@ public record PublicationOutboxItem(
             == PublicationOutboxStatus.FAILED_TRANSIENT
             || status
             == PublicationOutboxStatus.FAILED_PERMANENT;
+    }
+
+    private static void validateQuotaReservation(
+        String quotaProfileVersion,
+        LocalDate quotaDate
+    ) {
+
+        boolean hasQuotaProfile =
+            quotaProfileVersion != null;
+
+        boolean hasQuotaDate =
+            quotaDate != null;
+
+        if (hasQuotaProfile != hasQuotaDate) {
+
+            throw new IllegalArgumentException(
+                "quotaProfileVersion and quotaDate "
+                    + "must both be present or both be null"
+            );
+        }
     }
 
     private static void validateLock(
@@ -181,10 +238,8 @@ public record PublicationOutboxItem(
 
         boolean terminal =
             status == PublicationOutboxStatus.SUCCEEDED
-                || status
-                == PublicationOutboxStatus.FAILED_TRANSIENT
-                || status
-                == PublicationOutboxStatus.FAILED_PERMANENT;
+                || status == PublicationOutboxStatus.FAILED_TRANSIENT
+                || status == PublicationOutboxStatus.FAILED_PERMANENT;
 
         if (terminal && finishedAt == null) {
 

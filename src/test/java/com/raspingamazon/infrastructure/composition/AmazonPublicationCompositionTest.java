@@ -65,7 +65,6 @@ class AmazonPublicationCompositionTest {
         ApplicationConfig config =
             EnvironmentConfigProvider.load();
 
-
         try (Connection connection =
                  DatabaseConnection.open(
                      config
@@ -106,13 +105,17 @@ class AmazonPublicationCompositionTest {
                         .id()
                 );
 
+                /*
+                 * Novas Publications passam a registrar
+                 * explicitamente as versões V2.
+                 */
                 assertEquals(
-                    "AMAZON_PUBLICATION_V1",
+                    "AMAZON_PUBLICATION_V2",
                     first.templateVersion()
                 );
 
                 assertEquals(
-                    "AMAZON_COMMERCIAL_PRESENTATION_V1",
+                    "AMAZON_COMMERCIAL_PRESENTATION_V2",
                     first.commercialPresentationVersion()
                 );
 
@@ -137,11 +140,23 @@ class AmazonPublicationCompositionTest {
                     first.affiliateUrl()
                 );
 
+                /*
+                 * A fixture não possui:
+                 *
+                 * - basisPrice;
+                 * - previousPrice;
+                 * - condição à vista;
+                 * - parcelamento.
+                 *
+                 * Portanto a V2 produz somente o preço atual,
+                 * sem inventar "De", Pix, NuPay ou cartão.
+                 */
                 assertEquals(
                     """
-                    Produto vertical de publicação
-                    Preço atual: R$ 99,90
-                    Link patrocinado: https://www.amazon.com.br/dp/B0PUB13007?tag=test-20""",
+                    🔹**Produto vertical de publicação**
+                    💰 Por **R$ 99,90**!
+                    👇 Tá em Promo!
+                    🔗 https://www.amazon.com.br/dp/B0PUB13007?tag=test-20""",
                     first.generatedText()
                 );
 
@@ -157,6 +172,16 @@ class AmazonPublicationCompositionTest {
                 assertEquals(
                     first.id(),
                     second.id()
+                );
+
+                assertEquals(
+                    first.templateVersion(),
+                    second.templateVersion()
+                );
+
+                assertEquals(
+                    first.commercialPresentationVersion(),
+                    second.commercialPresentationVersion()
                 );
 
                 assertEquals(
@@ -321,18 +346,19 @@ class AmazonPublicationCompositionTest {
         String normalizedValue
     ) throws Exception {
 
-        String sql = """
-                INSERT INTO offer_evidence (
-                    offer_snapshot_id,
-                    evidence_type,
-                    raw_value,
-                    normalized_value,
-                    source_adapter,
-                    source_component,
-                    observed_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """;
+        String sql =
+            """
+            INSERT INTO offer_evidence (
+                offer_snapshot_id,
+                evidence_type,
+                raw_value,
+                normalized_value,
+                source_adapter,
+                source_component,
+                observed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """;
 
         try (PreparedStatement statement =
                  connection.prepareStatement(
@@ -386,11 +412,12 @@ class AmazonPublicationCompositionTest {
         long evaluationId
     ) throws Exception {
 
-        String sql = """
-                SELECT COUNT(*) AS total
-                FROM publication
-                WHERE deal_evaluation_id = ?
-                """;
+        String sql =
+            """
+            SELECT COUNT(*) AS total
+            FROM publication
+            WHERE deal_evaluation_id = ?
+            """;
 
         try (PreparedStatement statement =
                  connection.prepareStatement(

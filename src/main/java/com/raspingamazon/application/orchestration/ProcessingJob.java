@@ -21,6 +21,9 @@ import java.util.Objects;
  *
  * EVALUATE_DEAL
  *     -> offerSnapshotId
+ *
+ * PUBLICATION_DISPATCH
+ *     -> processingRunId
  * </pre>
  */
 public record ProcessingJob(
@@ -216,6 +219,24 @@ public record ProcessingJob(
                 requirePositive(
                     offerSnapshotId,
                     "EVALUATE_DEAL requires offerSnapshotId"
+                );
+            }
+
+            case PUBLICATION_DISPATCH -> {
+
+                requirePositive(
+                    processingRunId,
+                    "PUBLICATION_DISPATCH requires processingRunId"
+                );
+
+                requireNull(
+                    dealCandidateId,
+                    "PUBLICATION_DISPATCH must not have dealCandidateId"
+                );
+
+                requireNull(
+                    offerSnapshotId,
+                    "PUBLICATION_DISPATCH must not have offerSnapshotId"
                 );
             }
         }
