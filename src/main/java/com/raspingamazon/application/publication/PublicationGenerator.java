@@ -33,7 +33,8 @@ import java.util.Objects;
  * parâmetros específicos do programa de associados e não contém
  * formatação textual da publicação.</p>
  */
-public final class PublicationGenerator {
+public final class PublicationGenerator
+    implements PublicationGenerationUseCase {
 
     private final PublicationDataQueryPort publicationDataQueryPort;
 
@@ -101,11 +102,12 @@ public final class PublicationGenerator {
      * @param dealEvaluationId id persistido da DealEvaluation
      * @return Publication persistida
      */
+    @Override
     public Publication generate(
         long dealEvaluationId
     ) {
 
-        if (dealEvaluationId <= 0) {
+        if (dealEvaluationId <= 0L) {
 
             throw new IllegalArgumentException(
                 "dealEvaluationId must be positive"
@@ -118,10 +120,11 @@ public final class PublicationGenerator {
                     dealEvaluationId
                 )
                 .orElseThrow(
-                    () -> new IllegalArgumentException(
-                        "DealEvaluation not found: "
-                            + dealEvaluationId
-                    )
+                    () ->
+                        new IllegalArgumentException(
+                            "DealEvaluation not found: "
+                                + dealEvaluationId
+                        )
                 );
 
         CommercialPresentation commercialPresentation =

@@ -123,6 +123,7 @@ public final class JdbcPublicationOutboxQueueAdapter
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
+
                     return Optional.empty();
                 }
 
@@ -137,6 +138,149 @@ public final class JdbcPublicationOutboxQueueAdapter
 
             throw new IllegalStateException(
                 "Failed to claim publication outbox item",
+                exception
+            );
+        }
+    }
+
+    /**
+     * Devolve para PENDING uma entrada já reivindicada quando nenhuma
+     * chamada ao provider ocorreu.
+     *
+     * <p>Essa é a transição utilizada pelo rate limiter.</p>
+     */
+    @Override
+    public PublicationOutboxItem deferClaimed(
+        long outboxId,
+        String workerId,
+        OffsetDateTime availableAt,
+        OffsetDateTime deferredAt
+    ) {
+
+        if (outboxId <= 0L) {
+
+            throw new IllegalArgumentException(
+                "outboxId must be positive"
+            );
+        }
+
+        String validatedWorkerId =
+            requireText(
+                workerId,
+                "workerId"
+            );
+
+        Objects.requireNonNull(
+            availableAt,
+            "availableAt must not be null"
+        );
+
+        Objects.requireNonNull(
+            deferredAt,
+            "deferredAt must not be null"
+        );
+
+        if (!availableAt.isAfter(
+            deferredAt
+        )) {
+
+            throw new IllegalArgumentException(
+                "availableAt must be after deferredAt"
+            );
+        }
+
+        String sql =
+            """
+            UPDATE publication_outbox
+            SET
+                status = 'PENDING',
+                available_at = ?,
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = ?,
+                finished_at = NULL
+            WHERE id = ?
+              AND status = 'PROCESSING'
+              AND locked_by = ?
+            RETURNING
+                id,
+                publication_id,
+                selection_run_id,
+                selection_position,
+                channel,
+                destination,
+                content,
+                quota_profile_version,
+                quota_date,
+                status,
+                available_at,
+                locked_at,
+                locked_by,
+                created_at,
+                updated_at,
+                finished_at
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                availableAt
+            );
+
+            statement.setObject(
+                2,
+                deferredAt
+            );
+
+            statement.setLong(
+                3,
+                outboxId
+            );
+
+            statement.setString(
+                4,
+                validatedWorkerId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                if (!resultSet.next()) {
+
+                    throw new IllegalStateException(
+                        "Publication outbox item "
+                            + outboxId
+                            + " could not be deferred by worker "
+                            + validatedWorkerId
+                    );
+                }
+
+                PublicationOutboxItem deferred =
+                    readItem(
+                        resultSet
+                    );
+
+                if (resultSet.next()) {
+
+                    throw new IllegalStateException(
+                        "Publication outbox defer returned more "
+                            + "than one row for id "
+                            + outboxId
+                    );
+                }
+
+                return deferred;
+            }
+
+        } catch (SQLException exception) {
+
+            throw new IllegalStateException(
+                "Failed to defer publication outbox item "
+                    + outboxId,
                 exception
             );
         }

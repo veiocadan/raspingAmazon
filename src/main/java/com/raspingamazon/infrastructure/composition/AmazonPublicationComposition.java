@@ -6,9 +6,9 @@ import com.raspingamazon.application.publication.PublicationRepository;
 import com.raspingamazon.application.publication.affiliate.AffiliateLinkGenerator;
 import com.raspingamazon.application.publication.affiliate.AmazonAffiliateLinkGeneratorV2;
 import com.raspingamazon.application.publication.port.PublicationDataQueryPort;
-import com.raspingamazon.application.publication.presentation.AmazonCommercialPresentationV1;
+import com.raspingamazon.application.publication.presentation.AmazonCommercialPresentationV2;
 import com.raspingamazon.application.publication.presentation.CommercialPresentationPolicy;
-import com.raspingamazon.application.publication.template.AmazonPublicationV1;
+import com.raspingamazon.application.publication.template.AmazonPublicationV2;
 import com.raspingamazon.application.publication.template.PublicationTemplate;
 import com.raspingamazon.infrastructure.config.AmazonAffiliateConfig;
 import com.raspingamazon.infrastructure.config.AmazonAffiliateConfigProvider;
@@ -29,6 +29,17 @@ import java.util.Objects;
  *
  * <p>A mesma Connection é compartilhada pelos adapters JDBC para que
  * o chamador possa controlar a unidade de trabalho externamente.</p>
+ *
+ * <p>Novas publicações utilizam:</p>
+ *
+ * <pre>
+ * AMAZON_COMMERCIAL_PRESENTATION_V2
+ * AMAZON_PUBLICATION_V2
+ * AMAZON_AFFILIATE_LINK_V2
+ * </pre>
+ *
+ * <p>As versões anteriores permanecem disponíveis no código para
+ * reprodução e auditoria histórica.</p>
  */
 public final class AmazonPublicationComposition {
 
@@ -93,9 +104,23 @@ public final class AmazonPublicationComposition {
          * ---------------------------------------------------------
          * POLÍTICA COMERCIAL
          * ---------------------------------------------------------
+         *
+         * V1 permanece preservada historicamente.
+         *
+         * Novas Publications utilizam V2:
+         *
+         * - política Pix/NuPay preservada;
+         * - NuPay só vence Pix quando seu desconto é
+         *   estritamente maior;
+         * - Pix vence empate;
+         * - quando NuPay vence, Pix permanece como alternativa;
+         * - somente parcelamento sem juros pode ser selecionado
+         *   para publicação;
+         * - entre parcelamentos sem juros, vence a maior
+         *   quantidade de parcelas.
          */
         CommercialPresentationPolicy commercialPresentationPolicy =
-            new AmazonCommercialPresentationV1();
+            new AmazonCommercialPresentationV2();
 
         /*
          * ---------------------------------------------------------
@@ -115,9 +140,13 @@ public final class AmazonPublicationComposition {
          * ---------------------------------------------------------
          * TEMPLATE
          * ---------------------------------------------------------
+         *
+         * A V1 permanece preservada historicamente.
+         *
+         * Novas Publications utilizam o formato canônico V2.
          */
         PublicationTemplate publicationTemplate =
-            new AmazonPublicationV1();
+            new AmazonPublicationV2();
 
         /*
          * ---------------------------------------------------------

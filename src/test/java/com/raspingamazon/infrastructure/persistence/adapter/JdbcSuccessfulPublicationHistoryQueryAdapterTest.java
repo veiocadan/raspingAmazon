@@ -530,6 +530,7 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
+
                     throw new IllegalStateException(
                         "Product insert returned no id"
                     );
@@ -604,6 +605,7 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
+
                     throw new IllegalStateException(
                         "OfferSnapshot insert returned no id"
                     );
@@ -702,6 +704,7 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
+
                     throw new IllegalStateException(
                         "DealEvaluation insert returned no id"
                     );
@@ -787,6 +790,7 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
                      statement.executeQuery()) {
 
                 if (!resultSet.next()) {
+
                     throw new IllegalStateException(
                         "Publication insert returned no id"
                     );
@@ -809,6 +813,16 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
         OffsetDateTime createdAt
     ) throws Exception {
 
+        /*
+         * Este fixture testa agregação de histórico, não duração.
+         *
+         * Antes da V28, apenas created_at era necessário.
+         * A partir da V28, started_at e finished_at fazem parte
+         * do contrato obrigatório de PublicationAttempt.
+         *
+         * Como este teste representa tentativas históricas
+         * instantâneas, usamos o mesmo instante nos três campos.
+         */
         String sql =
             """
             INSERT INTO publication_attempt (
@@ -819,9 +833,11 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
                 status,
                 provider_reference,
                 error_code,
+                started_at,
+                finished_at,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         try (PreparedStatement statement =
@@ -866,6 +882,16 @@ class JdbcSuccessfulPublicationHistoryQueryAdapterTest {
 
             statement.setObject(
                 8,
+                createdAt
+            );
+
+            statement.setObject(
+                9,
+                createdAt
+            );
+
+            statement.setObject(
+                10,
                 createdAt
             );
 

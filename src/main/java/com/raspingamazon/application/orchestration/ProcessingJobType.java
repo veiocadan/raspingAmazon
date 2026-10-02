@@ -7,8 +7,12 @@ package com.raspingamazon.application.orchestration;
  * persistida, reivindicada por um worker e reexecutada
  * independentemente das demais etapas.</p>
  *
- * <p>Publicação deliberadamente não pertence à FASE 12.
- * Essa responsabilidade permanece reservada à fase de publicação.</p>
+ * <p>As três primeiras etapas pertencem ao processamento técnico
+ * iniciado na FASE 12.</p>
+ *
+ * <p>PUBLICATION_DISPATCH pertence à evolução de publicação automática
+ * da FASE 19 e utiliza a ProcessingRun como raiz da seleção e do
+ * despacho de publicações.</p>
  */
 public enum ProcessingJobType {
 
@@ -25,5 +29,15 @@ public enum ProcessingJobType {
     /**
      * Avalia um OfferSnapshot já persistido.
      */
-    EVALUATE_DEAL
+    EVALUATE_DEAL,
+
+    /**
+     * Executa a etapa automática de seleção e despacho de publicações
+     * associadas a uma ProcessingRun.
+     *
+     * <p>Este job é durável e utiliza processingRunId como sujeito.</p>
+     *
+     * <p>A existência do tipo não implica aprovação humana.</p>
+     */
+    PUBLICATION_DISPATCH
 }

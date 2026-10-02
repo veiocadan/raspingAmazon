@@ -57,6 +57,149 @@ class PublicationOutboxItemTest {
     }
 
     @Test
+    void shouldRecognizePrimaryDeliveryWithQuotaReservation() {
+
+        PublicationOutboxItem item =
+            processingItem();
+
+        assertTrue(
+            item.reservesQuota()
+        );
+
+        assertFalse(
+            item.derivedDelivery()
+        );
+
+        assertEquals(
+            "PUBLICATION_QUOTA_V1",
+            item.quotaProfileVersion()
+        );
+
+        assertEquals(
+            LocalDate.of(
+                2026,
+                9,
+                27
+            ),
+            item.quotaDate()
+        );
+    }
+
+    @Test
+    void shouldAllowDerivedDeliveryWithoutQuotaReservation() {
+
+        PublicationOutboxItem item =
+            new PublicationOutboxItem(
+                2L,
+                10L,
+                20L,
+                1,
+                "WHATSAPP_MANUAL",
+                "-1001234567890",
+                "Oferta pronta",
+                null,
+                null,
+                PublicationOutboxStatus.PENDING,
+                NOW,
+                null,
+                null,
+                NOW,
+                NOW,
+                null
+            );
+
+        assertFalse(
+            item.reservesQuota()
+        );
+
+        assertTrue(
+            item.derivedDelivery()
+        );
+
+        assertEquals(
+            null,
+            item.quotaProfileVersion()
+        );
+
+        assertEquals(
+            null,
+            item.quotaDate()
+        );
+
+        PublicationCommand command =
+            item.command();
+
+        assertEquals(
+            "WHATSAPP_MANUAL",
+            command.channel()
+        );
+
+        assertEquals(
+            "-1001234567890",
+            command.destination()
+        );
+
+        assertEquals(
+            "Oferta pronta",
+            command.content()
+        );
+    }
+
+    @Test
+    void shouldRejectPartialQuotaReservation() {
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PublicationOutboxItem(
+                    2L,
+                    10L,
+                    20L,
+                    1,
+                    "WHATSAPP_MANUAL",
+                    "-1001234567890",
+                    "Oferta pronta",
+                    "PUBLICATION_QUOTA_V1",
+                    null,
+                    PublicationOutboxStatus.PENDING,
+                    NOW,
+                    null,
+                    null,
+                    NOW,
+                    NOW,
+                    null
+                )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PublicationOutboxItem(
+                    2L,
+                    10L,
+                    20L,
+                    1,
+                    "WHATSAPP_MANUAL",
+                    "-1001234567890",
+                    "Oferta pronta",
+                    null,
+                    LocalDate.of(
+                        2026,
+                        9,
+                        27
+                    ),
+                    PublicationOutboxStatus.PENDING,
+                    NOW,
+                    null,
+                    null,
+                    NOW,
+                    NOW,
+                    null
+                )
+        );
+    }
+
+    @Test
     void shouldRequireLockForProcessingItem() {
 
         assertThrows(

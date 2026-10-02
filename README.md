@@ -1,42 +1,8 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, normalização, enriquecimento, validação, filtragem, avaliação, score, ranking, histórico, evolução, momentum, orquestração durável, geração auditável de publicações, seleção operacional, aprovação, outbox, observabilidade, agendamento e execução contínua** de ofertas da Amazon Brasil.
+Sistema em desenvolvimento para **coleta, interpretação, enriquecimento, validação, filtragem, score, ranking, histórico, seleção e publicação automatizada de ofertas da Amazon Brasil**, com PostgreSQL como fonte principal de estado e foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução incremental.
 
-O projeto prioriza:
-
-- separação de responsabilidades;
-- rastreabilidade;
-- idempotência;
-- auditabilidade;
-- evolução incremental;
-- persistência durável;
-- configuração explícita;
-- segurança operacional;
-- escalabilidade guiada por necessidade real;
-- distinção entre regra de negócio e mecanismo operacional.
-
-> **Estado atual: FASE 18 CONCLUÍDA LOCALMENTE.**
->
-> A FASE 17 está integrada à `main` e teve CI remoto verde. A FASE 18 concluiu seleção operacional versionada, cooldown, quota, auditoria, aprovação, contratos de canais, fake channel, outbox persistida, reserva concorrente de quota, claim/lease, completion atômico, vínculo entre outbox e tentativas de publicação e worker genérico de entrega.
->
-> O catálogo Flyway local da FASE 18 alcança **V27**.
->
-> Gate local final da FASE 18:
->
-> ```text
-> Tests run: 1229
-> Failures: 0
-> Errors: 0
-> Skipped: 0
->
-> BUILD SUCCESS
-> ```
->
-> `git diff --check` também foi executado sem apontar problemas.
->
-> A validação externa real com 30 ofertas da Amazon confirmou 12 ofertas elegíveis com score, quota simulada de 5 e seleção determinística dos cinco primeiros candidatos. A investigação também levou à decisão arquitetural de utilizar **DOM renderizado com Playwright/Chromium na página individual em produção**, enquanto não existir API/fonte estruturada igualmente confiável.
->
-> O fechamento remoto da FASE 18 ainda depende de commit, push da branch, Pull Request e CI remoto verde.
+> **Estado atual:** FASE 19 concluída localmente na branch `feat/fase-19-telegram-whatsapp`. O fluxo já cobre processamento durável, geração versionada de `Publication`, interface operacional não bloqueante, observabilidade, execução contínua, seleção operacional, outbox de publicação e adapters concretos de Telegram e WhatsApp. O gate local final executou **1608 testes**, com **0 falhas, 0 erros e 0 ignorados**. O schema PostgreSQL/Flyway está em **V34**. O fechamento remoto da FASE 19 ainda depende de commit, push, Pull Request e CI remoto. A próxima fase oficial é a **FASE 20 — Resiliência, recuperação e falhas de produção**.
 
 ---
 
@@ -44,63 +10,87 @@ O projeto prioriza:
 
 O Rasping Amazon não é apenas um raspador de ofertas.
 
-O objetivo é construir um sistema em que:
+O objetivo é manter um pipeline em que aquisição de dados, interpretação, regras comerciais, decisão operacional, geração de conteúdo e entrega externa permaneçam desacopladas.
+
+Fluxo atual consolidado:
 
 ```text
+Amazon
+  ↓
 coleta
   ↓
-identificação / normalização
+parsing / normalização
   ↓
 enriquecimento
   ↓
-validação estrutural Amazon
+persistência
   ↓
-filtros comerciais configuráveis
+elegibilidade estrutural
   ↓
-score versionado
+filtros comerciais
   ↓
-ranking determinístico
+score / ranking
   ↓
-histórico / evolução temporal
-  ↓
-momentum versionado
-  ↓
-orquestração durável
-  ↓
-agendamento recorrente
-  ↓
-geração de Publication
+histórico / momentum
   ↓
 seleção operacional
   ↓
-aprovação
+PublicationGenerator
   ↓
-outbox persistida
+Publication
   ↓
-canal de publicação
+liberação automática
+  ↓
+outbox
+  ↓
+worker
+  ↓
+Telegram / WhatsApp
+  ↓
+PublicationAttempt
+  ↓
+auditoria / histórico
 ```
 
-permaneçam desacoplados.
-
-Princípio central:
-
-```text
-qualidade da oferta
-    ≠
-prioridade operacional de publicação
-    ≠
-entrega externa
-```
-
-A ordem das fases deve ser preservada.
-
-Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
+O sistema deve continuar operando sem depender de Excel, de edição manual no banco ou de uma interface de usuário no caminho crítico.
 
 ---
 
-## 2. Estado atual das fases
+## 2. Fonte de verdade documental
 
-| Fase | Descrição | Status |
+A documentação do projeto segue esta hierarquia prática:
+
+```text
+ROADMAP
+→ define a direção planejada das fases
+
+ADRs aceitas
+→ registram decisões arquiteturais vigentes e específicas
+
+relatórios de fase
+→ registram o que efetivamente foi implementado
+```
+
+Quando uma ADR posterior altera uma decisão específica prevista originalmente pelo roadmap ou por documentação histórica, a ADR vigente prevalece naquele assunto.
+
+Relatórios históricos não são reescritos apenas para coincidir com decisões posteriores.
+
+Documentos principais:
+
+```text
+docs/phases/ROADMAP_RASPING_AMAZON_V1.md
+docs/adr/
+docs/phases/FASE_*_RESULTADO.md
+README.md
+```
+
+O README representa o estado operacional atual do projeto.
+
+---
+
+## 3. Estado das fases
+
+| Fase | Descrição | Estado |
 |---|---|---|
 | FASE 0 | Levantamento da fonte e regras | CONCLUÍDA |
 | FASE 0 v2 | Semântica comercial de preços e pagamento | CONCLUÍDA |
@@ -110,7 +100,7 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 | FASE 3 | Domínio e contratos internos | CONCLUÍDA |
 | FASE 3 v2 | Revisão comercial e estrutural | CONCLUÍDA |
 | FASE 4 | Configuração e segredos | CONCLUÍDA |
-| FASE 5 | Coleta da página de promoções | CONCLUÍDA |
+| FASE 5 | Coleta da página de ofertas | CONCLUÍDA |
 | FASE 6 | Parser, ASIN e normalização | CONCLUÍDA |
 | FASE 7 | Enriquecimento da página individual | CONCLUÍDA |
 | FASE 8 | Validação estrutural Amazon | CONCLUÍDA |
@@ -124,20 +114,16 @@ Responsabilidades futuras não devem ser antecipadas sem decisão explícita.
 | FASE 15 | Qualidade integrada | CONCLUÍDA |
 | FASE 16 | Observabilidade, auditoria e operação | CONCLUÍDA |
 | FASE 17 | Agendamento e execução contínua | CONCLUÍDA |
-| FASE 18 | Contrato de canais e outbox de publicação | CONCLUÍDA LOCALMENTE |
-| FASE 19 | Telegram e WhatsApp | PRÓXIMA APÓS GATE REMOTO |
-| FASE 20 | Resiliência, recuperação e falhas de produção | PLANEJADA |
-| FASE 21 | Segurança, governança e fechamento da versão 1.0 | PLANEJADA |
+| FASE 18 | Contrato de canais e outbox de publicação | CONCLUÍDA |
+| FASE 19 | Telegram e WhatsApp | CONCLUÍDA LOCALMENTE |
+| FASE 20 | Resiliência, recuperação e falhas de produção | PRÓXIMA |
+| FASE 21 | Segurança, governança e fechamento da v1.0 | PLANEJADA |
 
-A fonte de planejamento continua sendo:
-
-```text
-docs/phases/ROADMAP_RASPING_AMAZON_V1.md
-```
+A FASE 19 também contém alguns componentes antecipados da FASE 20. Eles permanecem no código, mas não significam que a FASE 20 esteja concluída.
 
 ---
 
-## 3. Arquitetura
+## 4. Arquitetura
 
 Estrutura principal:
 
@@ -153,85 +139,49 @@ src/
 │   └── resources/
 │       └── db/
 │           └── migration/
-├── test/
-│   ├── java/
-│   │   └── com/raspingamazon/
-│   └── resources/
-│       └── amazon/
-│           └── fixtures/
-└── external-probe/
-    └── java/
-        └── com/raspingamazon/
-            └── infrastructure/
-                └── diagnostic/
+└── test/
+    ├── java/
+    │   └── com/raspingamazon/
+    └── resources/
+        └── amazon/
+            └── fixtures/
 ```
 
 Responsabilidades:
 
-- `domain`: conceitos, invariantes e regras de negócio sem dependência de infraestrutura;
-- `application`: contratos, ports, read models e coordenação dos casos de uso;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, configuração, HTTP, parsing específico da Amazon, browser/renderização, bootstrap, composition roots e runtime;
-- `presentation`: adaptadores de interação com o operador, atualmente CLI;
-- `external-probe`: validações deliberadamente externas e temporais contra a Amazon real.
+- `domain`: conceitos, invariantes e políticas de negócio sem dependência de infraestrutura;
+- `application`: casos de uso, ports, coordenação, seleção e contratos operacionais;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, HTTP, Amazon, scheduler e adapters de canal;
+- `presentation`: interface operacional, atualmente CLI.
 
-Dependência conceitual:
+Dependências devem apontar para dentro.
 
-```text
-presentation
-     ↓
-application
-     ↓
-domain
-```
-
-A infraestrutura implementa ports definidos para dentro:
-
-```text
-infrastructure
-     ↓
-application contracts
-```
-
-O domínio não conhece:
-
-```text
-HTML
-HTTP
-Playwright
-PostgreSQL
-Flyway
-JDBC
-CLI
-scheduler
-Telegram
-WhatsApp
-```
+O domínio não conhece detalhes de HTML, JDBC, PostgreSQL, Flyway, Telegram ou WhatsApp.
 
 O projeto permanece em um único módulo Maven enquanto não houver pressão arquitetural real para decomposição.
 
 ---
 
-## 4. Stack
+## 5. Stack
 
 - Java 25
-- Maven Wrapper 3.3.4
-- Maven 3.9.x
+- Maven Wrapper
 - JUnit 5
 - PostgreSQL 18.6
-- Flyway 11.14.1
-- PostgreSQL JDBC 42.7.8
-- Jackson Databind
-- jsoup
-- Playwright / Chromium para DOM renderizado
+- Flyway
+- PostgreSQL JDBC
+- Jackson
 - Docker / Docker Compose
 - GitHub Actions
-- Exec Maven Plugin para execução explícita da CLI operacional
+- HTTP/JSON para integrações externas
+
+O PostgreSQL continua sendo a fonte principal de estado durável.
 
 ---
 
-## 5. Build e gates
+## 6. Build
 
-O projeto utiliza o Maven Wrapper versionado.
+Use o Maven Wrapper versionado.
 
 Windows:
 
@@ -245,186 +195,130 @@ Linux/macOS/CI:
 ./mvnw clean test
 ```
 
-O último gate remoto integral já fechado pertence à FASE 17.
+Gate local final da FASE 19:
 
-A FASE 18 possui diversos blocos locais verdes, incluindo contratos de canal, fake channel, outbox, quota, concorrência e migrations, mas ainda precisa registrar um `clean test` completo no estado final da branch antes do fechamento formal.
+```text
+Tests run: 1608
+Failures: 0
+Errors: 0
+Skipped: 0
 
-A suíte padrão deve permanecer hermética em relação à Amazon real.
+BUILD SUCCESS
+```
 
-Probes externas são executadas explicitamente e separadas.
+Também foi executado:
+
+```text
+git diff --check
+```
+
+sem problemas.
 
 ---
 
-## 6. Configuração e segredos
+## 7. Configuração e segredos
 
-A configuração principal da aplicação permanece baseada em ambiente.
+Segredos não pertencem ao repositório.
 
-Variáveis centrais incluem:
+O arquivo:
 
 ```text
-APP_ENV
+.env
+```
+
+permanece local e não versionado.
+
+O arquivo:
+
+```text
+.env.example
+```
+
+documenta o contrato de configuração sem conter credenciais reais.
+
+Entre as configurações atualmente relevantes estão:
+
+```text
 DB_HOST
 DB_PORT
 DB_NAME
 DB_USER
 DB_PASSWORD
+
 AMAZON_ASSOCIATE_TAG
+
+TELEGRAM_ENABLED
+TELEGRAM_BOT_TOKEN
+TELEGRAM_API_BASE_URI
+TELEGRAM_REQUEST_TIMEOUT
+TELEGRAM_DESTINATION
+
+WHATSAPP_MANUAL_ENABLED
+WHATSAPP_MANUAL_TELEGRAM_DESTINATION
+
+WHATSAPP_ENABLED
+WHATSAPP_ACCESS_TOKEN
+WHATSAPP_PHONE_NUMBER_ID
+WHATSAPP_GRAPH_API_VERSION
+WHATSAPP_GRAPH_API_BASE_URI
+WHATSAPP_TEMPLATE_NAME
+WHATSAPP_TEMPLATE_LANGUAGE
+WHATSAPP_REQUEST_TIMEOUT
+
+PUBLICATION_OUTBOX_MAX_ATTEMPTS
+PUBLICATION_OUTBOX_RETRY_INITIAL_BACKOFF
+PUBLICATION_OUTBOX_RETRY_MAX_BACKOFF
+
+PUBLICATION_RATE_LIMIT_TELEGRAM_BOT_API_MIN_INTERVAL
+PUBLICATION_RATE_LIMIT_WHATSAPP_CLOUD_API_MIN_INTERVAL
+
+PUBLICATION_PRIMARY_CHANNEL
+PUBLICATION_PRIMARY_DESTINATION
+
+PUBLICATION_SELECTION_VERSION
+PUBLICATION_SELECTION_HARD_COOLDOWN
+PUBLICATION_SELECTION_PREFERRED_COOLDOWN
+
+PUBLICATION_QUOTA_VERSION
+PUBLICATION_QUOTA_MAX_PER_DAY
+PUBLICATION_QUOTA_ZONE
+
+PUBLICATION_CADENCE_VERSION
+PUBLICATION_CADENCE_INTERVAL
+PUBLICATION_CADENCE_WINDOW_START
+PUBLICATION_CADENCE_WINDOW_END
+PUBLICATION_CADENCE_ZONE
 ```
 
-Regras:
-
-- `DB_PASSWORD` é segredo e não possui valor real versionado;
-- `AMAZON_ASSOCIATE_TAG` pertence ao fluxo de publicação;
-- `.env` local não deve ser versionado;
-- configuração funcional não deve ser escondida em constantes semânticas;
-- segredos nunca devem aparecer em logs estruturados.
-
-Configuração de scheduler, seleção, cooldown e quota pertence aos respectivos contratos e perfis.
+Tokens, senhas e identificadores sensíveis nunca devem aparecer em código, documentação operacional versionada ou logs.
 
 ---
 
-## 7. Modelo de oferta
+## 8. Núcleo comercial
 
-`OfferSnapshot` representa uma observação temporal de uma oferta.
-
-Campos relevantes:
+O núcleo de decisão preserva a separação:
 
 ```text
-product
-collectedAt
-currentPrice
-basisPrice
-previousPrice
-soldPercentage
-rating
-reviewCount
-sellerName
-deliveryProvider
-sellerType
-deliveryType
-source
-paymentConditions
-```
-
-Princípios:
-
-- `basisPrice` é diferente de `previousPrice`;
-- ausência não equivale a zero;
-- preço Pix/NuPay não é inferido;
-- condições comerciais são persistidas de forma estruturada;
-- evidências relevantes permanecem rastreáveis;
-- valores ausentes não devem ser inventados.
-
----
-
-## 8. Aquisição da página de Deals
-
-A página de Deals continua sendo coletada por HTTP enquanto essa fonte permanecer suficiente para o contrato necessário.
-
-Fluxo:
-
-```text
-https://www.amazon.com.br/deals
+elegibilidade estrutural
         ↓
-coleta HTTP
+filtros comerciais
         ↓
-AmazonDealsParser
+score
         ↓
-ParsedDeal
+ranking
+        ↓
+histórico
+        ↓
+momentum
+        ↓
+seleção operacional
 ```
 
-`ParsedDeal` preserva fatos como:
+Esses conceitos não são intercambiáveis.
 
-```text
-asin
-productUrl
-title
-imageUrl
-currentPrice
-basisPrice
-previousPrice
-soldPercentage
-rating
-reviewCount
-collectedAt
-source
-```
+### Elegibilidade estrutural
 
-Seller e delivery permanecem fatos da página individual.
-
----
-
-## 9. Página individual e DOM renderizado
-
-A investigação da FASE 18 demonstrou que HTML HTTP bruto pode não carregar, de forma confiável, seller/delivery que estão claramente presentes no navegador.
-
-Foi adotada a decisão arquitetural:
-
-```text
-página individual em produção
-    ↓
-DOM renderizado
-    ↓
-Playwright / Chromium
-```
-
-A decisão está formalizada em:
-
-```text
-docs/adr/0014-aquisicao-dom-renderizado-pagina-produto-amazon.md
-```
-
-Fluxo alvo:
-
-```text
-ParsedDeal
-    ↓
-productUrl
-    ↓
-ProductPageContentProvider
-    ↓
-Playwright / Chromium
-    ↓
-DOM renderizado
-    ↓
-AmazonProductPageEnrichmentClient
-```
-
-O projeto permanecerá aberto para substituir Playwright por API/fonte estruturada menos custosa quando houver confiabilidade equivalente.
-
----
-
-## 10. Evidências de enrichment
-
-O enrichment da página individual produz contratos tipados para:
-
-```text
-SellerEvidence
-DeliveryEvidence
-RatingEvidence
-ReviewCountEvidence
-PaymentCondition
-```
-
-Exemplo real validado por probe renderizada:
-
-```text
-Seller raw: Amazon.com.br
-Seller type: AMAZON
-
-Delivery raw: Amazon
-Delivery type: AMAZON
-
-Rating normalized: 4.8
-Review count normalized: 183
-Payment conditions: 12
-```
-
-`UNKNOWN` continua semanticamente válido quando evidência suficiente realmente não existe.
-
----
-
-## 11. Validação estrutural Amazon
+Seller e delivery continuam sendo avaliados separadamente e com política fail closed.
 
 Regras:
 
@@ -433,167 +327,72 @@ SELLER_IS_AMAZON
 DELIVERY_IS_AMAZON
 ```
 
-A política é fail closed.
+Sem evidência suficiente de venda e entrega compatíveis com a política ativa, a oferta não prossegue como elegível.
 
-Exemplos de rejeição:
+### Filtros comerciais
 
-```text
-SELLER_UNKNOWN
-SELLER_THIRD_PARTY
-DELIVERY_UNKNOWN
-DELIVERY_THIRD_PARTY
-```
+A camada de filtros permanece versionada.
 
-Elegibilidade estrutural permanece separada de:
+Entre os sinais avaliados estão:
 
 ```text
-filtros comerciais
-score
-ranking
-momentum
-apresentação de publicação
-seleção operacional
-scheduling
+desconto à vista
+rating
+quantidade de avaliações
 ```
+
+Ausência de dado permanece diferente de valor zero observado.
+
+### Score
+
+O score continua versionado, explicável e reproduzível.
+
+A avaliação preserva fatores individuais em vez de persistir somente o total agregado.
+
+### Histórico e momentum
+
+`OfferSnapshot` permanece a unidade histórica.
+
+A aplicação consegue reconstruir histórico por ASIN e calcular evolução entre observações.
+
+`MOMENTUM_V1` permanece separado do score e da elegibilidade.
 
 ---
 
-## 12. Condições comerciais
+## 9. Semântica comercial da publicação
 
-Tipos:
+A geração de publicação utiliza somente dados persistidos e auditáveis.
 
-```text
-PaymentConditionType.CASH
-PaymentConditionType.CREDIT_INSTALLMENT
-```
+Dados ausentes não são inventados.
 
-Métodos conhecidos:
+Princípios preservados:
 
 ```text
-PIX
-NUPAY_ADDITIONAL_LIMIT
-CREDIT_CARD
+basisPrice != previousPrice
+ausência != zero
+cartão != desconto à vista
+parcelamento não é inferido
+Pix e NuPay preservam semânticas próprias
 ```
 
-Uma condição pode preservar:
+Para apresentação à vista:
 
-```text
-price
-discountPercentage
-installmentCount
-installmentAmount
-installmentTotal
-interest
-paymentMethods
-```
+- quando somente Pix estiver disponível, Pix pode ser apresentado;
+- quando somente NuPay estiver disponível, NuPay pode ser apresentado;
+- quando Pix e NuPay existirem e Pix tiver vantagem igual ou maior, Pix é a referência principal;
+- quando NuPay tiver vantagem estritamente maior, NuPay pode ser destacado e Pix preservado como alternativa quando disponível.
 
-Dados não explicitamente observados não são inventados.
+Para parcelamento, a política inicial prioriza condições sem juros e, entre elas, a maior quantidade de parcelas explicitamente observada.
+
+Nenhum preço, desconto ou parcelamento é fabricado a partir de hipótese.
 
 ---
 
-## 13. Filtros comerciais
+## 10. FASE 12 — Orquestração durável
 
-Perfil ativo consolidado:
+A FASE 12 removeu a dependência de uma única execução síncrona longa.
 
-```text
-COMMERCIAL_FILTER_V2
-```
-
-A V2 utiliza desconto sobre preço-base como critério comercial principal de desconto.
-
-Configuração consolidada:
-
-```text
-minBasisDiscountPercentage = 20.0000
-minRating = 4.30
-minReviewCount = 100
-```
-
-A versão anterior permanece histórica:
-
-```text
-COMMERCIAL_FILTER_V1
-```
-
-Mudanças semânticas de filtros são versionadas.
-
----
-
-## 14. Score e ranking
-
-Perfil ativo:
-
-```text
-SCORE_V2
-```
-
-Fatores:
-
-```text
-SOLD_PERCENTAGE
-BASIS_DISCOUNT
-RATING
-REVIEW_COUNT
-```
-
-Pesos:
-
-```text
-SOLD_PERCENTAGE = 30
-BASIS_DISCOUNT  = 25
-RATING          = 20
-REVIEW_COUNT    = 15
-```
-
-Características:
-
-- score reproduzível;
-- fatores explicáveis;
-- fatores persistidos;
-- ranking determinístico;
-- versão histórica preservada.
-
-Histórico de publicação não altera retroativamente o score.
-
----
-
-## 15. Histórico e momentum
-
-O histórico é baseado em snapshots persistidos.
-
-Componentes principais:
-
-```text
-HistoricalOfferObservation
-SnapshotEvolution
-SnapshotEvolutionCalculator
-MomentumEngine
-MomentumAudit
-```
-
-Versão:
-
-```text
-MOMENTUM_V1
-```
-
-Momentum interpreta evolução temporal, mas não substitui score nem elegibilidade.
-
----
-
-## 16. Orquestração durável — FASE 12
-
-A FASE 12 introduziu processamento assíncrono baseado em PostgreSQL.
-
-Entidades:
-
-```text
-ProcessingRun
-DealCandidate
-ProcessingJob
-```
-
-Fluxo:
+Fluxo operacional básico:
 
 ```text
 ProcessingRun
@@ -611,195 +410,213 @@ EVALUATE_DEAL
 DealEvaluation
 ```
 
-A fila suporta:
+A camada de orquestração suporta:
 
-- jobs persistidos;
-- claim concorrente;
-- `FOR UPDATE SKIP LOCKED`;
-- retry;
-- backoff;
-- leases;
-- recuperação de jobs abandonados;
-- múltiplos workers;
-- idempotência por etapa;
-- falhas transitórias e permanentes.
+```text
+estado persistido
+jobs independentes
+retry por etapa
+falhas transitórias e permanentes
+idempotência
+leases
+recuperação de trabalho abandonado
+múltiplos workers
+```
+
+A falha de uma etapa não exige reiniciar desnecessariamente todo o pipeline.
 
 ---
 
-## 17. Geração de publicação — FASE 13
+## 11. FASE 13 — Geração de publicação
 
-A FASE 13 transforma uma `DealEvaluation` persistida em `Publication`.
+A geração de conteúdo é um caso de uso independente de canal.
 
 Fluxo:
 
 ```text
-dealEvaluationId
-      ↓
-PublicationDataQueryPort
-      ↓
-PublicationData
-      ↓
-CommercialPresentationPolicy
-      ↓
+DealEvaluation selecionada
+        ↓
+dados persistidos
+        ↓
+política de apresentação comercial
+        ↓
 AffiliateLinkGenerator
-      ↓
-PublicationTemplate
-      ↓
+        ↓
+template versionado
+        ↓
 Publication
-      ↓
-PublicationRepository
+        ↓
+persistência
 ```
 
-A geração não reconsulta a Amazon e não executa entrega externa.
+A geração não acessa novamente a Amazon para reconstruir dados.
+
+Uma `Publication` preserva informações suficientes para auditoria e reprodutibilidade.
+
+A branch atual também contém evolução versionada da apresentação e do template:
+
+```text
+AmazonCommercialPresentationV2
+AmazonPublicationV2
+```
 
 ---
 
-## 18. `Publication`
+## 12. FASE 14 — Interface operacional
 
-A entidade `Publication` preserva relação com:
+A interface inicial é uma CLI Java.
+
+Princípio central:
 
 ```text
-DealEvaluation
-templateVersion
-commercialPresentationVersion
-affiliateLinkVersion
-generatedText
-affiliateUrl
-status
-createdAt
+A interface observa e administra o pipeline.
+A interface não autoriza o pipeline a funcionar.
 ```
 
-Estados existentes:
+A CLI utiliza contratos da camada `application`.
+
+Ela não deve:
+
+```text
+consultar JDBC diretamente
+consultar tabelas diretamente
+reimplementar filtros
+recalcular score
+recalcular momentum
+montar Publication manualmente
+controlar o caminho crítico do pipeline
+```
+
+A interface permanece substituível por outra apresentação futura sem reescrever regras de negócio.
+
+---
+
+## 13. Publicação sem aprovação manual
+
+A aprovação humana obrigatória não faz parte do fluxo normal.
+
+A decisão vigente foi registrada pela ADR de interface operacional não bloqueante.
+
+Estados de `Publication` são estados de ciclo de vida, não etapas obrigatórias de aprovação humana.
+
+Semântica atual:
 
 ```text
 CREATED
+Publication gerada e persistida
+        ↓
 READY
-PUBLISHED
-FAILED
+liberada automaticamente pelas regras aplicáveis
+        ↓
+outbox
+        ↓
+entrega
 ```
 
-Na FASE 18 foi consolidada a aprovação explícita:
+O antigo:
 
 ```text
-CREATED
-    ↓
-aprovação
-    ↓
-READY
+PublicationApprovalService
 ```
 
-`READY` significa autorizada para seguir ao processo de entrega, mas não significa que uma linha de outbox já exista.
+foi removido.
+
+A liberação normal utiliza componentes de readiness automático.
+
+Nenhuma publicação normal deve depender de clique, confirmação ou aprovação manual de um operador.
 
 ---
 
-## 19. Interface operacional — FASE 14
+## 14. FASE 15 — Qualidade integrada
 
-A interface operacional permanece separada das regras de domínio.
+A suíte de testes valida componentes isolados e jornadas completas.
 
-O sistema possui CLI Java para operações administrativas e execução explícita de casos de uso.
-
-A interface não mantém transações longas nem incorpora lógica comercial.
-
----
-
-## 20. Qualidade integrada — FASE 15
-
-A FASE 15 consolidou testes verticais e integração entre camadas já implementadas.
-
-A suíte padrão permanece baseada em ambientes e fontes controladas.
-
-Dados reais da Amazon pertencem às probes externas, não ao gate hermético.
-
----
-
-## 21. Observabilidade — FASE 16
-
-A observabilidade correlaciona operações externas, processamento e contexto operacional.
-
-Princípios:
-
-- instrumentação não altera regra de negócio;
-- falha de observabilidade não substitui falha funcional;
-- segredos não são registrados;
-- integração externa e falha interna são distinguíveis.
-
----
-
-## 22. Scheduler — FASE 17
-
-A FASE 17 implementou execução contínua com estado persistido.
-
-Responsabilidades:
+Cobertura inclui, entre outros:
 
 ```text
-ProcessingSchedule
-    ↓
-janela vencida
-    ↓
+parsing
+persistência
+transações
+migrations
+idempotência
+concorrência
+rollback
+processamento repetido
+reprocessamento
+publicação
+outbox
+adapters
+falhas HTTP
+falhas de provider
+```
+
+A suíte padrão permanece separada de probes externas reais sempre que o teste depende de disponibilidade de terceiros.
+
+---
+
+## 15. FASE 16 — Observabilidade
+
+A aplicação possui base de observabilidade operacional para correlacionar execução, trabalho e resultado.
+
+Conceitos relevantes incluem:
+
+```text
+runId
+jobId
+asin
+snapshotId
+evaluationId
+publicationId
+```
+
+Logs e diagnósticos devem permitir diferenciar falhas internas de falhas externas.
+
+Segredos nunca devem ser registrados.
+
+A observabilidade permanece desacoplada das regras de negócio.
+
+---
+
+## 16. FASE 17 — Execução contínua
+
+A execução contínua utiliza scheduler e estado durável.
+
+O scheduler inicia ciclos; ele não reimplementa regras de coleta, filtros, score ou publicação.
+
+Responsabilidades consolidadas:
+
+```text
+frequência configurável
 ProcessingRun
-    ↓
-COLLECT_DEALS
-    ↓
-worker da FASE 12
+prevenção de sobreposição indevida
+lease/lock persistente
+pausa operacional
+shutdown seguro
+workers
+múltiplos ciclos
 ```
 
-Inclui:
-
-- frequência configurável;
-- prevenção de sobreposição;
-- lock/lease;
-- pausa operacional;
-- runtime contínuo;
-- prova concorrente entre instâncias.
-
-O scheduler não decide quota de publicação.
+Estratégias de espera com `Thread.sleep` pertencem à infraestrutura operacional do scheduler/worker idle wait e não ao publisher nem ao rate limiter.
 
 ---
 
-## 23. Seleção operacional — FASE 18
+## 17. Seleção operacional, quota e cadência
 
-A FASE 18 introduz política própria de seleção de publicação.
-
-Versão:
+Qualidade comercial e prioridade operacional de publicação são conceitos distintos.
 
 ```text
-PUBLICATION_SELECTION_V1
-```
-
-Ordem conceitual:
-
-```text
-elegibilidade
-    ↓
-filtros
-    ↓
 score
-    ↓
-ranking
-    ↓
-histórico de publicação
-    ↓
-PublicationSelectionPolicy
-    ↓
-candidatos priorizados
+=
+quão atrativa é a oferta?
+
+prioridade de publicação
+=
+quão apropriado é publicar esta oferta agora?
 ```
 
-Critério inicial:
+A seleção considera dados persistidos e auditáveis.
 
-```text
-1. nunca publicado com sucesso
-2. publicação bem-sucedida mais antiga
-3. maior score
-4. desempate determinístico
-```
-
----
-
-## 24. Histórico de publicação bem-sucedida
-
-Somente entrega externa bem-sucedida conta para recorrência.
-
-Escopo:
+Escopo de histórico de publicação:
 
 ```text
 ASIN
@@ -809,89 +626,39 @@ channel
 destination
 ```
 
-Não contam como sucesso:
+Somente entrega efetivamente bem-sucedida conta como publicação histórica para recorrência.
+
+A política preserva:
 
 ```text
-geração
-aprovação
-outbox criada
-claim
-falha transitória
-falha permanente
+hardCooldown
+preferredCooldown
+quota
+cadência
+desempate determinístico
 ```
+
+A quota não transforma uma oferta comercialmente aprovada em rejeitada.
+
+Quota e schedule permanecem responsabilidades diferentes.
 
 ---
 
-## 25. Cooldown e quota
+## 18. FASE 18 — Contrato de canais e outbox
 
-Cooldown e quota possuem configuração própria.
+A FASE 18 estabeleceu o contrato de entrega independente de provider.
 
-Estados de decisão incluem:
-
-```text
-SELECTED
-DEFERRED_DUE_TO_HARD_COOLDOWN
-NOT_SELECTED_DUE_TO_QUOTA
-```
-
-A quota não é scheduler.
-
-A seleção `SELECTED` é provisória até a reserva efetiva na outbox.
-
-Candidato que perde a reserva por quota concorrente:
-
-```text
-não recebe outbox
-não carrega prioridade para o futuro
-volta a ser reavaliado em ciclo posterior
-```
-
----
-
-## 26. Auditoria da seleção
-
-A migration:
-
-```text
-V25__publication_selection_audit.sql
-```
-
-introduz:
-
-```text
-publication_selection_profile
-publication_quota_profile
-publication_selection_run
-publication_selection_decision
-```
-
-A decisão de seleção permanece auditável sem confundir resultado da política com reserva definitiva de quota.
-
----
-
-## 27. Contrato de canais
-
-A FASE 18 criou contratos independentes de provider:
+Componentes centrais:
 
 ```text
 PublicationCommand
 PublicationChannel
 PublicationResult
-PublicationResultStatus
+PublicationOutbox
+PublicationAttempt
 ```
 
-`PublicationCommand` contém:
-
-```text
-publicationId
-channel
-destination
-content
-```
-
-O canal não consulta repositórios internos para reconstruir a mensagem.
-
-Resultados:
+Estados estruturados de resultado:
 
 ```text
 SUCCESS
@@ -899,507 +666,445 @@ FAILED_TRANSIENT
 FAILED_PERMANENT
 ```
 
----
+A outbox representa trabalho a entregar.
 
-## 28. Fake channel
+`PublicationAttempt` representa evidência histórica de uma chamada externa.
 
-Foi criado:
-
-```text
-FakePublicationChannel
-```
-
-O fake recebe comandos reais e retorna resultado configurável.
-
-Ele existe para provar a arquitetura da FASE 18 sem introduzir Telegram ou WhatsApp antes da FASE 19.
-
----
-
-## 29. Outbox de publicação
-
-A migration:
+Portanto:
 
 ```text
-V26__publication_outbox.sql
+outbox != attempt
 ```
 
-cria a outbox persistida.
-
-Estados:
-
-```text
-PENDING
-PROCESSING
-SUCCEEDED
-FAILED_TRANSIENT
-FAILED_PERMANENT
-```
-
-A outbox congela:
+A identidade idempotente considera, no mínimo:
 
 ```text
 publication
-selection run
-position
++
 channel
++
 destination
-content
-quota profile
-quota date
 ```
 
-A identidade mínima de entrega é protegida por:
-
-```text
-publication + channel + destination
-```
+O PostgreSQL é utilizado para fila durável, concorrência, lease e proteção transacional.
 
 ---
 
-## 30. Reserva atômica de quota
+## 19. FASE 19 — Telegram
 
-A existência da linha de outbox representa reserva efetiva de quota.
+Foi implementado adapter concreto:
+
+```text
+TelegramChannel
+```
+
+Responsabilidades:
+
+```text
+validar configuração
+validar destino
+formatar conteúdo
+chamar Telegram Bot API
+interpretar resposta
+classificar falha
+preservar providerReference
+```
+
+Configuração:
+
+```text
+TelegramChannelConfig
+TelegramChannelConfigProvider
+```
+
+Transporte:
+
+```text
+PublicationHttpTransport
+JavaPublicationHttpTransport
+```
+
+Formatação:
+
+```text
+PublicationContentFormatter
+TelegramPublicationFormatter
+```
+
+Link preview é configurável.
+
+O conteúdo específico do Telegram não modifica os fatos comerciais da `Publication`.
+
+---
+
+## 20. FASE 19 — WhatsApp
+
+Foi implementado adapter oficial:
+
+```text
+WhatsAppChannel
+```
+
+com configuração própria:
+
+```text
+WhatsAppChannelConfig
+WhatsAppChannelConfigProvider
+```
+
+A integração foi preparada para a API oficial compatível com a configuração definida pelo projeto.
+
+O canal oficial permanece operacionalmente desabilitado até existir onboarding e configuração real válidos junto ao provider.
+
+Credenciais permanecem fora do código.
+
+---
+
+## 21. `WHATSAPP_MANUAL`
+
+Também existe o fluxo:
+
+```text
+WHATSAPP_MANUAL
+```
+
+Ele prepara conteúdo para WhatsApp e o envia para staging privado no Telegram.
 
 Fluxo:
 
 ```text
-SELECTED provisório
+Publication
     ↓
-enqueue transacional
+formatação WhatsApp
     ↓
-quota disponível?
-    ├─ sim → ENQUEUED
-    └─ não → QUOTA_EXHAUSTED
+Telegram privado de staging
+    ↓
+cópia manual posterior para WhatsApp
 ```
 
-Resultados de enqueue:
+`MANUAL` refere-se somente à cópia final para o WhatsApp.
+
+Não significa aprovação humana.
+
+Componentes:
 
 ```text
-ENQUEUED
-ALREADY_ENQUEUED
-QUOTA_EXHAUSTED
-STALE_SELECTION
+WhatsAppManualStagingChannel
+WhatsAppManualStagingConfig
+WhatsAppManualStagingConfigProvider
+WhatsAppManualPublicationFormatter
 ```
 
-A concorrência foi testada com dois workers disputando uma única vaga.
+O sistema registra sucesso do staging quando a mensagem chega ao Telegram privado.
+
+Ele não afirma que a cópia posterior para o WhatsApp ocorreu.
 
 ---
 
-## 31. Claim e lease da outbox
+## 22. Ativação de canais
 
-O claim utiliza PostgreSQL:
+Os canais podem ser ativados independentemente.
 
-```sql
-FOR UPDATE SKIP LOCKED
-```
-
-Transição:
+Identidades atuais:
 
 ```text
-PENDING
-    ↓
-PROCESSING
+TELEGRAM
+WHATSAPP_MANUAL
+WHATSAPP
 ```
 
-com ownership por:
+Configuração:
 
 ```text
-locked_at
-locked_by
+PublicationChannelActivationConfig
+PublicationChannelActivationConfigProvider
 ```
 
-Itens abandonados podem voltar a `PENDING` após expiração do lease.
+Quando um canal está desabilitado, a composição utiliza comportamento explícito de canal desabilitado.
+
+Isso evita espalhar condicionais específicas de Telegram ou WhatsApp pela aplicação.
 
 ---
 
-## 32. Outbox e tentativas
+## 23. Composition root de entrega
 
-A migration:
+A composição de entrega concreta é centralizada em:
 
 ```text
-V27__publication_attempt_outbox_link.sql
+PublicationDeliveryComposition
 ```
 
-relaciona tentativa concreta ao trabalho lógico da outbox.
-
-Conceitos:
+Ela coordena:
 
 ```text
+configuração
+transport HTTP
+adapters concretos
+resolver de canais
+outbox queue
+completion
+retry
+rate-limit
+worker
+```
+
+A aplicação continua dependendo de contratos e não de detalhes dos providers.
+
+---
+
+## 24. Tentativas, status e referência do provider
+
+Cada chamada efetiva ao provider pode produzir um `PublicationAttempt`.
+
+Dados persistidos incluem, quando aplicável:
+
+```text
+publication
 outbox
-    → trabalho autorizado
+channel
+destination
+attemptNumber
+status
+providerReference
+errorCode
+startedAt
+finishedAt
+```
 
+Estados:
+
+```text
+SUCCESS
+FAILED_TRANSIENT
+FAILED_PERMANENT
+```
+
+A referência retornada pelo provider é preservada quando existe.
+
+Isso permite correlacionar o estado local com a evidência externa.
+
+---
+
+## 25. Retry e backoff de publicação
+
+Falhas transitórias podem ser repetidas.
+
+Falhas permanentes não entram em loop infinito.
+
+Componentes:
+
+```text
+PublicationOutboxRetryPolicy
+BoundedExponentialPublicationOutboxRetryPolicy
+PublicationOutboxRetryConfig
+PublicationOutboxRetryConfigProvider
+```
+
+Semântica:
+
+```text
+falha transitória
+    ↓
+PublicationAttempt persistido
+    ↓
+há tentativa disponível?
+    ├── sim
+    │   ↓
+    │ backoff exponencial limitado
+    │   ↓
+    │ mesma outbox volta para PENDING
+    │
+    └── não
+        ↓
+      estado terminal
+```
+
+Retry não cria nova `Publication`, não recalcula score, não repete seleção e não cria nova outbox lógica.
+
+---
+
+## 26. Fanout de entrega
+
+A outbox suporta trabalho derivado para os destinos operacionais configurados.
+
+Componentes relevantes:
+
+```text
+PublicationOutboxDerivedEnqueueRequest
+PublicationOutboxDerivedTarget
+PublicationOutboxDerivedEnqueuePort
+PublicationOutboxFanoutEnqueueService
+```
+
+O fanout preserva identidade, seleção e ordem sem consumir indevidamente uma nova decisão comercial.
+
+No fluxo atual:
+
+```text
+TELEGRAM
+→ entrega pública primária
+
+WHATSAPP_MANUAL
+→ staging derivado
+```
+
+---
+
+## 27. Rate limiting preventivo
+
+A branch da FASE 19 contém uma base persistente de rate limiting, registrada como antecipação da FASE 20.
+
+Componentes:
+
+```text
+PublicationRateLimitPolicy
+PublicationRateLimitRule
+PublicationRateLimitReservation
+PublicationRateLimitReservationPort
+PublicationRateLimitConfig
+PublicationRateLimitConfigProvider
+JdbcPublicationRateLimitReservationAdapter
+MapPublicationRateLimitPolicy
+```
+
+Semântica não bloqueante:
+
+```text
+slot disponível
+→ chamada externa permitida
+
+slot indisponível
+→ provider não é chamado
+→ PublicationAttempt não é criado
+→ outbox volta para PENDING
+→ availableAt indica nova tentativa de admissão
+```
+
+Não há `Thread.sleep` dentro do publisher ou do rate limiter.
+
+Integrações físicas:
+
+```text
+TELEGRAM
+WHATSAPP_MANUAL
+    ↓
+TELEGRAM_BOT_API
+
+WHATSAPP
+    ↓
+WHATSAPP_CLOUD_API
+```
+
+Telegram público e staging manual compartilham a mesma capacidade física do Telegram Bot API.
+
+---
+
+## 28. Trabalho antecipado da FASE 20
+
+A branch atual também contém preparação de dispatch durável e reconciliação.
+
+Entre os componentes antecipados estão:
+
+```text
+ProcessingRunPublicationReadiness
+PublicationDispatchJobService
+PublicationDispatchReconciliationService
+PublicationProcessingRunDispatchService
+```
+
+A orquestração passou a conhecer:
+
+```text
+PUBLICATION_DISPATCH
+```
+
+Objetivo:
+
+```text
+descobrir trabalho durável
+reconciliar dispatch
+preparar recuperação após interrupção
+```
+
+Esses componentes não significam que a FASE 20 esteja concluída.
+
+Eles deverão ser auditados e fechados formalmente dentro da FASE 20.
+
+---
+
+## 29. Persistência atual
+
+O modelo persistente inclui, entre outros:
+
+```text
+product
+offer_snapshot
+offer_payment_condition
+offer_payment_condition_method
+offer_evidence
+deal_evaluation
+deal_evaluation_rule_result
+deal_evaluation_score_factor
+deal_evaluation_momentum_audit
+processing_run
+processing_job
+publication
 publication_attempt
-    → execução concreta do trabalho
+publication_outbox
+publication selection/configuration state
+publication cadence/configuration state
+publication rate-limit state
 ```
 
-A proteção de tentativa utiliza:
+O PostgreSQL permanece responsável por:
 
 ```text
-publication_outbox_id + attempt_number
+estado durável
+idempotência
+transações
+leases
+fila operacional
+quota
+auditoria
+concorrência
 ```
+
+Não há dependência de uma fila externa para a versão 1.0 neste momento.
 
 ---
 
-## 33. Completion e worker de publicação
+## 30. Migrations
 
-O fluxo final da FASE 18 é:
-
-```text
-claim
-    ↓
-PublicationCommand
-    ↓
-PublicationChannel
-    ↓
-PublicationResult
-    ↓
-publication_attempt
-+
-outbox terminal
-```
-
-O completion persiste tentativa e resultado terminal da outbox de forma atômica e somente pelo owner atual do lease.
-
-A implementação final foi comprovada pela suíte hermética:
+O schema local da branch da FASE 19 está em:
 
 ```text
-PublicationOutboxWorkerTest
-Tests run: 7
-Failures: 0
-Errors: 0
-Skipped: 0
-
-JdbcPublicationOutboxCompletionAdapterTest
-Tests run: 6
-Failures: 0
-Errors: 0
-Skipped: 0
-
-PublicationOutboxEndToEndTest
-Tests run: 1
-Failures: 0
-Errors: 0
-Skipped: 0
+V34
 ```
 
-O E2E cobre o caminho até `FakePublicationChannel`, completion da outbox e persistência da tentativa, sem provider externo real.
+Evoluções recentes da publicação:
+
+```text
+V28__publication_attempt_timing.sql
+V29__publication_outbox_delivery_fanout.sql
+V30__publication_cadence_profile.sql
+V31__publication_cadence_reservation_index.sql
+V32__publication_outbox_cadence_audit.sql
+V33__processing_publication_dispatch_job.sql
+V34__publication_rate_limit_state.sql
+```
+
+Migrations aplicadas não devem ser reescritas retroativamente.
+
+Toda evolução de schema deve ocorrer por nova migration versionada.
 
 ---
 
-## 34. Probe real de ranking
+## 31. Testes
 
-A FASE 18 inclui uma probe externa sobre as primeiras 30 ofertas reais da Amazon Deals.
-
-Aquisição:
+Gate local integral da FASE 19:
 
 ```text
-/deals
-    → HTTP
-
-página individual
-    → PLAYWRIGHT_RENDERED_DOM
-```
-
-Perfis:
-
-```text
-COMMERCIAL_FILTER_V2
-SCORE_V2
-```
-
-Resultado final observado:
-
-```text
-Deals inspected: 30
-Processing failures: 1
-Ineligible after evaluation: 17
-Eligible with score: 12
-Daily quota simulated: 5
-```
-
-Top 5:
-
-```text
-#1 B00NHQFA1I  72.0146
-#2 6555321806  67.1734
-#3 B08R91NTHY  65.3868
-#4 B01IT28KG6  47.5386
-#5 B0DD1KD5JP  45.4735
-```
-
-Sete candidatos elegíveis adicionais permaneceram como:
-
-```text
-NOT_SELECTED_DUE_TO_QUOTA
-```
-
-A probe concluiu com `BUILD SUCCESS`.
-
----
-
-## 35. Probes externas versionadas
-
-As probes reais que fundamentaram decisões arquiteturais devem permanecer no repositório:
-
-```text
-AmazonRenderedProductPageExternalProbeIT
-AmazonRenderedSellerDeliveryExternalProbeIT
-AmazonRenderedProductEnrichmentExternalProbeIT
-AmazonDealsRankingExternalProbeIT
-```
-
-Elas não entram automaticamente em `mvn test`.
-
-Execução ocorre pelo profile:
-
-```text
--Pexternal-probe
-```
-
----
-
-## 36. Operação planejada da raspagem
-
-A cadência operacional prevista é aproximadamente:
-
-```text
-2 ciclos por dia
->10 horas entre ciclos
-```
-
-A ordem de grandeza atual discutida é de aproximadamente 450 produtos por ciclo.
-
-Nesse cenário, maior custo do DOM renderizado é aceitável.
-
-O sistema poderá ser executado futuramente em hardware dedicado, incluindo Raspberry Pi dedicado ao projeto.
-
-A prioridade é obter dados corretos; otimizações de throughput serão guiadas por medição.
-
----
-
-## 37. PostgreSQL e Flyway
-
-O PostgreSQL é utilizado para:
-
-```text
-produtos
-snapshots
-condições de pagamento
-evidências
-elegibilidade
-filtros
-score
-momentum
-processing runs
-jobs
-observabilidade
-schedules
-publications
-selection audit
-quota profiles
-outbox
-publication attempts
-```
-
-Schema local conhecido da FASE 18:
-
-```text
-V27
-```
-
-Migrations da FASE 18:
-
-```text
-V25__publication_selection_audit.sql
-V26__publication_outbox.sql
-V27__publication_attempt_outbox_link.sql
-```
-
-Migrations aplicadas não devem ser editadas retroativamente.
-
----
-
-## 38. ADRs principais
-
-ADRs existentes incluem:
-
-```text
-0001 — semântica de filtros comerciais e apresentação de pagamentos
-0002 — score, ranking e explicabilidade
-0003 — histórico e momentum
-0004 — geração de publicação e link associado
-0005 — desconto, preço-base e preço efetivo
-0006 — SCORE_V2
-0007 — fallback de rating/review na página do produto
-0008 — percent-encoding do link associado
-0009 — interface operacional não bloqueante
-0010 — seleção, recorrência e cadência de publicações
-0011 — observabilidade, correlação e métricas operacionais
-0012 — agendamento e execução contínua
-0013 — seleção operacional, outbox e entrega de publicação
-0014 — aquisição da página individual por DOM renderizado
-```
-
-ADRs registram decisões arquiteturais e não devem ser tratados como documentação descartável.
-
----
-
-## 39. Política de testes
-
-A suíte hermética deve:
-
-- usar fixtures;
-- usar banco controlado;
-- não depender da Amazon real;
-- não depender da disponibilidade de ofertas reais;
-- não depender de Chromium externo em testes comuns;
-- produzir resultado determinístico.
-
-Probes externas podem ser temporais e dependentes da fonte real, mas devem produzir diagnóstico explícito.
-
-Falha externa real não deve ser convertida artificialmente em sucesso.
-
----
-
-## 40. Comandos úteis
-
-### Suíte padrão
-
-Windows:
-
-```powershell
-.\mvnw.cmd clean test
-```
-
-### Probe renderizada de página individual
-
-```powershell
-.\mvnw.cmd --batch-mode -Pexternal-probe "-Dtest=AmazonRenderedProductPageExternalProbeIT" "-Damazon.probe.product-url=https://www.amazon.com.br/dp/ASIN" test
-```
-
-### Probe de seller/delivery renderizado
-
-```powershell
-.\mvnw.cmd --batch-mode -Pexternal-probe "-Dtest=AmazonRenderedSellerDeliveryExternalProbeIT" "-Damazon.probe.product-url=https://www.amazon.com.br/dp/ASIN" test
-```
-
-### Probe de enrichment renderizado
-
-```powershell
-.\mvnw.cmd --batch-mode -Pexternal-probe "-Dtest=AmazonRenderedProductEnrichmentExternalProbeIT" "-Damazon.probe.product-url=https://www.amazon.com.br/dp/ASIN" test
-```
-
-### Probe de ranking real
-
-```powershell
-.\mvnw.cmd --batch-mode -Pexternal-probe "-Dtest=AmazonDealsRankingExternalProbeIT" "-Damazon.probe.deals-ranking.enabled=true" test
-```
-
----
-
-## 41. Princípios de idempotência
-
-O projeto mantém proteção no banco como autoridade final sempre que o efeito é persistente.
-
-Exemplos:
-
-```text
-processing jobs
-publication generation
-selection audit
-outbox delivery identity
-publication attempts
-```
-
-A lógica em memória pode evitar trabalho desnecessário, mas não substitui constraint quando concorrência importa.
-
----
-
-## 42. Fronteiras de responsabilidade
-
-### Coleta
-
-Responsável por adquirir fonte.
-
-### Parsing
-
-Responsável por interpretar estrutura externa.
-
-### Enrichment
-
-Responsável por completar fatos da página individual.
-
-### Elegibilidade
-
-Responsável por validar seller/delivery estrutural.
-
-### Filtros
-
-Responsáveis por critérios comerciais mínimos.
-
-### Score
-
-Responsável por atratividade relativa.
-
-### Ranking
-
-Responsável por ordenação por score.
-
-### Seleção de publicação
-
-Responsável por recorrência, cooldown, histórico e quota provisória.
-
-### Aprovação
-
-Responsável por `CREATED → READY`.
-
-### Outbox
-
-Responsável por materializar trabalho autorizado e reservar quota.
-
-### Worker de publicação
-
-Responsável por entregar comando já pronto ao canal.
-
-### Canal
-
-Responsável por conversar com provider externo e devolver resultado estruturado.
-
----
-
-## 43. O que ainda não está implementado como provider real
-
-A FASE 18 não implementa:
-
-```text
-TelegramChannel real
-WhatsAppChannel real
-```
-
-Esses adapters pertencem à FASE 19.
-
-Também ficam para fases posteriores os hardenings específicos de provider, como rate limiting, retry sofisticado, circuit breaker e políticas operacionais próprias de cada canal.
-
----
-
-## 44. Gate de fechamento da FASE 18
-
-O gate local final da FASE 18 foi concluído.
-
-Comprovações registradas:
-
-```text
-completion atômico da entrega
-worker genérico de publicação
-E2E com FakePublicationChannel
-mvnw clean test completo
-git diff --check
-```
-
-Resultado do gate:
-
-```text
-Tests run: 1229
+Tests run: 1608
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1407,105 +1112,498 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-O schema Flyway foi validado até:
+A suíte cobre, entre outros:
 
 ```text
-V27
+domínio
+filtros
+score
+ranking
+histórico
+momentum
+orquestração
+leases
+concorrência
+CLI
+observabilidade
+scheduler
+seleção
+quota
+cadência
+geração de Publication
+outbox
+fanout
+PublicationAttempt
+Telegram
+WhatsApp
+WhatsApp manual staging
+HTTP de publicação
+retry
+backoff
+rate limiting
+migrations
+integrações end-to-end
 ```
 
-Pendências exclusivamente remotas:
+O gate também validou:
+
+```text
+git diff --check
+```
+
+sem problemas após os ajustes finais.
+
+---
+
+## 32. Testes externos
+
+A suíte padrão não deve depender da Amazon real.
+
+A probe externa permanece separada do gate hermético.
+
+Objetivo:
+
+```text
+suíte padrão
+→ determinística e reproduzível
+
+probe externa
+→ diagnóstico da fonte real
+```
+
+Falhas externas não devem ser mascaradas como regras de negócio internas.
+
+---
+
+## 33. CI
+
+Workflow principal:
+
+```text
+.github/workflows/ci.yml
+```
+
+Ambiente de referência:
+
+```text
+JDK 25
+PostgreSQL
+Maven Wrapper
+```
+
+A FASE 19 está concluída localmente.
+
+O fechamento remoto ainda depende de:
 
 ```text
 commit
-push
+push da branch
 Pull Request
-CI remoto verde
+CI do PR
+merge em main
+CI pós-merge
 ```
 
-A ADR-0014 registra a decisão de utilizar DOM renderizado com Playwright/Chromium na página individual em produção. A consolidação do provider produtivo em `src/main` permanece sequenciada antes da operação real contínua, sem alterar o critério de conclusão funcional da FASE 18.
-
----
-
-## 45. Próximos passos
-
-Após o fechamento formal da FASE 18:
+Até esse ciclo terminar, o status correto é:
 
 ```text
 FASE 19
-    ↓
-TelegramChannel
-WhatsAppChannel
-integrações reais
-```
-
-A FASE 19 deverá consumir os contratos existentes sem mover para os adapters externos lógica de:
-
-```text
-seleção
-cooldown
-quota
-ranking
-reconstrução de mensagem
+→ CONCLUÍDA LOCALMENTE
+→ FECHAMENTO REMOTO PENDENTE
 ```
 
 ---
 
-## 46. Documentação da FASE 18
+## 34. Documentação
 
-Resultado consolidado:
+Estrutura relevante:
 
 ```text
-docs/phases/FASE_18_RESULTADO.md
+docs/
+├── adr/
+├── phases/
+│   ├── ROADMAP_RASPING_AMAZON_V1.md
+│   ├── FASE_12_RESULTADO.md
+│   ├── FASE_13_RESULTADO.md
+│   ├── FASE_14_RESULTADO.md
+│   ├── FASE_15_RESULTADO.md
+│   ├── FASE_16_RESULTADO.md
+│   ├── FASE_17_RESULTADO.md
+│   ├── FASE_18_RESULTADO.md
+│   └── FASE_19_RESULTADO.md
+└── research/
 ```
 
-ADRs diretamente relacionados:
+ADRs relevantes ao estado atual incluem decisões sobre:
 
 ```text
-docs/adr/0010-politica-selecao-recorrencia-cadencia-publicacoes.md
-docs/adr/0013-selecao-operacional-outbox-e-entrega-publicacao.md
-docs/adr/0014-aquisicao-dom-renderizado-pagina-produto-amazon.md
-```
-
----
-
-## 47. Estado resumido
-
-O sistema já possui:
-
-```text
-fonte Amazon
-    ↓
-coleta
-    ↓
-parsing
-    ↓
-enrichment
-    ↓
-elegibilidade
-    ↓
-filtros
-    ↓
-score
-    ↓
-ranking
-    ↓
-histórico / momentum
-    ↓
-orquestração durável
-    ↓
-scheduler contínuo
-    ↓
+semântica comercial
+score e ranking
+histórico e momentum
 geração de Publication
-    ↓
-seleção operacional
-    ↓
-aprovação READY
-    ↓
-outbox + quota
-    ↓
-claim / lease
-    ↓
-contrato de canal
+interface não bloqueante
+seleção, recorrência e cadência
+observabilidade
+agendamento
+outbox e entrega
+fonte Amazon
 ```
 
-A FASE 18 está concluída localmente. Restam somente commit, push, Pull Request e CI remoto verde para o fechamento remoto da branch.
+A documentação histórica deve permanecer preservada.
+
+---
+
+## 35. Decisão sobre aprovação manual
+
+A arquitetura vigente não utiliza aprovação manual obrigatória.
+
+A regra é:
+
+```text
+pipeline normal
+→ automático
+
+interface operacional
+→ observação e administração
+→ fora do caminho crítico
+```
+
+Assim:
+
+```text
+CREATED
+→ READY
+```
+
+pode ocorrer automaticamente quando as regras aplicáveis forem satisfeitas.
+
+A existência de referências históricas a aprovação manual em roadmap ou relatórios antigos não reintroduz essa etapa no fluxo vigente.
+
+---
+
+## 36. Fonte Amazon e limites operacionais
+
+A fonte da Amazon permanece desacoplada do domínio.
+
+O projeto não deve implementar mecanismos para contornar CAPTCHA, challenge, bloqueio ou outras proteções.
+
+Respostas como:
+
+```text
+403
+429
+challenge
+CAPTCHA
+timeout
+layout inesperado
+```
+
+devem ser classificadas como falhas ou restrições operacionais da fonte.
+
+Mudança de layout não deve produzir dados falsos silenciosamente.
+
+Quando faltar evidência crítica, preservar fail closed.
+
+---
+
+## 37. Idempotência
+
+Idempotência continua sendo requisito transversal.
+
+Ela protege:
+
+```text
+persistência de snapshots
+avaliações
+jobs
+seleção
+Publication
+outbox
+entregas concluídas
+```
+
+Reexecutar trabalho não deve criar duplicidade indevida.
+
+Para publicação, uma identidade importante é:
+
+```text
+publication
++
+channel
++
+destination
+```
+
+Banco e aplicação trabalham juntos; verificações apenas em memória não são suficientes.
+
+---
+
+## 38. Transações e concorrência
+
+O PostgreSQL é utilizado para garantir consistência em operações críticas.
+
+Princípios:
+
+```text
+transação explícita
+unique constraints
+locking
+leases
+SKIP LOCKED quando aplicável
+estado persistido
+desempate determinístico
+```
+
+Concorrência não deve permitir:
+
+```text
+duas reservas da última vaga de quota
+dois workers possuindo o mesmo trabalho normalmente
+duplicação de enqueue lógico
+duplicação de sucesso já persistido
+```
+
+A arquitetura não promete exactly-once externo absoluto quando o provider não oferece mecanismo correspondente.
+
+---
+
+## 39. Próxima fase — FASE 20
+
+A próxima fase oficial é:
+
+```text
+FASE 20 — Resiliência, recuperação e falhas de produção
+```
+
+Objetivo:
+
+```text
+garantir que falhas externas,
+reinicializações
+e erros operacionais
+
+não deixem o sistema
+em estado inconsistente
+```
+
+Responsabilidades a fechar formalmente incluem:
+
+```text
+taxonomia final de falhas
+políticas por integração
+timeout
+rate limit
+autenticação inválida
+destino inexistente
+resposta desconhecida
+recuperação após restart
+trabalho abandonado
+reprocessamento operacional
+dead-letter quando necessário
+testes controlados de falha
+circuit breaker somente se necessário
+```
+
+A FASE 20 deve começar auditando o que já foi antecipado na FASE 19.
+
+Ela não deve reimplementar componentes que já estão corretos e testados.
+
+---
+
+## 40. FASE 21 e versão 1.0
+
+Depois da FASE 20:
+
+```text
+FASE 21
+→ segurança
+→ governança
+→ backup/restore
+→ retenção
+→ operação reproduzível
+→ fechamento da v1.0
+```
+
+A versão 1.0 deve conseguir:
+
+```text
+configurar
+→ iniciar
+→ coletar
+→ avaliar
+→ ranquear
+→ acompanhar histórico
+→ selecionar
+→ gerar Publication
+→ publicar em canais configurados
+→ evitar duplicações
+→ diagnosticar falhas
+→ recuperar processamento
+→ preservar histórico
+```
+
+sem depender da IDE, de Excel ou de manipulação manual do PostgreSQL.
+
+---
+
+## 41. Itens pós-v1.0
+
+Permanecem fora do escopo obrigatório da v1.0:
+
+```text
+Mercado Livre
+Raspberry Pi / servidor remoto como requisito
+escala distribuída
+Kafka
+RabbitMQ
+microservices
+read replicas
+particionamento prematuro
+cache distribuído
+Amazon Creators API como dependência obrigatória
+```
+
+Princípio:
+
+```text
+primeiro medir
+depois otimizar
+```
+
+A arquitetura deve permitir evolução futura sem antecipar complexidade sem evidência.
+
+---
+
+## 42. Regras de desenvolvimento
+
+1. Uma fase deve possuir resultado verificável antes da próxima ser declarada concluída.
+2. Coleta não implementa regra de negócio.
+3. Parser descreve fatos; domínio decide.
+4. Dados ausentes não são inventados.
+5. Seller e delivery preservam fail closed.
+6. Excel não é fonte de estado.
+7. Segredos ficam fora do repositório.
+8. Migrations aplicadas são imutáveis.
+9. Reexecução deve preservar idempotência.
+10. Toda decisão importante deve ser auditável.
+11. Telegram e WhatsApp são adapters substituíveis.
+12. A interface operacional não é parte obrigatória do caminho crítico.
+13. Publicação normal não depende de aprovação humana.
+14. Estado operacional relevante deve ser durável.
+15. Infraestrutura distribuída só entra quando métricas demonstrarem necessidade.
+
+---
+
+## 43. Estado consolidado
+
+```text
+FASE ATUAL:
+19 — Telegram e WhatsApp
+
+STATUS LOCAL:
+CONCLUÍDA
+
+BRANCH:
+feat/fase-19-telegram-whatsapp
+
+PIPELINE DURÁVEL:
+IMPLEMENTADO
+
+INTERFACE OPERACIONAL:
+CLI NÃO BLOQUEANTE
+
+EXECUÇÃO CONTÍNUA:
+IMPLEMENTADA
+
+PUBLICATION:
+VERSIONADA E PERSISTIDA
+
+APROVAÇÃO MANUAL OBRIGATÓRIA:
+NÃO
+
+SELEÇÃO OPERACIONAL:
+IMPLEMENTADA
+
+QUOTA / CADÊNCIA:
+IMPLEMENTADAS
+
+OUTBOX:
+IMPLEMENTADA
+
+PUBLICATION ATTEMPT:
+IMPLEMENTADO
+
+TELEGRAM:
+IMPLEMENTADO
+
+WHATSAPP OFICIAL:
+ADAPTER IMPLEMENTADO
+ATIVAÇÃO REAL DEPENDE DE CONFIGURAÇÃO DO PROVIDER
+
+WHATSAPP MANUAL STAGING:
+IMPLEMENTADO
+
+RETRY:
+IMPLEMENTADO
+
+BACKOFF:
+IMPLEMENTADO
+
+RATE LIMIT:
+BASE PERSISTENTE IMPLEMENTADA
+FECHAMENTO FORMAL NA FASE 20
+
+TESTES:
+1608
+
+FALHAS:
+0
+
+ERROS:
+0
+
+IGNORADOS:
+0
+
+BUILD:
+SUCCESS
+
+POSTGRESQL:
+18.6
+
+FLYWAY:
+34 MIGRATIONS
+
+SCHEMA:
+V34
+
+FECHAMENTO REMOTO DA FASE 19:
+PENDENTE
+
+PRÓXIMA FASE:
+20 — Resiliência, recuperação e falhas de produção
+```
+
+---
+
+## 44. Regra de continuidade
+
+O projeto deve continuar usando:
+
+```text
+roadmap
+→ direção
+
+ADR
+→ decisão arquitetural vigente
+
+relatório de fase
+→ execução real
+
+README
+→ estado operacional atual
+```
+
+Diferenças entre planejamento e execução devem permanecer explícitas.
+
+Não reescrever retrospectivamente documentos históricos para esconder decisões que mudaram ao longo do projeto.

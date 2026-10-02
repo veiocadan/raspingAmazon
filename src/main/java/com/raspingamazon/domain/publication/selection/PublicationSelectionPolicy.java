@@ -28,11 +28,134 @@ import java.util.Objects;
  * <p>A decisão SELECTED ainda não reserva definitivamente uma
  * vaga. A reserva concorrente pertence à transação de enqueue
  * da outbox.</p>
+ *
+ * <p>A versão semântica da política e a revisão da configuração
+ * são conceitos relacionados, porém diferentes.</p>
+ *
+ * <p>A política possui versão:</p>
+ *
+ * <pre>
+ * PUBLICATION_SELECTION_V1
+ * </pre>
+ *
+ * <p>As configurações imutáveis dessa política podem possuir:</p>
+ *
+ * <pre>
+ * PUBLICATION_SELECTION_V1_CONFIG_V1
+ * PUBLICATION_SELECTION_V1_CONFIG_V2
+ * PUBLICATION_SELECTION_V1_CONFIG_V3
+ * ...
+ * </pre>
+ *
+ * <p>Dessa forma os valores operacionais de cooldown podem mudar
+ * sem recompilar a aplicação e sem fingir que o algoritmo da
+ * política mudou.</p>
  */
 public final class PublicationSelectionPolicy {
 
+    /**
+     * Versão semântica do algoritmo de seleção.
+     */
     public static final String VERSION =
         "PUBLICATION_SELECTION_V1";
+
+    /**
+     * Prefixo reservado às revisões imutáveis da configuração
+     * pertencentes à versão atual da política.
+     */
+    public static final String CONFIGURATION_VERSION_PREFIX =
+        VERSION + "_CONFIG_V";
+
+    /**
+     * Verifica se uma versão persistida de configuração pode ser
+     * interpretada por esta versão da política.
+     *
+     * <p>O valor histórico exato PUBLICATION_SELECTION_V1 continua
+     * aceito para compatibilidade com registros já existentes.</p>
+     *
+     * <p>Novas configurações devem utilizar:</p>
+     *
+     * <pre>
+     * PUBLICATION_SELECTION_V1_CONFIG_V1
+     * PUBLICATION_SELECTION_V1_CONFIG_V2
+     * ...
+     * </pre>
+     *
+     * @param profileVersion versão do perfil
+     * @return true quando esta política pode interpretá-la
+     */
+    public static boolean supportsProfileVersion(
+        String profileVersion
+    ) {
+
+        if (profileVersion == null) {
+            return false;
+        }
+
+        if (VERSION.equals(
+            profileVersion
+        )) {
+
+            /*
+             * Compatibilidade com registros anteriores à separação
+             * explícita entre versão da política e revisão da
+             * configuração.
+             */
+            return true;
+        }
+
+        if (!profileVersion.startsWith(
+            CONFIGURATION_VERSION_PREFIX
+        )) {
+
+            return false;
+        }
+
+        String revision =
+            profileVersion.substring(
+                CONFIGURATION_VERSION_PREFIX.length()
+            );
+
+        if (revision.isEmpty()) {
+            return false;
+        }
+
+        /*
+         * A revisão começa em V1.
+         *
+         * Evitamos aceitar:
+         *
+         * CONFIG_V0
+         * CONFIG_V01
+         * CONFIG_VABC
+         */
+        char firstCharacter =
+            revision.charAt(
+                0
+            );
+
+        if (firstCharacter < '1'
+            || firstCharacter > '9') {
+
+            return false;
+        }
+
+        for (int index = 1;
+             index < revision.length();
+             index++) {
+
+            if (!Character.isDigit(
+                revision.charAt(
+                    index
+                )
+            )) {
+
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /**
      * Prioriza somente os candidatos atualmente elegíveis.
@@ -439,7 +562,7 @@ public final class PublicationSelectionPolicy {
         PublicationSelectionProfile profile
     ) {
 
-        if (!VERSION.equals(
+        if (!supportsProfileVersion(
             profile.version()
         )) {
 
@@ -448,6 +571,11 @@ public final class PublicationSelectionPolicy {
                     + VERSION
                     + " cannot use profile version "
                     + profile.version()
+                    + ". Expected "
+                    + VERSION
+                    + " or "
+                    + CONFIGURATION_VERSION_PREFIX
+                    + "<positive integer>"
             );
         }
     }

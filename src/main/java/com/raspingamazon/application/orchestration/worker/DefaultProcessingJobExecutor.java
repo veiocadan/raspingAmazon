@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.function.LongConsumer;
 
 /**
- * Dispatcher funcional dos jobs da FASE 12.
+ * Dispatcher funcional dos jobs duráveis do pipeline.
  *
  * <p>Cada tipo de job é associado a exatamente um handler:</p>
  *
@@ -19,11 +19,14 @@ import java.util.function.LongConsumer;
  *
  * EVALUATE_DEAL
  *     -> offerSnapshotId
+ *
+ * PUBLICATION_DISPATCH
+ *     -> processingRunId
  * </pre>
  *
  * <p>O dispatcher conhece somente os identificadores dos sujeitos.
- * A composição da aplicação pode conectar esses handlers diretamente
- * aos respectivos casos de uso por method reference.</p>
+ * A composição da aplicação conecta esses handlers aos respectivos
+ * casos de uso.</p>
  */
 public final class DefaultProcessingJobExecutor
     implements ProcessingJobExecutionPort {
@@ -34,10 +37,45 @@ public final class DefaultProcessingJobExecutor
 
     private final LongConsumer evaluateDealHandler;
 
+    private final LongConsumer publicationDispatchHandler;
+
+    /**
+     * Construtor de compatibilidade para composições que ainda não
+     * ativaram PUBLICATION_DISPATCH.
+     *
+     * <p>Enquanto o novo job ainda não é enfileirado, o comportamento
+     * dos três tipos anteriores permanece inalterado.</p>
+     *
+     * <p>Se um PUBLICATION_DISPATCH chegar acidentalmente a uma
+     * composição antiga, a execução falha explicitamente em vez de
+     * ignorar silenciosamente o trabalho.</p>
+     */
     public DefaultProcessingJobExecutor(
         LongConsumer collectDealsHandler,
         LongConsumer enrichDealHandler,
         LongConsumer evaluateDealHandler
+    ) {
+
+        this(
+            collectDealsHandler,
+            enrichDealHandler,
+            evaluateDealHandler,
+            processingRunId -> {
+                throw new IllegalStateException(
+                    "PUBLICATION_DISPATCH handler is not configured"
+                );
+            }
+        );
+    }
+
+    /**
+     * Construtor completo com suporte à etapa de publicação automática.
+     */
+    public DefaultProcessingJobExecutor(
+        LongConsumer collectDealsHandler,
+        LongConsumer enrichDealHandler,
+        LongConsumer evaluateDealHandler,
+        LongConsumer publicationDispatchHandler
     ) {
 
         this.collectDealsHandler =
@@ -56,6 +94,12 @@ public final class DefaultProcessingJobExecutor
             Objects.requireNonNull(
                 evaluateDealHandler,
                 "evaluateDealHandler must not be null"
+            );
+
+        this.publicationDispatchHandler =
+            Objects.requireNonNull(
+                publicationDispatchHandler,
+                "publicationDispatchHandler must not be null"
             );
     }
 
@@ -92,6 +136,14 @@ public final class DefaultProcessingJobExecutor
                     requireSubject(
                         job.offerSnapshotId(),
                         "EVALUATE_DEAL requires offerSnapshotId"
+                    )
+                );
+
+            case PUBLICATION_DISPATCH ->
+                publicationDispatchHandler.accept(
+                    requireSubject(
+                        job.processingRunId(),
+                        "PUBLICATION_DISPATCH requires processingRunId"
                     )
                 );
         }

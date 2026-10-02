@@ -3,6 +3,7 @@ package com.raspingamazon.application.orchestration.failure;
 import com.raspingamazon.application.collection.contract.CollectionException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
+import com.raspingamazon.application.publication.PublicationDispatchJobException;
 
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
@@ -20,13 +21,14 @@ import java.util.Objects;
  * <ul>
  *     <li>falhas claramente transitórias recebem retry;</li>
  *     <li>restrições explícitas da fonte não recebem retry automático;</li>
+ *     <li>condições terminais de PUBLICATION_DISPATCH não recebem retry;</li>
  *     <li>falhas de entrada/regra/programação não recebem retry;</li>
  *     <li>falhas desconhecidas são permanentes até serem classificadas
  *     explicitamente.</li>
  * </ul>
  *
- * <p>Isso evita loops automáticos de retry para bugs, dados inválidos
- * ou páginas de proteção de uma fonte externa.</p>
+ * <p>Isso evita loops automáticos de retry para bugs, dados inválidos,
+ * estados terminais ou páginas de proteção de uma fonte externa.</p>
  */
 public final class DefaultProcessingFailureClassifier
     implements ProcessingFailureClassifier {
@@ -60,6 +62,27 @@ public final class DefaultProcessingFailureClassifier
                     + sourceRestriction.restrictionType()
                     .name(),
                 sourceRestriction
+            );
+        }
+
+        /*
+         * PUBLICATION_DISPATCH possui condições funcionais terminais
+         * próprias.
+         *
+         * Elas são classificadas antes dos fallbacks genéricos para
+         * preservar códigos operacionais explícitos no ProcessingJob.
+         */
+        PublicationDispatchJobException publicationDispatchFailure =
+            findCause(
+                failure,
+                PublicationDispatchJobException.class
+            );
+
+        if (publicationDispatchFailure != null) {
+
+            return permanentFailure(
+                publicationDispatchFailure.errorCode(),
+                publicationDispatchFailure
             );
         }
 

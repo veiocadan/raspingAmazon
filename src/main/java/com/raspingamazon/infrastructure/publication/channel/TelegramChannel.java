@@ -1,0 +1,712 @@
+package com.raspingamazon.infrastructure.publication.channel;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.raspingamazon.application.publication.channel.PublicationChannel;
+import com.raspingamazon.application.publication.channel.PublicationCommand;
+import com.raspingamazon.application.publication.channel.PublicationContentFormatter;
+import com.raspingamazon.application.publication.channel.PublicationResult;
+import com.raspingamazon.infrastructure.config.TelegramChannelConfig;
+import com.raspingamazon.infrastructure.publication.format.TelegramPublicationFormatter;
+import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
+import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
+import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
+import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
+
+import java.net.URI;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Adapter concreto de publicação para o Telegram Bot API.
+ *
+ * <p>Utiliza o método {@code sendMessage} e transforma o resultado
+ * HTTP/Telegram em {@link PublicationResult} independente do provider.</p>
+ *
+ * <p>O adapter suporta dois modos explícitos de apresentação:</p>
+ *
+ * <pre>
+ * PLAIN
+ *     -> envia o conteúdo literalmente;
+ *     -> não define parse_mode.
+ *
+ * HTML
+ *     -> converte a marcação canônica da Publication para HTML;
+ *     -> envia parse_mode = HTML.
+ * </pre>
+ *
+ * <p>O modo PLAIN é mantido como comportamento padrão do construtor
+ * histórico. A composição de produção do canal Telegram público
+ * escolhe HTML explicitamente.</p>
+ */
+public final class TelegramChannel
+    implements PublicationChannel {
+
+    private static final int MAX_TEXT_CODE_POINTS = 4096;
+
+    private static final Pattern DESTINATION_PATTERN =
+        Pattern.compile("(?:-?\\d+|@[A-Za-z0-9_]+)");
+
+    private static final Pattern TOKEN_PATTERN =
+        Pattern.compile("[A-Za-z0-9:_-]+");
+
+    private static final Pattern HTTP_URL_PATTERN =
+        Pattern.compile(
+            "https?://[^\\s<>]+",
+            Pattern.CASE_INSENSITIVE
+        );
+
+    private final TelegramChannelConfig config;
+
+    private final PublicationHttpTransport transport;
+
+    private final ObjectMapper objectMapper;
+
+    private final MessageFormat messageFormat;
+
+    private final PublicationContentFormatter contentFormatter;
+
+    /**
+     * Construtor histórico.
+     *
+     * <p>Permanece em modo PLAIN para preservar compatibilidade
+     * explícita com os contratos anteriores.</p>
+     */
+    public TelegramChannel(
+        TelegramChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper
+    ) {
+
+        this(
+            config,
+            transport,
+            objectMapper,
+            MessageFormat.PLAIN
+        );
+    }
+
+    /**
+     * Construtor com modo de apresentação explícito.
+     */
+    public TelegramChannel(
+        TelegramChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper,
+        MessageFormat messageFormat
+    ) {
+
+        this.config =
+            Objects.requireNonNull(
+                config,
+                "config must not be null"
+            );
+
+        this.transport =
+            Objects.requireNonNull(
+                transport,
+                "transport must not be null"
+            );
+
+        this.objectMapper =
+            Objects.requireNonNull(
+                objectMapper,
+                "objectMapper must not be null"
+            );
+
+        this.messageFormat =
+            Objects.requireNonNull(
+                messageFormat,
+                "messageFormat must not be null"
+            );
+
+        this.contentFormatter =
+            switch (messageFormat) {
+
+                case PLAIN ->
+                    content -> content;
+
+                case HTML ->
+                    new TelegramPublicationFormatter();
+            };
+
+        validateBaseUri(
+            config.apiBaseUri()
+        );
+
+        if (!TOKEN_PATTERN.matcher(
+            config.botToken()
+        ).matches()) {
+
+            throw new IllegalArgumentException(
+                "Telegram bot token contains unsupported characters"
+            );
+        }
+    }
+
+    @Override
+    public PublicationResult publish(
+        PublicationCommand command
+    ) {
+
+        Objects.requireNonNull(
+            command,
+            "command must not be null"
+        );
+
+        if (!isValidDestination(
+            command.destination()
+        )) {
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_INVALID_DESTINATION"
+            );
+        }
+
+        if (exceedsContentLimit(
+            command.content()
+        )) {
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_CONTENT_TOO_LONG"
+            );
+        }
+
+        final String renderedContent;
+
+        try {
+
+            renderedContent =
+                contentFormatter.format(
+                    command.content()
+                );
+
+        } catch (IllegalArgumentException exception) {
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_CONTENT_FORMATTING_ERROR"
+            );
+        }
+
+        String body;
+
+        try {
+
+            body =
+                serializeRequest(
+                    command,
+                    renderedContent
+                );
+
+        } catch (JsonProcessingException exception) {
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_REQUEST_SERIALIZATION_ERROR"
+            );
+        }
+
+        PublicationHttpRequest request =
+            new PublicationHttpRequest(
+                buildSendMessageUri(),
+                Map.of(),
+                body,
+                config.requestTimeout()
+            );
+
+        final PublicationHttpResponse response;
+
+        try {
+
+            response =
+                transport.post(
+                    request
+                );
+
+        } catch (PublicationHttpTransportException exception) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_TRANSPORT_ERROR"
+            );
+        }
+
+        return interpretResponse(
+            response
+        );
+    }
+
+    private String serializeRequest(
+        PublicationCommand command,
+        String renderedContent
+    ) throws JsonProcessingException {
+
+        ObjectNode payload =
+            objectMapper.createObjectNode();
+
+        payload.put(
+            "chat_id",
+            command.destination()
+        );
+
+        payload.put(
+            "text",
+            renderedContent
+        );
+
+        if (messageFormat
+            == MessageFormat.HTML) {
+
+            payload.put(
+                "parse_mode",
+                "HTML"
+            );
+        }
+
+        /*
+         * A URL para preview é detectada no conteúdo canônico
+         * original, não no HTML escapado.
+         *
+         * Assim parâmetros com '&', por exemplo, continuam sendo
+         * enviados literalmente em link_preview_options.url.
+         */
+        addLinkPreviewOptions(
+            payload,
+            command.content()
+        );
+
+        return objectMapper.writeValueAsString(
+            payload
+        );
+    }
+
+    private void addLinkPreviewOptions(
+        ObjectNode payload,
+        String content
+    ) {
+
+        Optional<String> previewUrl =
+            findFirstHttpUrl(
+                content
+            );
+
+        if (previewUrl.isEmpty()) {
+
+            return;
+        }
+
+        ObjectNode options =
+            payload.putObject(
+                "link_preview_options"
+            );
+
+        if (!config.linkPreviewEnabled()) {
+
+            options.put(
+                "is_disabled",
+                true
+            );
+
+            return;
+        }
+
+        options.put(
+            "url",
+            previewUrl.orElseThrow()
+        );
+
+        options.put(
+            "show_above_text",
+            config.linkPreviewPosition()
+                == TelegramChannelConfig.LinkPreviewPosition.ABOVE
+        );
+
+        switch (config.linkPreviewSize()) {
+
+            case LARGE ->
+                options.put(
+                    "prefer_large_media",
+                    true
+                );
+
+            case SMALL ->
+                options.put(
+                    "prefer_small_media",
+                    true
+                );
+
+            case DEFAULT -> {
+                /*
+                 * O Telegram decide o tamanho padrão.
+                 */
+            }
+        }
+    }
+
+    private Optional<String> findFirstHttpUrl(
+        String content
+    ) {
+
+        Matcher matcher =
+            HTTP_URL_PATTERN.matcher(
+                content
+            );
+
+        if (!matcher.find()) {
+
+            return Optional.empty();
+        }
+
+        String candidate =
+            trimTrailingPunctuation(
+                matcher.group()
+            );
+
+        if (candidate.isBlank()) {
+
+            return Optional.empty();
+        }
+
+        try {
+
+            URI uri =
+                URI.create(
+                    candidate
+                );
+
+            if (!uri.isAbsolute()) {
+
+                return Optional.empty();
+            }
+
+            String scheme =
+                uri.getScheme();
+
+            boolean supportedScheme =
+                "http".equalsIgnoreCase(
+                    scheme
+                )
+                    || "https".equalsIgnoreCase(
+                    scheme
+                );
+
+            if (!supportedScheme) {
+
+                return Optional.empty();
+            }
+
+            return Optional.of(
+                candidate
+            );
+
+        } catch (IllegalArgumentException exception) {
+
+            return Optional.empty();
+        }
+    }
+
+    private String trimTrailingPunctuation(
+        String candidate
+    ) {
+
+        int end =
+            candidate.length();
+
+        while (end > 0
+            && isTrailingPunctuation(
+            candidate.charAt(
+                end - 1
+            )
+        )) {
+
+            end--;
+        }
+
+        return candidate.substring(
+            0,
+            end
+        );
+    }
+
+    private boolean isTrailingPunctuation(
+        char character
+    ) {
+
+        return character == '.'
+            || character == ','
+            || character == ';'
+            || character == ':'
+            || character == '!'
+            || character == '?'
+            || character == ')'
+            || character == ']'
+            || character == '}';
+    }
+
+    private PublicationResult interpretResponse(
+        PublicationHttpResponse response
+    ) {
+
+        int statusCode =
+            response.statusCode();
+
+        if (statusCode == 408) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_PROVIDER_TIMEOUT"
+            );
+        }
+
+        if (statusCode == 429) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_RATE_LIMITED"
+            );
+        }
+
+        if (statusCode >= 500
+            && statusCode <= 599) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_PROVIDER_UNAVAILABLE"
+            );
+        }
+
+        if (statusCode < 200
+            || statusCode >= 300) {
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_REJECTED_"
+                    + statusCode
+            );
+        }
+
+        JsonNode responseBody =
+            parseResponseBody(
+                response.body()
+            );
+
+        if (responseBody == null) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_INVALID_RESPONSE"
+            );
+        }
+
+        JsonNode okNode =
+            responseBody.get(
+                "ok"
+            );
+
+        if (okNode == null
+            || !okNode.isBoolean()) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_INVALID_RESPONSE"
+            );
+        }
+
+        if (!okNode.booleanValue()) {
+
+            Optional<Integer> telegramErrorCode =
+                extractTelegramErrorCode(
+                    responseBody
+                );
+
+            if (telegramErrorCode.isPresent()) {
+
+                return classifyTelegramApiError(
+                    telegramErrorCode.orElseThrow()
+                );
+            }
+
+            return PublicationResult.failedPermanent(
+                "TELEGRAM_API_REJECTED_UNKNOWN"
+            );
+        }
+
+        JsonNode messageIdNode =
+            responseBody.path(
+                    "result"
+                )
+                .path(
+                    "message_id"
+                );
+
+        if (!messageIdNode.isIntegralNumber()) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_INVALID_RESPONSE"
+            );
+        }
+
+        return PublicationResult.success(
+            messageIdNode.asText()
+        );
+    }
+
+    private JsonNode parseResponseBody(
+        String body
+    ) {
+
+        if (body == null
+            || body.isBlank()) {
+
+            return null;
+        }
+
+        try {
+
+            return objectMapper.readTree(
+                body
+            );
+
+        } catch (JsonProcessingException exception) {
+
+            return null;
+        }
+    }
+
+    private Optional<Integer> extractTelegramErrorCode(
+        JsonNode responseBody
+    ) {
+
+        JsonNode errorCodeNode =
+            responseBody.get(
+                "error_code"
+            );
+
+        if (errorCodeNode == null
+            || !errorCodeNode.isIntegralNumber()) {
+
+            return Optional.empty();
+        }
+
+        return Optional.of(
+            errorCodeNode.intValue()
+        );
+    }
+
+    private PublicationResult classifyTelegramApiError(
+        int errorCode
+    ) {
+
+        if (errorCode == 408) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_PROVIDER_TIMEOUT"
+            );
+        }
+
+        if (errorCode == 429) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_RATE_LIMITED"
+            );
+        }
+
+        if (errorCode >= 500
+            && errorCode <= 599) {
+
+            return PublicationResult.failedTransient(
+                "TELEGRAM_PROVIDER_UNAVAILABLE"
+            );
+        }
+
+        return PublicationResult.failedPermanent(
+            "TELEGRAM_API_REJECTED_"
+                + errorCode
+        );
+    }
+
+    private URI buildSendMessageUri() {
+
+        String base =
+            config.apiBaseUri()
+                .toString();
+
+        while (base.endsWith(
+            "/"
+        )) {
+
+            base =
+                base.substring(
+                    0,
+                    base.length() - 1
+                );
+        }
+
+        return URI.create(
+            base
+                + "/bot"
+                + config.botToken()
+                + "/sendMessage"
+        );
+    }
+
+    private void validateBaseUri(
+        URI baseUri
+    ) {
+
+        if (baseUri.getQuery()
+            != null) {
+
+            throw new IllegalArgumentException(
+                "Telegram apiBaseUri must not contain a query"
+            );
+        }
+
+        if (baseUri.getFragment()
+            != null) {
+
+            throw new IllegalArgumentException(
+                "Telegram apiBaseUri must not contain a fragment"
+            );
+        }
+    }
+
+    private boolean isValidDestination(
+        String destination
+    ) {
+
+        return DESTINATION_PATTERN
+            .matcher(
+                destination
+            )
+            .matches();
+    }
+
+    private boolean exceedsContentLimit(
+        String content
+    ) {
+
+        int codePointCount =
+            content.codePointCount(
+                0,
+                content.length()
+            );
+
+        return codePointCount
+            > MAX_TEXT_CODE_POINTS;
+    }
+
+    /**
+     * Modo de apresentação da mensagem enviada pelo TelegramChannel.
+     */
+    public enum MessageFormat {
+
+        /**
+         * Conteúdo enviado literalmente e sem parse_mode.
+         */
+        PLAIN,
+
+        /**
+         * Conteúdo canônico convertido para HTML e enviado com
+         * parse_mode=HTML.
+         */
+        HTML
+    }
+}

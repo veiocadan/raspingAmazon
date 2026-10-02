@@ -114,6 +114,32 @@ public record ProcessingJobSubmission(
         );
     }
 
+    /**
+     * Cria a solicitação durável da etapa automática de publicação
+     * para uma ProcessingRun.
+     *
+     * <p>A chave de idempotência continua sendo fornecida pela
+     * aplicação. O chamador deverá utilizar uma identidade estável
+     * derivada da ProcessingRun.</p>
+     */
+    public static ProcessingJobSubmission publicationDispatch(
+        long processingRunId,
+        String idempotencyKey,
+        int maxAttempts,
+        OffsetDateTime availableAt
+    ) {
+
+        return new ProcessingJobSubmission(
+            ProcessingJobType.PUBLICATION_DISPATCH,
+            processingRunId,
+            null,
+            null,
+            idempotencyKey,
+            maxAttempts,
+            availableAt
+        );
+    }
+
     private static void validateSubject(
         ProcessingJobType type,
         Long processingRunId,
@@ -174,6 +200,24 @@ public record ProcessingJobSubmission(
                 requirePositive(
                     offerSnapshotId,
                     "EVALUATE_DEAL requires offerSnapshotId"
+                );
+            }
+
+            case PUBLICATION_DISPATCH -> {
+
+                requirePositive(
+                    processingRunId,
+                    "PUBLICATION_DISPATCH requires processingRunId"
+                );
+
+                requireNull(
+                    dealCandidateId,
+                    "PUBLICATION_DISPATCH must not have dealCandidateId"
+                );
+
+                requireNull(
+                    offerSnapshotId,
+                    "PUBLICATION_DISPATCH must not have offerSnapshotId"
                 );
             }
         }
