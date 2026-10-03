@@ -21,15 +21,36 @@ public enum PublicationOutboxStatus {
     SUCCEEDED,
 
     /**
-     * PublicationChannel devolveu falha transitória.
+     * PublicationChannel devolveu falha transitória e o trabalho não
+     * possui mais retry automático disponível.
      *
-     * <p>Na FASE 18 este estado encerra a tentativa corrente.
-     * Estratégias avançadas de retry pertencem à FASE 19.</p>
+     * <p>Retries ainda disponíveis reutilizam a mesma outbox e voltam
+     * para PENDING.</p>
      */
     FAILED_TRANSIENT,
 
     /**
      * PublicationChannel devolveu falha permanente.
      */
-    FAILED_PERMANENT
+    FAILED_PERMANENT,
+
+    /**
+     * O efeito externo da tentativa não pode ser determinado com
+     * segurança.
+     *
+     * <p>Exemplos:</p>
+     *
+     * <ul>
+     *     <li>crash após o início persistido da tentativa;</li>
+     *     <li>provider possivelmente aceitou a mensagem, mas a
+     *         confirmação local foi perdida;</li>
+     *     <li>outro resultado ambíguo explicitamente classificado nas
+     *         etapas seguintes da FASE 20.</li>
+     * </ul>
+     *
+     * <p>Este estado é terminal para processamento automático. Qualquer
+     * reprocessamento futuro deve ser uma decisão explícita e
+     * auditável.</p>
+     */
+    DELIVERY_UNKNOWN
 }

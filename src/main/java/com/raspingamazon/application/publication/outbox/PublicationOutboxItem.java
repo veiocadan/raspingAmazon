@@ -28,6 +28,10 @@ import java.util.Objects;
  *
  * <p>Quota profile e quota date formam uma unidade semântica:
  * ambos devem estar presentes ou ambos devem estar ausentes.</p>
+ *
+ * <p>DELIVERY_UNKNOWN é terminal do ponto de vista do processamento
+ * automático. O sistema não pode transformar esse estado em retry
+ * somente porque um lease expirou.</p>
  */
 public record PublicationOutboxItem(
     long id,
@@ -66,6 +70,7 @@ public record PublicationOutboxItem(
         );
 
         if (selectionPosition <= 0) {
+
             throw new IllegalArgumentException(
                 "selectionPosition must be positive"
             );
@@ -172,6 +177,12 @@ public record PublicationOutboxItem(
             == PublicationOutboxStatus.PROCESSING;
     }
 
+    /**
+     * Indica que o processamento automático desta unidade terminou.
+     *
+     * <p>DELIVERY_UNKNOWN também é terminal. Ele não significa sucesso,
+     * mas exige decisão explícita antes de qualquer reprocessamento.</p>
+     */
     public boolean finished() {
 
         return status
@@ -179,7 +190,9 @@ public record PublicationOutboxItem(
             || status
             == PublicationOutboxStatus.FAILED_TRANSIENT
             || status
-            == PublicationOutboxStatus.FAILED_PERMANENT;
+            == PublicationOutboxStatus.FAILED_PERMANENT
+            || status
+            == PublicationOutboxStatus.DELIVERY_UNKNOWN;
     }
 
     private static void validateQuotaReservation(
@@ -223,7 +236,8 @@ public record PublicationOutboxItem(
             return;
         }
 
-        if (lockedAt != null || lockedBy != null) {
+        if (lockedAt != null
+            || lockedBy != null) {
 
             throw new IllegalArgumentException(
                 "Only PROCESSING outbox item may hold a worker lock"
@@ -238,17 +252,23 @@ public record PublicationOutboxItem(
 
         boolean terminal =
             status == PublicationOutboxStatus.SUCCEEDED
-                || status == PublicationOutboxStatus.FAILED_TRANSIENT
-                || status == PublicationOutboxStatus.FAILED_PERMANENT;
+                || status
+                == PublicationOutboxStatus.FAILED_TRANSIENT
+                || status
+                == PublicationOutboxStatus.FAILED_PERMANENT
+                || status
+                == PublicationOutboxStatus.DELIVERY_UNKNOWN;
 
-        if (terminal && finishedAt == null) {
+        if (terminal
+            && finishedAt == null) {
 
             throw new IllegalArgumentException(
                 "Terminal outbox item requires finishedAt"
             );
         }
 
-        if (!terminal && finishedAt != null) {
+        if (!terminal
+            && finishedAt != null) {
 
             throw new IllegalArgumentException(
                 "Non-terminal outbox item must not have finishedAt"
