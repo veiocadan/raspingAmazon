@@ -13,13 +13,18 @@ import java.util.Objects;
 /**
  * Provider de página individual baseado em HTTP convencional.
  *
- * <p>Esta implementação representa exatamente a estratégia utilizada
- * historicamente pelo projeto: uma requisição HTTP simples, sem
- * execução de JavaScript e sem renderização de DOM.</p>
+ * <p>Esta implementação representa a estratégia histórica de aquisição
+ * por requisição HTTP simples, sem execução de JavaScript.</p>
  *
- * <p>A existência deste adapter separado permite que uma estratégia
- * de página renderizada seja adicionada posteriormente sem misturar
- * browser automation com parsing ou regras de negócio.</p>
+ * <p>Ela permanece disponível como adapter de infraestrutura e como
+ * ferramenta de teste, diagnóstico e fallback explicitamente composto.
+ * A estratégia produtiva da página individual será evoluída para DOM
+ * renderizado conforme ADR-0014.</p>
+ *
+ * <p>Falhas HTTP preservam status e um trecho limitado da resposta
+ * para que a política operacional da aplicação possa distinguir
+ * rate limit, indisponibilidade, recurso ausente e outras categorias
+ * sem interpretar Strings de mensagens de exceção.</p>
  */
 public final class HttpProductPageContentProvider
     implements ProductPageContentProvider {
@@ -27,19 +32,29 @@ public final class HttpProductPageContentProvider
     private static final String USER_AGENT =
         "RaspingAmazon/1.0";
 
+    private static final String ACCEPT =
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+    private static final String ACCEPT_LANGUAGE =
+        "pt-BR,pt;q=0.9,en-US;q=0.7,en;q=0.6";
+
     private static final Duration REQUEST_TIMEOUT =
         Duration.ofSeconds(
             20
         );
+
+    private static final int MAX_ERROR_BODY_EXCERPT_LENGTH =
+        2000;
 
     private final HttpClient httpClient;
 
     private final Clock clock;
 
     /**
-     * Construtor padrão de produção.
+     * Construtor padrão.
      */
     public HttpProductPageContentProvider() {
+
         this(
             createDefaultHttpClient(),
             Clock.systemUTC()
@@ -55,6 +70,7 @@ public final class HttpProductPageContentProvider
     public HttpProductPageContentProvider(
         HttpClient httpClient
     ) {
+
         this(
             httpClient,
             Clock.systemUTC()
@@ -86,10 +102,14 @@ public final class HttpProductPageContentProvider
     }
 
     /**
-     * Executa uma única requisição HTTP e retorna o corpo recebido.
+     * Executa uma requisição HTTP e retorna o corpo recebido.
      *
-     * <p>Não executa JavaScript e não tenta aguardar widgets
-     * dinâmicos da Amazon.</p>
+     * <p>Não executa JavaScript e não aguarda widgets dinâmicos.</p>
+     *
+     * <p>Quando a origem devolve um status HTTP não aceito, o status e
+     * um trecho limitado do corpo são preservados na exceção. Isso
+     * permite que o classificador operacional central tome a decisão
+     * de retry sem depender da mensagem textual desta classe.</p>
      */
     @Override
     public ProductPageContent load(
@@ -115,7 +135,11 @@ public final class HttpProductPageContentProvider
                 )
                 .header(
                     "Accept",
-                    "text/html"
+                    ACCEPT
+                )
+                .header(
+                    "Accept-Language",
+                    ACCEPT_LANGUAGE
                 )
                 .GET()
                 .build();
@@ -150,12 +174,19 @@ public final class HttpProductPageContentProvider
             );
         }
 
-        if (response.statusCode() < 200
-            || response.statusCode() >= 300) {
+        int statusCode =
+            response.statusCode();
+
+        if (statusCode < 200
+            || statusCode >= 300) {
 
             throw new ProductPageContentProviderException(
                 "Product page returned HTTP "
-                    + response.statusCode()
+                    + statusCode,
+                statusCode,
+                createBodyExcerpt(
+                    response.body()
+                )
             );
         }
 
@@ -186,6 +217,32 @@ public final class HttpProductPageContentProvider
             resolvedUri,
             html,
             collectedAt
+        );
+    }
+
+    /**
+     * Limita a evidência textual preservada em falhas HTTP.
+     *
+     * <p>O objetivo é fornecer diagnóstico suficiente sem transportar
+     * páginas HTML potencialmente grandes dentro da exceção.</p>
+     */
+    private String createBodyExcerpt(
+        String body
+    ) {
+
+        if (body == null) {
+            return null;
+        }
+
+        if (body.length()
+            <= MAX_ERROR_BODY_EXCERPT_LENGTH) {
+
+            return body;
+        }
+
+        return body.substring(
+            0,
+            MAX_ERROR_BODY_EXCERPT_LENGTH
         );
     }
 
