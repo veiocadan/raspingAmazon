@@ -1,6 +1,7 @@
 package com.raspingamazon.infrastructure.amazon.enrichment;
 
 import com.raspingamazon.application.collection.contract.SourceChangedException;
+import com.raspingamazon.application.collection.contract.SourceDataUnavailableException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionType;
 import com.raspingamazon.infrastructure.amazon.AmazonSourceRestrictionDetector;
@@ -13,21 +14,25 @@ import java.util.Objects;
  * Valida o documento renderizado da página individual antes que qualquer
  * parser comercial seja autorizado a interpretá-lo.
  *
- * <p>A responsabilidade desta classe é exclusivamente estabelecer se o
- * documento pode entrar no pipeline normal de parsing.</p>
+ * <p>A responsabilidade desta classe é estabelecer se o documento pode
+ * entrar no pipeline normal de parsing.</p>
  *
- * <p>Há três resultados possíveis:</p>
+ * <p>Há quatro resultados possíveis:</p>
  *
  * <ol>
  *     <li>documento de produto reconhecido: processamento continua;</li>
- *     <li>restrição explícita da fonte: SourceRestrictionException;</li>
+ *     <li>restrição explícita da fonte:
+ *         SourceRestrictionException;</li>
+ *     <li>recurso explicitamente inexistente:
+ *         SourceDataUnavailableException;</li>
  *     <li>estrutura incompatível com página de produto conhecida:
  *         SourceChangedException.</li>
  * </ol>
  *
- * <p>A ausência isolada de seller, delivery, rating, reviews ou condições
- * comerciais não é considerada SOURCE_CHANGED. Esses campos possuem suas
- * próprias semânticas de ausência.</p>
+ * <p>A ausência isolada de seller, delivery, rating, reviews ou
+ * condições comerciais não é considerada SOURCE_CHANGED nem
+ * DATA_UNAVAILABLE. Esses fatos possuem suas próprias semânticas de
+ * ausência.</p>
  */
 public final class AmazonProductPageDocumentValidator {
 
@@ -35,18 +40,27 @@ public final class AmazonProductPageDocumentValidator {
         STRUCTURE_UNRECOGNIZED_ERROR_CODE =
         "AMAZON_PRODUCT_PAGE_STRUCTURE_UNRECOGNIZED";
 
+    public static final String
+        PRODUCT_NOT_FOUND_ERROR_CODE =
+        "AMAZON_PRODUCT_PAGE_NOT_FOUND";
+
     private final AmazonSourceRestrictionDetector
         restrictionDetector;
+
+    private final AmazonProductPageUnavailabilityDetector
+        unavailabilityDetector;
 
     public AmazonProductPageDocumentValidator() {
 
         this(
-            new AmazonSourceRestrictionDetector()
+            new AmazonSourceRestrictionDetector(),
+            new AmazonProductPageUnavailabilityDetector()
         );
     }
 
     AmazonProductPageDocumentValidator(
-        AmazonSourceRestrictionDetector restrictionDetector
+        AmazonSourceRestrictionDetector restrictionDetector,
+        AmazonProductPageUnavailabilityDetector unavailabilityDetector
     ) {
 
         this.restrictionDetector =
@@ -54,14 +68,28 @@ public final class AmazonProductPageDocumentValidator {
                 restrictionDetector,
                 "restrictionDetector must not be null"
             );
+
+        this.unavailabilityDetector =
+            Objects.requireNonNull(
+                unavailabilityDetector,
+                "unavailabilityDetector must not be null"
+            );
     }
 
     /**
      * Valida o DOM renderizado.
      *
-     * <p>A validação estrutural é propositalmente mínima e conservadora.
-     * Não exigimos seller/delivery porque a ausência desses campos possui
-     * significado próprio e será tratada posteriormente.</p>
+     * <p>A ordem também possui significado operacional:</p>
+     *
+     * <pre>
+     * proteção da fonte
+     *       ↓
+     * recurso inexistente
+     *       ↓
+     * estrutura reconhecida
+     *       ↓
+     * SOURCE_CHANGED
+     * </pre>
      */
     public void validate(
         String html
@@ -96,6 +124,22 @@ public final class AmazonProductPageDocumentValidator {
                 html
             );
 
+        /*
+         * Uma página conhecida de "not found" não representa mudança de
+         * layout. A estrutura pode estar perfeitamente estável e apenas
+         * o produto requisitado ter deixado de existir.
+         */
+        if (unavailabilityDetector.isUnavailable(
+            document
+        )) {
+
+            throw new SourceDataUnavailableException(
+                PRODUCT_NOT_FOUND_ERROR_CODE,
+                "Amazon product page reports "
+                    + "that the requested product does not exist"
+            );
+        }
+
         if (isRecognizedProductDocument(
             document
         )) {
@@ -111,11 +155,10 @@ public final class AmazonProductPageDocumentValidator {
     }
 
     /**
-     * Reconhece somente evidências estruturais de identidade da página.
+     * Reconhece evidências estruturais mínimas da identidade de uma
+     * página de produto.
      *
-     * <p>Não utilizamos merchantInfoFeature ou fulfillerInfoFeature como
-     * pré-condições, pois isso transformaria ausência legítima de seller
-     * ou delivery em falso SOURCE_CHANGED.</p>
+     * <p>Seller e delivery deliberadamente não aparecem aqui.</p>
      */
     private boolean isRecognizedProductDocument(
         Document document

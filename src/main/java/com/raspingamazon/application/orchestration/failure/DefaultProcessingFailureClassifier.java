@@ -2,6 +2,7 @@ package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
 import com.raspingamazon.application.collection.contract.SourceChangedException;
+import com.raspingamazon.application.collection.contract.SourceDataUnavailableException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.observability.OperationalFailureOrigin;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
@@ -48,11 +49,11 @@ public final class DefaultProcessingFailureClassifier
         );
 
         /*
-         * SourceRestrictionException e SourceChangedException também
-         * derivam de CollectionException.
+         * As três exceções abaixo também derivam de
+         * CollectionException.
          *
-         * Portanto ambas precisam ser tratadas antes da regra genérica
-         * de CollectionException.
+         * Portanto precisam ser classificadas antes da regra genérica
+         * de collection.
          */
         SourceRestrictionException sourceRestriction =
             findCause(
@@ -93,6 +94,23 @@ public final class DefaultProcessingFailureClassifier
                 FailureHandlingAction.PAUSE,
                 FailureHandlingAction.ALERT,
                 FailureHandlingAction.OPERATOR_INTERVENTION
+            );
+        }
+
+        SourceDataUnavailableException dataUnavailable =
+            findCause(
+                failure,
+                SourceDataUnavailableException.class
+            );
+
+        if (dataUnavailable != null) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.DATA_UNAVAILABLE,
+                dataUnavailable.errorCode(),
+                dataUnavailable,
+                FailureHandlingAction.REJECT
             );
         }
 
