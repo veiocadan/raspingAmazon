@@ -1,6 +1,7 @@
 package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
+import com.raspingamazon.application.collection.contract.SourceChangedException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.observability.OperationalFailureOrigin;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
@@ -17,21 +18,21 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Classificação padrão das falhas conhecidas pela aplicação.
+ * Classificação operacional padrão das falhas conhecidas pela aplicação.
  *
- * <p>A política é deliberadamente conservadora e separa:</p>
+ * <p>As dimensões permanecem independentes:</p>
  *
  * <ul>
  *     <li>semântica de retry;</li>
- *     <li>origem operacional;</li>
- *     <li>categoria da falha;</li>
- *     <li>ações operacionais;</li>
- *     <li>código diagnóstico específico.</li>
+ *     <li>origem;</li>
+ *     <li>categoria operacional;</li>
+ *     <li>ações recomendadas;</li>
+ *     <li>código diagnóstico.</li>
  * </ul>
  *
- * <p>Falhas desconhecidas permanecem permanentes até receberem
- * classificação explícita. Isso evita loops automáticos causados por
- * bugs, dados inválidos ou estados que exigem investigação.</p>
+ * <p>A política é conservadora e fail-closed. Falhas desconhecidas,
+ * mudanças estruturais e restrições explícitas não recebem retry
+ * automático.</p>
  */
 public final class DefaultProcessingFailureClassifier
     implements ProcessingFailureClassifier {
@@ -47,10 +48,11 @@ public final class DefaultProcessingFailureClassifier
         );
 
         /*
-         * SourceRestrictionException também é CollectionException.
+         * SourceRestrictionException e SourceChangedException também
+         * derivam de CollectionException.
          *
-         * Portanto a classificação explícita de restrição da fonte
-         * precisa ocorrer antes da regra genérica de CollectionException.
+         * Portanto ambas precisam ser tratadas antes da regra genérica
+         * de CollectionException.
          */
         SourceRestrictionException sourceRestriction =
             findCause(
@@ -74,14 +76,28 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * PUBLICATION_DISPATCH possui condições funcionais terminais
-         * próprias.
-         *
-         * Elas representam estado da aplicação e permanecem separadas
-         * de falhas dos canais externos.
-         */
-        PublicationDispatchJobException publicationDispatchFailure =
+        SourceChangedException sourceChanged =
+            findCause(
+                failure,
+                SourceChangedException.class
+            );
+
+        if (sourceChanged != null) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.SOURCE_CHANGED,
+                sourceChanged.errorCode(),
+                sourceChanged,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.PAUSE,
+                FailureHandlingAction.ALERT,
+                FailureHandlingAction.OPERATOR_INTERVENTION
+            );
+        }
+
+        PublicationDispatchJobException
+            publicationDispatchFailure =
             findCause(
                 failure,
                 PublicationDispatchJobException.class
@@ -98,10 +114,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * CollectionException preserva a semântica técnica da coleta,
-         * inclusive status HTTP quando uma resposta foi recebida.
-         */
         CollectionException collectionException =
             findCause(
                 failure,
@@ -115,12 +127,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Timeouts de infraestrutura geral permanecem retryable.
-         *
-         * A distinção mais fina de timeout antes/depois de possíveis
-         * efeitos externos será aplicada à publicação na FASE 20-D.
-         */
         HttpTimeoutException httpTimeout =
             findCause(
                 failure,
@@ -169,28 +175,19 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Toda SQLException conhecida chega a um classificador próprio.
-         *
-         * Isso permite usar SQLState além das subclasses Java.
-         */
-        SQLException databaseFailure =
+        SQLException sqlFailure =
             findCause(
                 failure,
                 SQLException.class
             );
 
-        if (databaseFailure != null) {
+        if (sqlFailure != null) {
 
-            return classifyDatabase(
-                databaseFailure
+            return classifySql(
+                sqlFailure
             );
         }
 
-        /*
-         * Entradas inválidas são falhas internas permanentes para o
-         * trabalho corrente.
-         */
         IllegalArgumentException invalidInput =
             findCause(
                 failure,
@@ -208,10 +205,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Estado interno impossível ou incompatível merece sinalização
-         * operacional além do encerramento do job.
-         */
         IllegalStateException invalidState =
             findCause(
                 failure,
@@ -230,11 +223,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Fallback fail closed.
-         *
-         * Falha não reconhecida não entra em retry automático.
-         */
         return permanentFailure(
             OperationalFailureOrigin.INTERNAL,
             FailureCategory.UNKNOWN,
@@ -252,12 +240,6 @@ public final class DefaultProcessingFailureClassifier
         Integer statusCode =
             failure.httpStatusCode();
 
-        /*
-         * Ausência de resposta HTTP utilizável indica falha de
-         * transporte.
-         *
-         * SourceRestrictionException já foi tratada anteriormente.
-         */
         if (statusCode == null) {
 
             return transientFailure(
@@ -268,9 +250,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Rate limit é uma categoria própria.
-         */
         if (statusCode == 429) {
 
             return transientFailure(
@@ -281,9 +260,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Request timeout e Too Early admitem nova tentativa.
-         */
         if (statusCode == 408
             || statusCode == 425) {
 
@@ -295,10 +271,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Falhas 5xx representam indisponibilidade técnica da origem
-         * remota para esta tentativa.
-         */
         if (statusCode >= 500
             && statusCode <= 599) {
 
@@ -310,9 +282,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Falha explícita de autenticação/autorização.
-         */
         if (statusCode == 401) {
 
             return permanentFailure(
@@ -327,13 +296,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Para a coleta pública atual, HTTP 403 é tratado de forma
-         * conservadora como restrição da fonte.
-         *
-         * A FASE 20-C refinará a semântica Amazon específica usando
-         * evidência de challenge/CAPTCHA/layout.
-         */
         if (statusCode == 403) {
 
             return permanentFailure(
@@ -347,9 +309,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Recurso ausente ou removido.
-         */
         if (statusCode == 404
             || statusCode == 410) {
 
@@ -362,10 +321,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Outros 4xx indicam que repetir exatamente o mesmo trabalho
-         * não possui expectativa razoável de corrigir a requisição.
-         */
         if (statusCode >= 400
             && statusCode <= 499) {
 
@@ -378,11 +333,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Uma CollectionException associada a status fora das faixas
-         * esperadas representa contrato inesperado e permanece fail
-         * closed.
-         */
         return permanentFailure(
             OperationalFailureOrigin.EXTERNAL,
             FailureCategory.UNKNOWN,
@@ -393,7 +343,7 @@ public final class DefaultProcessingFailureClassifier
         );
     }
 
-    private FailureClassification classifyDatabase(
+    private FailureClassification classifySql(
         SQLException failure
     ) {
 
@@ -402,10 +352,6 @@ public final class DefaultProcessingFailureClassifier
                 failure.getSQLState()
             );
 
-        /*
-         * SQLState classe 08:
-         * connection exception.
-         */
         if (sqlState != null
             && sqlState.startsWith(
             "08"
@@ -419,14 +365,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * PostgreSQL:
-         *
-         * 40001 = serialization_failure
-         * 40P01 = deadlock_detected
-         *
-         * Ambos permitem retry da transação/trabalho.
-         */
         if ("40001".equals(
             sqlState
         )
@@ -442,11 +380,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * PostgreSQL:
-         *
-         * 55P03 = lock_not_available
-         */
         if ("55P03".equals(
             sqlState
         )) {
@@ -459,13 +392,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * PostgreSQL:
-         *
-         * 57P01 = admin_shutdown
-         * 57P02 = crash_shutdown
-         * 57P03 = cannot_connect_now
-         */
         if ("57P01".equals(
             sqlState
         )
@@ -484,15 +410,8 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * Mantém compatibilidade com a semântica Java já adotada antes
-         * da FASE 20 para subclasses explicitamente transitórias ou
-         * recuperáveis.
-         */
-        if (failure
-            instanceof SQLTransientException
-            || failure
-            instanceof SQLRecoverableException) {
+        if (failure instanceof SQLTransientException
+            || failure instanceof SQLRecoverableException) {
 
             return transientFailure(
                 OperationalFailureOrigin.INTERNAL,
@@ -502,10 +421,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * SQLState conhecido, mas não pertencente ao conjunto
-         * conservador de estados seguros para retry.
-         */
         if (sqlState != null) {
 
             return permanentFailure(
@@ -518,10 +433,6 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        /*
-         * SQLException sem SQLState e sem semântica transitória
-         * explícita permanece permanente.
-         */
         return permanentFailure(
             OperationalFailureOrigin.INTERNAL,
             FailureCategory.DATABASE,
@@ -577,23 +488,6 @@ public final class DefaultProcessingFailureClassifier
         );
     }
 
-    private String normalizeSqlState(
-        String sqlState
-    ) {
-
-        if (sqlState == null
-            || sqlState.isBlank()) {
-
-            return null;
-        }
-
-        return sqlState
-            .trim()
-            .toUpperCase(
-                Locale.ROOT
-            );
-    }
-
     private String safeMessage(
         Throwable failure
     ) {
@@ -610,6 +504,26 @@ public final class DefaultProcessingFailureClassifier
         }
 
         return message;
+    }
+
+    private String normalizeSqlState(
+        String sqlState
+    ) {
+
+        if (sqlState == null) {
+            return null;
+        }
+
+        String normalized =
+            sqlState
+                .trim()
+                .toUpperCase(
+                    Locale.ROOT
+                );
+
+        return normalized.isEmpty()
+            ? null
+            : normalized;
     }
 
     private <T extends Throwable> T findCause(

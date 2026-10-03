@@ -9,6 +9,8 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Response;
 import com.microsoft.playwright.options.WaitUntilState;
+import com.raspingamazon.application.collection.contract.SourceChangedException;
+import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 
 import java.net.URI;
 import java.time.Clock;
@@ -24,17 +26,15 @@ import java.util.Objects;
  * <p>Uma única instância de Playwright e uma única instância de Browser
  * são mantidas durante o lifecycle do provider.</p>
  *
- * <p>Cada aquisição cria um BrowserContext independente. Dessa forma
- * cookies, sessão e estado de navegação de um produto não contaminam a
- * aquisição seguinte, sem pagar o custo de iniciar um novo Chromium para
- * cada produto.</p>
+ * <p>Cada aquisição cria um BrowserContext independente. Cookies, sessão
+ * e estado de navegação de um produto não contaminam a aquisição
+ * seguinte, sem iniciar um Chromium novo para cada produto.</p>
  *
- * <p>O acesso aos objetos Playwright é serializado. O Playwright Java não
- * é thread-safe; portanto load() e close() nunca podem executar chamadas
- * Playwright simultaneamente sobre esta instância.</p>
+ * <p>O acesso aos objetos Playwright é serializado porque os objetos da
+ * instância pertencem ao mesmo lifecycle físico.</p>
  *
- * <p>Esta classe somente adquire e renderiza conteúdo. Ela não interpreta
- * seller, delivery, reviews, preços ou condições comerciais.</p>
+ * <p>Depois da renderização e antes de entregar o HTML aos parsers, o
+ * documento passa por validação defensiva da fonte.</p>
  */
 public final class PlaywrightRenderedProductPageContentProvider
     implements ProductPageContentProvider, AutoCloseable {
@@ -51,17 +51,15 @@ public final class PlaywrightRenderedProductPageContentProvider
 
     private final Clock clock;
 
+    private final AmazonProductPageDocumentValidator
+        documentValidator;
+
     private final Playwright playwright;
 
     private final Browser browser;
 
     private boolean closed;
 
-    /**
-     * Construção padrão de produção.
-     *
-     * <p>O Chromium é executado em modo headless.</p>
-     */
     public PlaywrightRenderedProductPageContentProvider() {
 
         this(
@@ -70,11 +68,6 @@ public final class PlaywrightRenderedProductPageContentProvider
         );
     }
 
-    /**
-     * Construção produtiva com relógio compartilhado.
-     *
-     * @param clock relógio utilizado em collectedAt
-     */
     public PlaywrightRenderedProductPageContentProvider(
         Clock clock
     ) {
@@ -85,12 +78,6 @@ public final class PlaywrightRenderedProductPageContentProvider
         );
     }
 
-    /**
-     * Variante completa utilizada também pelos probes externos.
-     *
-     * @param clock relógio da aquisição
-     * @param headless true para execução sem interface visual
-     */
     public PlaywrightRenderedProductPageContentProvider(
         Clock clock,
         boolean headless
@@ -101,6 +88,9 @@ public final class PlaywrightRenderedProductPageContentProvider
                 clock,
                 "clock must not be null"
             );
+
+        this.documentValidator =
+            new AmazonProductPageDocumentValidator();
 
         Playwright createdPlaywright =
             null;
@@ -166,13 +156,6 @@ public final class PlaywrightRenderedProductPageContentProvider
             createdBrowser;
     }
 
-    /**
-     * Renderiza uma página individual.
-     *
-     * <p>O método é synchronized porque Browser, BrowserContext, Page e
-     * demais objetos Playwright pertencentes a esta instância não podem
-     * ser utilizados concorrentemente.</p>
-     */
     @Override
     public synchronized ProductPageContent load(
         URI productUri
@@ -216,6 +199,22 @@ public final class PlaywrightRenderedProductPageContentProvider
                 exception;
 
             throw exception;
+
+        } catch (
+            SourceRestrictionException
+            | SourceChangedException exception
+        ) {
+
+            ProductPageContentProviderException wrapped =
+                new ProductPageContentProviderException(
+                    "Amazon product page failed source validation",
+                    exception
+                );
+
+            activeFailure =
+                wrapped;
+
+            throw wrapped;
 
         } catch (RuntimeException exception) {
 
@@ -262,7 +261,8 @@ public final class PlaywrightRenderedProductPageContentProvider
         if (navigationResponse == null) {
 
             throw new ProductPageContentProviderException(
-                "Rendered product page did not expose a navigation response"
+                "Rendered product page did not expose "
+                    + "a navigation response"
             );
         }
 
@@ -319,6 +319,15 @@ public final class PlaywrightRenderedProductPageContentProvider
             );
         }
 
+        /*
+         * Fail closed.
+         *
+         * Nenhum parser recebe o documento antes da validação da fonte.
+         */
+        documentValidator.validate(
+            html
+        );
+
         URI resolvedUri =
             resolveUri(
                 page,
@@ -339,13 +348,6 @@ public final class PlaywrightRenderedProductPageContentProvider
         );
     }
 
-    /**
-     * Tenta provocar o carregamento de widgets lazy.
-     *
-     * <p>A ausência de um desses seletores não é, isoladamente, uma
-     * falha. Produtos diferentes podem apresentar estruturas
-     * comerciais diferentes.</p>
-     */
     private void bestEffortScroll(
         Page page,
         String selector
@@ -367,21 +369,11 @@ public final class PlaywrightRenderedProductPageContentProvider
         } catch (PlaywrightException ignored) {
 
             /*
-             * O scroll é auxiliar.
-             *
-             * A validação semântica do conteúdo pertence às etapas
-             * posteriores da FASE 20-C.
+             * O scroll é auxiliar e não determina validade do documento.
              */
         }
     }
 
-    /**
-     * Aguarda por tempo limitado conteúdo comercial que costuma ser
-     * preenchido dinamicamente.
-     *
-     * <p>O timeout desta espera não invalida sozinho a aquisição. O DOM
-     * final continua sendo evidência e será validado separadamente.</p>
-     */
     private void waitForCommercialRendering(
         Page page
     ) {
@@ -426,10 +418,8 @@ public final class PlaywrightRenderedProductPageContentProvider
         } catch (PlaywrightException ignored) {
 
             /*
-             * Não convertemos ausência desses widgets em SOURCE_CHANGED.
-             *
-             * A FASE 20-C3 introduzirá validação explícita do documento,
-             * challenge/CAPTCHA e mudança estrutural.
+             * Ausência desses widgets não representa, isoladamente,
+             * SOURCE_CHANGED.
              */
         }
     }
@@ -460,10 +450,6 @@ public final class PlaywrightRenderedProductPageContentProvider
         }
     }
 
-    /**
-     * Preserva a falha funcional original caso o fechamento do contexto
-     * também falhe.
-     */
     private void closeContext(
         BrowserContext context,
         RuntimeException activeFailure
@@ -505,11 +491,6 @@ public final class PlaywrightRenderedProductPageContentProvider
         }
     }
 
-    /**
-     * Encerra primeiro o browser e depois a instância Playwright.
-     *
-     * <p>close() é idempotente.</p>
-     */
     @Override
     public synchronized void close() {
 
