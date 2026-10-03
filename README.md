@@ -2,8 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, interpretação, enriquecimento, validação, filtragem, score, ranking, histórico, seleção e publicação automatizada de ofertas da Amazon Brasil**, com PostgreSQL como fonte principal de estado e foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução incremental.
 
-> **Estado atual:** FASE 19 concluída localmente na branch `feat/fase-19-telegram-whatsapp`. O fluxo já cobre processamento durável, geração versionada de `Publication`, interface operacional não bloqueante, observabilidade, execução contínua, seleção operacional, outbox de publicação e adapters concretos de Telegram e WhatsApp. O gate local final executou **1608 testes**, com **0 falhas, 0 erros e 0 ignorados**. O schema PostgreSQL/Flyway está em **V34**. O fechamento remoto da FASE 19 ainda depende de commit, push, Pull Request e CI remoto. A próxima fase oficial é a **FASE 20 — Resiliência, recuperação e falhas de produção**.
-
+> **Estado atual:** FASE 19 concluída e integrada à `main`. A FASE 20 — Resiliência, recuperação e falhas de produção — está em andamento na branch `feat/fase-20-resiliencia-recuperacao`. A FASE 20-A formalizou o contrato de resiliência no ADR-0015, e a FASE 20-B iniciou a taxonomia operacional de falhas, separando semântica de retry, origem, categoria, ações e códigos diagnósticos. O schema PostgreSQL/Flyway permanece em **V34** enquanto não houver necessidade persistente comprovada para a evolução da FASE 20.
 ---
 
 ## 1. Objetivo
@@ -115,8 +114,8 @@ O README representa o estado operacional atual do projeto.
 | FASE 16 | Observabilidade, auditoria e operação | CONCLUÍDA |
 | FASE 17 | Agendamento e execução contínua | CONCLUÍDA |
 | FASE 18 | Contrato de canais e outbox de publicação | CONCLUÍDA |
-| FASE 19 | Telegram e WhatsApp | CONCLUÍDA LOCALMENTE |
-| FASE 20 | Resiliência, recuperação e falhas de produção | PRÓXIMA |
+| FASE 19 | Telegram e WhatsApp | CONCLUÍDA |
+| FASE 20 | Resiliência, recuperação e falhas de produção | EM ANDAMENTO |
 | FASE 21 | Segurança, governança e fechamento da v1.0 | PLANEJADA |
 
 A FASE 19 também contém alguns componentes antecipados da FASE 20. Eles permanecem no código, mas não significam que a FASE 20 esteja concluída.
