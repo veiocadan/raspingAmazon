@@ -3,9 +3,11 @@ package com.raspingamazon.application.publication.outbox.worker;
 import com.raspingamazon.application.publication.channel.PublicationChannel;
 import com.raspingamazon.application.publication.channel.PublicationChannelResolver;
 import com.raspingamazon.application.publication.channel.PublicationResult;
+import com.raspingamazon.application.publication.outbox.PublicationAttemptHandle;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxItem;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxStatus;
-import com.raspingamazon.application.publication.outbox.port.PublicationOutboxCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptStartPort;
 import com.raspingamazon.application.publication.outbox.port.PublicationOutboxQueuePort;
 import com.raspingamazon.application.publication.ratelimit.PublicationRateLimitPolicy;
 import com.raspingamazon.application.publication.ratelimit.PublicationRateLimitReservation;
@@ -22,32 +24,47 @@ import java.util.Optional;
  *
  * <p>Executa no máximo uma entrada por chamada de runOnce().</p>
  *
- * <p>Este componente deliberadamente não implementa:</p>
+ * <p>O protocolo operacional da FASE 20 estabelece uma barreira
+ * persistente obrigatória antes de qualquer efeito externo:</p>
+ *
+ * <pre>
+ * claim
+ *     ↓
+ * rate-limit admission
+ *     ↓
+ * resolve channel
+ *     ↓
+ * PublicationAttempt STARTED + commit
+ *     ↓
+ * PublicationChannel.publish()
+ *     ↓
+ * concluir o MESMO PublicationAttempt
+ * </pre>
+ *
+ * <p>Consequentemente:</p>
  *
  * <ul>
- *     <li>loop infinito;</li>
- *     <li>sleep;</li>
- *     <li>scheduler;</li>
- *     <li>cálculo de backoff;</li>
- *     <li>Telegram;</li>
- *     <li>WhatsApp.</li>
+ *     <li>
+ *         nenhuma chamada ao provider pode acontecer sem uma tentativa
+ *         STARTED previamente persistida;
+ *     </li>
+ *     <li>
+ *         falha de resolução do canal ocorre antes de STARTED;
+ *     </li>
+ *     <li>
+ *         defer por rate limit ocorre antes de STARTED;
+ *     </li>
+ *     <li>
+ *         falha inesperada durante o provider deixa STARTED durável;
+ *     </li>
+ *     <li>
+ *         falha de persistência após o provider também deixa STARTED
+ *         durável.
+ *     </li>
  * </ul>
  *
- * <p>Quando uma política de rate limiting está configurada, o
- * worker solicita admissão antes de atravessar a fronteira do
- * provider.</p>
- *
- * <p>Se a admissão ainda não estiver disponível, a mesma outbox
- * volta para PENDING com novo availableAt. Nenhuma chamada externa
- * e nenhum PublicationAttempt são produzidos nesse caminho.</p>
- *
- * <p>A composição operacional decide quando executar runOnce().</p>
- *
- * <p>Falhas funcionais conhecidas pelo canal devem ser devolvidas
- * como PublicationResult. Uma RuntimeException inesperada do
- * resolver ou do adapter não é reclassificada artificialmente pelo
- * worker. Nesse caso o lease permanece PROCESSING e poderá ser
- * recuperado pela política de lease da outbox.</p>
+ * <p>Os dois últimos casos serão reconciliados pela recuperação de
+ * lease da FASE 20-D1B-3 como DELIVERY_UNKNOWN, sem retry automático.</p>
  */
 public final class PublicationOutboxWorker {
 
@@ -57,7 +74,10 @@ public final class PublicationOutboxWorker {
 
     private final PublicationChannelResolver channelResolver;
 
-    private final PublicationOutboxCompletionPort completionPort;
+    private final PublicationAttemptStartPort attemptStartPort;
+
+    private final PublicationAttemptCompletionPort
+        attemptCompletionPort;
 
     private final Clock clock;
 
@@ -67,13 +87,16 @@ public final class PublicationOutboxWorker {
         rateLimitReservationPort;
 
     /**
-     * Construtor histórico sem rate limiting.
+     * Construtor sem rate limiting.
+     *
+     * <p>A ausência de rate limiting não remove a barreira STARTED.</p>
      */
     public PublicationOutboxWorker(
         String workerId,
         PublicationOutboxQueuePort queue,
         PublicationChannelResolver channelResolver,
-        PublicationOutboxCompletionPort completionPort,
+        PublicationAttemptStartPort attemptStartPort,
+        PublicationAttemptCompletionPort attemptCompletionPort,
         Clock clock
     ) {
 
@@ -81,7 +104,8 @@ public final class PublicationOutboxWorker {
             workerId,
             queue,
             channelResolver,
-            completionPort,
+            attemptStartPort,
+            attemptCompletionPort,
             clock,
             PublicationRateLimitPolicy.disabled(),
             (
@@ -104,7 +128,8 @@ public final class PublicationOutboxWorker {
         String workerId,
         PublicationOutboxQueuePort queue,
         PublicationChannelResolver channelResolver,
-        PublicationOutboxCompletionPort completionPort,
+        PublicationAttemptStartPort attemptStartPort,
+        PublicationAttemptCompletionPort attemptCompletionPort,
         Clock clock,
         PublicationRateLimitPolicy rateLimitPolicy,
         PublicationRateLimitReservationPort rateLimitReservationPort
@@ -128,10 +153,16 @@ public final class PublicationOutboxWorker {
                 "channelResolver must not be null"
             );
 
-        this.completionPort =
+        this.attemptStartPort =
             Objects.requireNonNull(
-                completionPort,
-                "completionPort must not be null"
+                attemptStartPort,
+                "attemptStartPort must not be null"
+            );
+
+        this.attemptCompletionPort =
+            Objects.requireNonNull(
+                attemptCompletionPort,
+                "attemptCompletionPort must not be null"
             );
 
         this.clock =
@@ -186,6 +217,12 @@ public final class PublicationOutboxWorker {
                 "rateLimitPolicy returned null"
             );
 
+        /*
+         * Rate limit precisa ocorrer ANTES de STARTED.
+         *
+         * Uma publicação simplesmente adiada ainda não representa uma
+         * tentativa física contra o provider.
+         */
         if (rateLimitRule.isPresent()) {
 
             PublicationRateLimitRule rule =
@@ -234,6 +271,12 @@ public final class PublicationOutboxWorker {
             }
         }
 
+        /*
+         * Resolver também ocorre antes de STARTED.
+         *
+         * Falha de configuração/registry ainda não atravessou a
+         * fronteira externa e não deve produzir falsa tentativa.
+         */
         PublicationChannel channel =
             Objects.requireNonNull(
                 channelResolver.resolve(
@@ -242,6 +285,44 @@ public final class PublicationOutboxWorker {
                 "channelResolver returned null PublicationChannel"
             );
 
+        /*
+         * ----------------------------------------------------------
+         * DURABLE EXTERNAL-SIDE-EFFECT BARRIER
+         * ----------------------------------------------------------
+         *
+         * A partir do retorno de start(), existe uma PublicationAttempt
+         * STARTED commitada no PostgreSQL.
+         *
+         * Somente depois disso publish() é permitido.
+         */
+        OffsetDateTime startedAt =
+            OffsetDateTime.now(
+                clock
+            );
+
+        PublicationAttemptHandle attempt =
+            Objects.requireNonNull(
+                attemptStartPort.start(
+                    item.id(),
+                    workerId,
+                    startedAt
+                ),
+                "attemptStartPort returned null PublicationAttemptHandle"
+            );
+
+        validateAttemptHandle(
+            item,
+            startedAt,
+            attempt
+        );
+
+        /*
+         * Não existe catch em torno de publish().
+         *
+         * Se uma RuntimeException acontecer aqui, o STARTED permanece
+         * durável. Não inventamos FAILED_TRANSIENT ou FAILED_PERMANENT,
+         * pois não sabemos se houve ou não efeito externo.
+         */
         PublicationResult publicationResult =
             Objects.requireNonNull(
                 channel.publish(
@@ -250,29 +331,28 @@ public final class PublicationOutboxWorker {
                 "PublicationChannel returned null PublicationResult"
             );
 
-        /*
-         * A conclusão permanece fora de qualquer catch sobre publish.
-         *
-         * Se o provider já tiver aceitado a mensagem e a persistência
-         * da conclusão falhar, não devemos transformar essa falha de
-         * ACK em uma segunda classificação funcional do provider.
-         *
-         * A entrada permanece protegida pelo mecanismo de lease.
-         */
         OffsetDateTime completedAt =
             OffsetDateTime.now(
                 clock
             );
 
+        /*
+         * Também não existe compensação automática caso esta etapa
+         * falhe.
+         *
+         * Se o provider já produziu efeito e a conclusão local falhar,
+         * a tentativa STARTED continua sendo a evidência durável da
+         * ambiguidade.
+         */
         PublicationOutboxItem completed =
             Objects.requireNonNull(
-                completionPort.complete(
-                    item.id(),
+                attemptCompletionPort.complete(
+                    attempt,
                     workerId,
                     publicationResult,
                     completedAt
                 ),
-                "completionPort returned null PublicationOutboxItem"
+                "attemptCompletionPort returned null PublicationOutboxItem"
             );
 
         return PublicationOutboxWorkerRunResult
@@ -280,6 +360,34 @@ public final class PublicationOutboxWorker {
                 completed.id(),
                 completed.status()
             );
+    }
+
+    private void validateAttemptHandle(
+        PublicationOutboxItem item,
+        OffsetDateTime requestedStartedAt,
+        PublicationAttemptHandle attempt
+    ) {
+
+        if (attempt.publicationOutboxId()
+            != item.id()) {
+
+            throw new IllegalStateException(
+                "Started publication attempt belongs to unexpected "
+                    + "outbox item"
+            );
+        }
+
+        if (!attempt.startedAt()
+            .toInstant()
+            .equals(
+                requestedStartedAt.toInstant()
+            )) {
+
+            throw new IllegalStateException(
+                "Started publication attempt returned unexpected "
+                    + "startedAt"
+            );
+        }
     }
 
     private void validateReservation(

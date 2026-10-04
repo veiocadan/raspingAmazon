@@ -2,6 +2,7 @@ package com.raspingamazon.integration.publication;
 
 import com.raspingamazon.testsupport.database.PostgresIntegrationTest;
 
+import com.raspingamazon.application.publication.channel.PublicationResult;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxEnqueueRequest;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxEnqueueResult;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxEnqueueStatus;
@@ -13,14 +14,14 @@ import com.raspingamazon.domain.publication.selection.SuccessfulPublicationHisto
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.persistence.DatabaseConnection;
-import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOutboxCompletionAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationAttemptCompletionAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationAttemptStartAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOutboxEnqueueAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOutboxQueueAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationQuotaUsageQueryAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcSuccessfulPublicationHistoryQueryAdapter;
 import com.raspingamazon.infrastructure.publication.channel.FakePublicationChannel;
 import com.raspingamazon.infrastructure.publication.channel.MapPublicationChannelResolver;
-import com.raspingamazon.application.publication.channel.PublicationResult;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
@@ -194,10 +195,12 @@ class PublicationOutboxEndToEndTest {
 
                 /*
                  * ====================================================
-                 * 2. OUTBOX -> WORKER -> FAKE CHANNEL
+                 * 2. OUTBOX -> STARTED -> WORKER -> FAKE CHANNEL
                  * ====================================================
+                 *
+                 * A FASE 20 exige que PublicationAttempt STARTED seja
+                 * persistido e commitado antes da chamada ao provider.
                  */
-
                 PublicationOutboxWorker worker =
                     new PublicationOutboxWorker(
                         WORKER_ID,
@@ -210,7 +213,10 @@ class PublicationOutboxEndToEndTest {
                                 fakeChannel
                             )
                         ),
-                        new JdbcPublicationOutboxCompletionAdapter(
+                        new JdbcPublicationAttemptStartAdapter(
+                            connection
+                        ),
+                        new JdbcPublicationAttemptCompletionAdapter(
                             connection
                         ),
                         WORKER_CLOCK
@@ -363,6 +369,11 @@ class PublicationOutboxEndToEndTest {
                     attempt.errorCode()
                 );
 
+                /*
+                 * Na FASE 20, created_at passa a representar a criação
+                 * durável do STARTED. Como este teste usa Clock fixo,
+                 * permanece exatamente igual a WORKER_TIME.
+                 */
                 assertEquals(
                     WORKER_TIME.toInstant(),
                     attempt.createdAt()
