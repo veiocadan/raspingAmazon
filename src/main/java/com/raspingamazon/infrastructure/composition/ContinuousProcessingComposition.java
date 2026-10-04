@@ -54,6 +54,7 @@ import java.sql.Connection;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.LongConsumer;
 
 /**
  * Composition root da execução contínua do processamento.
@@ -124,12 +125,60 @@ public final class ContinuousProcessingComposition {
      * @param workerIdleWaitStrategy estratégia de espera do worker
      * @param settings configuração operacional da composição
      */
+    /**
+     * Construtor de compatibilidade para composições que ainda não
+     * ativaram PUBLICATION_DISPATCH no worker contínuo.
+     *
+     * <p>O comportamento permanece fail-fast caso um job desse tipo
+     * chegue a uma composição histórica.</p>
+     */
     public ContinuousProcessingComposition(
         Connection schedulerConnection,
         Connection workerConnection,
         CollectionCollector collectionCollector,
         DealsParser dealsParser,
         ProductEnrichmentClient enrichmentClient,
+        StructuredOperationalLogPort operationalLog,
+        Clock clock,
+        ProcessingSchedulerWaitStrategy schedulerWaitStrategy,
+        WorkerIdleWaitStrategy workerIdleWaitStrategy,
+        Settings settings
+    ) {
+
+        this(
+            schedulerConnection,
+            workerConnection,
+            collectionCollector,
+            dealsParser,
+            enrichmentClient,
+            processingRunId -> {
+                throw new IllegalStateException(
+                    "PUBLICATION_DISPATCH handler is not configured"
+                );
+            },
+            operationalLog,
+            clock,
+            schedulerWaitStrategy,
+            workerIdleWaitStrategy,
+            settings
+        );
+    }
+
+    /**
+     * Monta o grafo completo do processamento contínuo com suporte ao
+     * job durável PUBLICATION_DISPATCH.
+     *
+     * <p>O handler recebido continua sendo uma fronteira de aplicação.
+     * Esta composition não contém regras de seleção, geração ou
+     * entrega de publicação.</p>
+     */
+    public ContinuousProcessingComposition(
+        Connection schedulerConnection,
+        Connection workerConnection,
+        CollectionCollector collectionCollector,
+        DealsParser dealsParser,
+        ProductEnrichmentClient enrichmentClient,
+        LongConsumer publicationDispatchHandler,
         StructuredOperationalLogPort operationalLog,
         Clock clock,
         ProcessingSchedulerWaitStrategy schedulerWaitStrategy,
@@ -178,6 +227,11 @@ public final class ContinuousProcessingComposition {
         );
 
         Objects.requireNonNull(
+            publicationDispatchHandler,
+            "publicationDispatchHandler must not be null"
+        );
+
+        Objects.requireNonNull(
             operationalLog,
             "operationalLog must not be null"
         );
@@ -216,6 +270,7 @@ public final class ContinuousProcessingComposition {
                 collectionCollector,
                 dealsParser,
                 enrichmentClient,
+                publicationDispatchHandler,
                 operationalLog,
                 clock,
                 workerIdleWaitStrategy,
@@ -320,6 +375,7 @@ public final class ContinuousProcessingComposition {
         CollectionCollector collectionCollector,
         DealsParser dealsParser,
         ProductEnrichmentClient enrichmentClient,
+        LongConsumer publicationDispatchHandler,
         StructuredOperationalLogPort operationalLog,
         Clock clock,
         WorkerIdleWaitStrategy idleWaitStrategy,
@@ -580,7 +636,8 @@ public final class ContinuousProcessingComposition {
             new DefaultProcessingJobExecutor(
                 collectDealsUseCase::execute,
                 enrichDealUseCase::execute,
-                evaluateDealUseCase::execute
+                evaluateDealUseCase::execute,
+                publicationDispatchHandler
             );
 
         /*
