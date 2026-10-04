@@ -161,10 +161,6 @@ class PublicationOutboxWorkerTest {
                     "provider"
                 );
 
-                /*
-                 * Esta asserção congela a regra essencial da FASE 20:
-                 * STARTED precisa existir antes da chamada externa.
-                 */
                 assertEquals(
                     1,
                     start.calls
@@ -398,6 +394,60 @@ class PublicationOutboxWorkerTest {
     }
 
     @Test
+    void shouldCompleteDeliveryUnknownChannelResultAgainstStartedAttempt() {
+
+        PublicationOutboxItem claimed =
+            processingItem();
+
+        RecordingQueue queue =
+            new RecordingQueue();
+
+        queue.nextItem =
+            claimed;
+
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
+            );
+
+        RecordingCompletion completion =
+            new RecordingCompletion(
+                claimed,
+                new ArrayList<>()
+            );
+
+        PublicationOutboxWorkerRunResult result =
+            new PublicationOutboxWorker(
+                WORKER_ID,
+                queue,
+                channel ->
+                    command ->
+                        PublicationResult.deliveryUnknown(
+                            "FAKE_DELIVERY_OUTCOME_UNKNOWN"
+                        ),
+                start,
+                completion,
+                CLOCK
+            ).runOnce();
+
+        assertEquals(
+            PublicationOutboxStatus.DELIVERY_UNKNOWN,
+            result.finalStatus()
+        );
+
+        assertEquals(
+            PublicationResultStatus.DELIVERY_UNKNOWN,
+            completion.result.status()
+        );
+
+        assertSame(
+            start.handle,
+            completion.attempt
+        );
+    }
+
+    @Test
     void channelResolutionFailureShouldNotCreateAttempt() {
 
         PublicationOutboxItem claimed =
@@ -617,12 +667,6 @@ class PublicationOutboxWorkerTest {
             worker::runOnce
         );
 
-        /*
-         * O início já atravessou a barreira durável.
-         *
-         * Essa tentativa será DELIVERY_UNKNOWN depois da recuperação
-         * de lease da próxima subfase.
-         */
         assertEquals(
             1,
             start.calls
@@ -919,6 +963,9 @@ class PublicationOutboxWorkerTest {
 
                     case FAILED_PERMANENT ->
                         PublicationOutboxStatus.FAILED_PERMANENT;
+
+                    case DELIVERY_UNKNOWN ->
+                        PublicationOutboxStatus.DELIVERY_UNKNOWN;
                 };
 
             return new PublicationOutboxItem(

@@ -11,7 +11,7 @@ import java.util.Optional;
  * <ul>
  *     <li>classificação operacional;</li>
  *     <li>referência eventualmente devolvida pelo provider;</li>
- *     <li>código estável de erro quando houver falha.</li>
+ *     <li>código estável de erro quando houver falha ou ambiguidade.</li>
  * </ul>
  *
  * <p>Exceções específicas de bibliotecas externas não atravessam
@@ -103,6 +103,28 @@ public record PublicationResult(
         );
     }
 
+    public static PublicationResult deliveryUnknown(
+        String errorCode
+    ) {
+
+        return deliveryUnknown(
+            errorCode,
+            null
+        );
+    }
+
+    public static PublicationResult deliveryUnknown(
+        String errorCode,
+        String providerReference
+    ) {
+
+        return new PublicationResult(
+            PublicationResultStatus.DELIVERY_UNKNOWN,
+            providerReference,
+            errorCode
+        );
+    }
+
     public boolean successful() {
 
         return status
@@ -119,6 +141,12 @@ public record PublicationResult(
 
         return status
             == PublicationResultStatus.FAILED_PERMANENT;
+    }
+
+    public boolean deliveryUnknown() {
+
+        return status
+            == PublicationResultStatus.DELIVERY_UNKNOWN;
     }
 
     public Optional<String> providerReferenceValue() {
@@ -156,7 +184,7 @@ public record PublicationResult(
         if (errorCode == null) {
 
             throw new IllegalArgumentException(
-                "failed publication result "
+                "non-success publication result "
                     + "must contain errorCode"
             );
         }

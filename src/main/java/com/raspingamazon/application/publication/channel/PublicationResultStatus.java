@@ -15,10 +15,11 @@ public enum PublicationResultStatus {
     SUCCESS,
 
     /**
-     * A operação falhou, mas poderá ser tentada novamente.
+     * A operação falhou e existe evidência suficiente de que ela pode
+     * entrar na política automática de retry.
      *
-     * <p>Exemplos futuros podem incluir indisponibilidade temporária
-     * ou limitação transitória do provider.</p>
+     * <p>Este estado não deve ser usado quando o request pode ter
+     * produzido efeito externo sem confirmação local.</p>
      */
     FAILED_TRANSIENT,
 
@@ -26,8 +27,18 @@ public enum PublicationResultStatus {
      * A operação falhou de forma que não deve entrar
      * automaticamente em loop de retry.
      *
-     * <p>Exemplos futuros podem incluir destino inválido ou
-     * configuração permanentemente rejeitada.</p>
+     * <p>Exemplos incluem destino inválido ou configuração
+     * permanentemente rejeitada.</p>
      */
-    FAILED_PERMANENT
+    FAILED_PERMANENT,
+
+    /**
+     * A chamada externa pode ter produzido efeito, mas não existe
+     * confirmação suficiente para classificá-la como sucesso ou falha.
+     *
+     * <p>Esse estado é terminal para retry automático. Qualquer
+     * reprocessamento exige reconciliação, prova externa ou decisão
+     * operacional explícita.</p>
+     */
+    DELIVERY_UNKNOWN
 }

@@ -22,9 +22,7 @@ import java.util.Optional;
  * Conclusão PostgreSQL de uma PublicationAttempt previamente
  * persistida como STARTED.
  *
- * <p>Este adapter é diferente do contrato histórico da FASE 18.</p>
- *
- * <p>Ele NÃO cria publication_attempt depois do provider.</p>
+ * <p>Este adapter NÃO cria publication_attempt depois do provider.</p>
  *
  * <p>O protocolo esperado é:</p>
  *
@@ -51,10 +49,9 @@ import java.util.Optional;
  * COMMIT
  * </pre>
  *
- * <p>Se qualquer falha acontecer depois do provider e antes do commit
- * desta operação, a transação é desfeita e a tentativa continua
- * STARTED. A recuperação de lease da FASE 20-D1B-3 será responsável
- * por convertê-la em DELIVERY_UNKNOWN.</p>
+ * <p>DELIVERY_UNKNOWN é terminal para retry automático. Quando o
+ * canal informa ambiguidade externa, a mesma tentativa STARTED e a
+ * mesma outbox são concluídas como DELIVERY_UNKNOWN.</p>
  */
 public final class JdbcPublicationAttemptCompletionAdapter
     implements PublicationAttemptCompletionPort {
@@ -799,6 +796,9 @@ public final class JdbcPublicationAttemptCompletionAdapter
 
             case FAILED_PERMANENT ->
                 PublicationOutboxStatus.FAILED_PERMANENT;
+
+            case DELIVERY_UNKNOWN ->
+                PublicationOutboxStatus.DELIVERY_UNKNOWN;
         };
     }
 

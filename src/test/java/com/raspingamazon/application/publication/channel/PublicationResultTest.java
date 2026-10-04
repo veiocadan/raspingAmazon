@@ -34,6 +34,10 @@ class PublicationResultTest {
             result.permanentFailure()
         );
 
+        assertFalse(
+            result.deliveryUnknown()
+        );
+
         assertEquals(
             "provider-message-123",
             result.providerReferenceValue()
@@ -80,6 +84,10 @@ class PublicationResultTest {
             result.successful()
         );
 
+        assertFalse(
+            result.deliveryUnknown()
+        );
+
         assertEquals(
             "PROVIDER_TEMPORARILY_UNAVAILABLE",
             result.errorCodeValue()
@@ -100,6 +108,10 @@ class PublicationResultTest {
             result.permanentFailure()
         );
 
+        assertFalse(
+            result.deliveryUnknown()
+        );
+
         assertEquals(
             "INVALID_DESTINATION",
             result.errorCodeValue()
@@ -108,6 +120,49 @@ class PublicationResultTest {
 
         assertEquals(
             "provider-request-456",
+            result.providerReferenceValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
+    void shouldCreateDeliveryUnknownResult() {
+
+        PublicationResult result =
+            PublicationResult.deliveryUnknown(
+                "PROVIDER_OUTCOME_UNKNOWN",
+                "provider-request-789"
+            );
+
+        assertEquals(
+            PublicationResultStatus.DELIVERY_UNKNOWN,
+            result.status()
+        );
+
+        assertTrue(
+            result.deliveryUnknown()
+        );
+
+        assertFalse(
+            result.successful()
+        );
+
+        assertFalse(
+            result.transientFailure()
+        );
+
+        assertFalse(
+            result.permanentFailure()
+        );
+
+        assertEquals(
+            "PROVIDER_OUTCOME_UNKNOWN",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+
+        assertEquals(
+            "provider-request-789",
             result.providerReferenceValue()
                 .orElseThrow()
         );
@@ -128,7 +183,7 @@ class PublicationResultTest {
     }
 
     @Test
-    void shouldRejectFailureWithoutErrorCode() {
+    void shouldRejectNonSuccessWithoutErrorCode() {
 
         assertThrows(
             IllegalArgumentException.class,
@@ -145,6 +200,16 @@ class PublicationResultTest {
             () ->
                 new PublicationResult(
                     PublicationResultStatus.FAILED_PERMANENT,
+                    null,
+                    null
+                )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PublicationResult(
+                    PublicationResultStatus.DELIVERY_UNKNOWN,
                     null,
                     null
                 )
@@ -176,6 +241,14 @@ class PublicationResultTest {
                 PublicationResult.failedPermanent(
                     "INVALID_DESTINATION",
                     ""
+                )
+        );
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                PublicationResult.deliveryUnknown(
+                    " "
                 )
         );
     }
