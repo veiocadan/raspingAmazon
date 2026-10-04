@@ -58,24 +58,18 @@ class WhatsAppChannelTest {
                 return successfulResponse();
             };
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             new WhatsAppChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                20L,
-                "WHATSAPP",
-                "5511999999999",
-                "Oferta Amazon\nR$ 99,90"
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
+            ).publish(
+                new PublicationCommand(
+                    20L,
+                    "WHATSAPP",
+                    "5511999999999",
+                    "Oferta Amazon\nR$ 99,90"
+                )
             );
 
         assertTrue(
@@ -235,24 +229,18 @@ class WhatsAppChannelTest {
                 return successfulResponse();
             };
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             new WhatsAppChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                20L,
-                "WHATSAPP",
-                "+5511999999999",
-                "Oferta Amazon"
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
+            ).publish(
+                new PublicationCommand(
+                    20L,
+                    "WHATSAPP",
+                    "+5511999999999",
+                    "Oferta Amazon"
+                )
             );
 
         assertTrue(
@@ -288,24 +276,18 @@ class WhatsAppChannelTest {
                 return successfulResponse();
             };
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             new WhatsAppChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                20L,
-                "WHATSAPP",
-                "(11) 99999-9999",
-                "Oferta Amazon"
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
+            ).publish(
+                new PublicationCommand(
+                    20L,
+                    "WHATSAPP",
+                    "(11) 99999-9999",
+                    "Oferta Amazon"
+                )
             );
 
         assertTrue(
@@ -325,7 +307,7 @@ class WhatsAppChannelTest {
     }
 
     @Test
-    void shouldConvertTransportFailureIntoTransientResult() {
+    void shouldConvertTransportFailureIntoDeliveryUnknownResult() {
 
         PublicationHttpTransport transport =
             request -> {
@@ -338,20 +320,17 @@ class WhatsAppChannelTest {
                 );
             };
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             new WhatsAppChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -364,7 +343,7 @@ class WhatsAppChannelTest {
     @Test
     void shouldClassifyRateLimitAsTransient() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     429,
@@ -376,10 +355,7 @@ class WhatsAppChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -395,23 +371,44 @@ class WhatsAppChannelTest {
     }
 
     @Test
-    void shouldClassifyServerErrorAsTransient() {
+    void shouldClassifyHttpTimeoutAsDeliveryUnknown() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
+            channelReturning(
+                new PublicationHttpResponse(
+                    408,
+                    ""
+                )
+            ).publish(
+                validCommand()
+            );
+
+        assertTrue(
+            result.deliveryUnknown()
+        );
+
+        assertEquals(
+            "WHATSAPP_PROVIDER_TIMEOUT",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
+    void shouldClassifyServerErrorAsDeliveryUnknown() {
+
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     503,
                     ""
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -424,7 +421,7 @@ class WhatsAppChannelTest {
     @Test
     void shouldClassifyProviderTransientFlagAsTransient() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     400,
@@ -439,10 +436,7 @@ class WhatsAppChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -460,7 +454,7 @@ class WhatsAppChannelTest {
     @Test
     void shouldClassifyAuthenticationFailureAsPermanent() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     401,
@@ -472,10 +466,7 @@ class WhatsAppChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -493,7 +484,7 @@ class WhatsAppChannelTest {
     @Test
     void shouldPreserveProviderErrorCodeForPermanentRejection() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     400,
@@ -507,10 +498,7 @@ class WhatsAppChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -526,23 +514,20 @@ class WhatsAppChannelTest {
     }
 
     @Test
-    void shouldClassifyMalformedSuccessfulResponseAsTransient() {
+    void shouldClassifyMalformedSuccessfulResponseAsDeliveryUnknown() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     200,
                     "not-json"
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -553,9 +538,9 @@ class WhatsAppChannelTest {
     }
 
     @Test
-    void shouldClassifySuccessfulResponseWithoutMessageIdAsTransient() {
+    void shouldClassifySuccessfulResponseWithoutMessageIdAsDeliveryUnknown() {
 
-        WhatsAppChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     200,
@@ -568,15 +553,12 @@ class WhatsAppChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(

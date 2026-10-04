@@ -21,13 +21,9 @@ import java.util.regex.Pattern;
 /**
  * Adapter concreto de publicação através da WhatsApp Cloud API.
  *
- * <p>O adapter utiliza um message template previamente aprovado
- * na plataforma Meta. O conteúdo já aprovado da Publication é
- * fornecido como primeiro parâmetro textual do corpo do template.</p>
- *
- * <p>O número destinatário é recebido em PublicationCommand.
- * A configuração do canal contém apenas informações do remetente
- * e da integração com a plataforma.</p>
+ * <p>Quando a chamada externa pode ter produzido efeito mas a
+ * confirmação local não é confiável, o adapter devolve
+ * DELIVERY_UNKNOWN. Esse estado não entra em retry automático.</p>
  */
 public final class WhatsAppChannel
     implements PublicationChannel {
@@ -144,7 +140,7 @@ public final class WhatsAppChannel
 
         } catch (PublicationHttpTransportException exception) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_TRANSPORT_ERROR"
             );
         }
@@ -244,7 +240,7 @@ public final class WhatsAppChannel
 
         } catch (JsonProcessingException exception) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -252,7 +248,7 @@ public final class WhatsAppChannel
         if (root == null
             || !root.isObject()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -266,7 +262,7 @@ public final class WhatsAppChannel
             || !messagesNode.isArray()
             || messagesNode.isEmpty()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -285,7 +281,7 @@ public final class WhatsAppChannel
             || messageIdNode.asText()
             .isBlank()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -302,13 +298,6 @@ public final class WhatsAppChannel
         int statusCode =
             response.statusCode();
 
-        if (statusCode == 408) {
-
-            return PublicationResult.failedTransient(
-                "WHATSAPP_PROVIDER_TIMEOUT"
-            );
-        }
-
         if (statusCode == 429) {
 
             return PublicationResult.failedTransient(
@@ -316,10 +305,17 @@ public final class WhatsAppChannel
             );
         }
 
+        if (statusCode == 408) {
+
+            return PublicationResult.deliveryUnknown(
+                "WHATSAPP_PROVIDER_TIMEOUT"
+            );
+        }
+
         if (statusCode >= 500
             && statusCode <= 599) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_PROVIDER_UNAVAILABLE"
             );
         }
@@ -337,6 +333,10 @@ public final class WhatsAppChannel
                 false
             )) {
 
+            /*
+             * O provider respondeu explicitamente que a requisição
+             * falhou de modo transitório. Não é ausência de resposta.
+             */
             return PublicationResult.failedTransient(
                 "WHATSAPP_PROVIDER_TRANSIENT"
             );
