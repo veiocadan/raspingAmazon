@@ -15,9 +15,12 @@ import com.raspingamazon.infrastructure.amazon.enrichment.PlaywrightRenderedProd
 import com.raspingamazon.infrastructure.amazon.parser.AmazonDealsParser;
 import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.composition.ContinuousProcessingComposition;
+import com.raspingamazon.infrastructure.composition.ContinuousProcessingRecoveryComposition;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.ContinuousProcessingEnvironmentConfig;
 import com.raspingamazon.infrastructure.config.ContinuousProcessingEnvironmentConfigProvider;
+import com.raspingamazon.infrastructure.config.ContinuousProcessingRecoveryConfig;
+import com.raspingamazon.infrastructure.config.ContinuousProcessingRecoveryEnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
 import com.raspingamazon.infrastructure.observability.JsonStructuredOperationalLogAdapter;
@@ -47,6 +50,8 @@ import java.util.List;
  *     <li>garantir a existência do schedule;</li>
  *     <li>montar integrações Amazon;</li>
  *     <li>montar observabilidade;</li>
+ *     <li>montar publicação durável e recovery;</li>
+ *     <li>executar a barreira síncrona de recovery;</li>
  *     <li>montar composition e runtime;</li>
  *     <li>transferir ownership dos recursos físicos para
  *         ContinuousProcessingApplication.</li>
@@ -75,6 +80,9 @@ public final class ContinuousProcessingBootstrap {
 
         ContinuousProcessingEnvironmentConfig runtimeConfig =
             ContinuousProcessingEnvironmentConfigProvider.load();
+
+        ContinuousProcessingRecoveryConfig recoveryConfig =
+            ContinuousProcessingRecoveryEnvironmentConfigProvider.load();
 
         Clock clock =
             Clock.systemUTC();
@@ -256,6 +264,25 @@ public final class ContinuousProcessingBootstrap {
 
             /*
              * -----------------------------------------------------
+             * PUBLICATION DISPATCH + STARTUP RECOVERY
+             * -----------------------------------------------------
+             *
+             * A mesma workerConnection é utilizada sequencialmente
+             * durante o bootstrap e, depois da transferência de
+             * ownership, pela thread do worker.
+             *
+             * Nenhuma thread existe neste ponto.
+             */
+            ContinuousProcessingRecoveryComposition.Components
+                recoveryComponents =
+                ContinuousProcessingRecoveryComposition.create(
+                    workerConnection,
+                    recoveryConfig,
+                    clock
+                );
+
+            /*
+             * -----------------------------------------------------
              * CONTINUOUS COMPOSITION
              * -----------------------------------------------------
              */
@@ -281,6 +308,7 @@ public final class ContinuousProcessingBootstrap {
                     amazonDealsCollector,
                     dealsParser,
                     enrichmentClient,
+                    recoveryComponents.publicationDispatchHandler(),
                     operationalLog,
                     clock,
                     new ThreadSleepProcessingSchedulerWaitStrategy(),
@@ -293,6 +321,27 @@ public final class ContinuousProcessingBootstrap {
                     composition.schedulerRunner(),
                     composition.workerRunner()
                 );
+
+            /*
+             * -----------------------------------------------------
+             * STARTUP RECOVERY BARRIER
+             * -----------------------------------------------------
+             *
+             * Ordem interna:
+             *
+             * publication_outbox
+             *      ↓
+             * processing_job
+             *      ↓
+             * PUBLICATION_DISPATCH reconciliation
+             *
+             * Qualquer falha interrompe o bootstrap antes da
+             * transferência de ownership. O catch abaixo fecha
+             * Playwright + Connections.
+             */
+            recoveryComponents
+                .startupRecoveryService()
+                .recover();
 
             ContinuousProcessingApplication application =
                 new ContinuousProcessingApplication(
