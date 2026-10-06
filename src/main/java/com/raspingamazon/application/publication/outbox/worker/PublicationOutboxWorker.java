@@ -38,6 +38,8 @@ import java.util.Optional;
  *     ↓
  * PublicationChannel.publish()
  *     ↓
+ * aplicar piso Retry-After da integração, quando houver
+ *     ↓
  * concluir o MESMO PublicationAttempt
  * </pre>
  *
@@ -337,6 +339,54 @@ public final class PublicationOutboxWorker {
             );
 
         /*
+         * ----------------------------------------------------------
+         * PROVIDER RATE-LIMIT FEEDBACK
+         * ----------------------------------------------------------
+         *
+         * Um Retry-After recebido depois da chamada externa pertence
+         * à integração física, não somente à outbox que recebeu 429.
+         *
+         * Portanto, quando o canal devolve retryNotBefore e existe
+         * uma regra de rate limit para o canal, elevamos o piso
+         * persistente da integração ANTES de concluir a tentativa.
+         *
+         * Isso impede que outra outbox atravesse o mesmo provider
+         * durante a janela imposta pelo próprio provider.
+         *
+         * Se essa persistência falhar, não concluímos a tentativa:
+         * STARTED permanece durável e a recuperação fail-closed da
+         * FASE 20 tratará a ambiguidade.
+         */
+        if (rateLimitRule.isPresent()
+            && publicationResult.retryNotBeforeValue()
+                .isPresent()) {
+
+            PublicationRateLimitRule rule =
+                rateLimitRule.orElseThrow();
+
+            OffsetDateTime providerFloor =
+                publicationResult.retryNotBeforeValue()
+                    .orElseThrow();
+
+            OffsetDateTime effectiveNextAllowedAt =
+                Objects.requireNonNull(
+                    rateLimitReservationPort.extendNotBefore(
+                        rule.integrationKey(),
+                        providerFloor,
+                        completedAt
+                    ),
+                    "rateLimitReservationPort returned null "
+                        + "provider floor"
+                );
+
+            validateProviderRateLimitFloor(
+                providerFloor,
+                completedAt,
+                effectiveNextAllowedAt
+            );
+        }
+
+        /*
          * Também não existe compensação automática caso esta etapa
          * falhe.
          *
@@ -360,6 +410,32 @@ public final class PublicationOutboxWorker {
                 completed.id(),
                 completed.status()
             );
+    }
+
+    private void validateProviderRateLimitFloor(
+        OffsetDateTime requestedNotBefore,
+        OffsetDateTime observedAt,
+        OffsetDateTime effectiveNextAllowedAt
+    ) {
+
+        if (effectiveNextAllowedAt.isBefore(
+            requestedNotBefore
+        )) {
+
+            throw new IllegalStateException(
+                "Rate-limit provider floor was not preserved"
+            );
+        }
+
+        if (effectiveNextAllowedAt.isBefore(
+            observedAt
+        )) {
+
+            throw new IllegalStateException(
+                "Rate-limit provider floor returned an instant "
+                    + "before observedAt"
+            );
+        }
     }
 
     private void validateAttemptHandle(

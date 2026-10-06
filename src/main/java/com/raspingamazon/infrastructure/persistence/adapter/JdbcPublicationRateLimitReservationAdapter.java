@@ -45,10 +45,24 @@ import java.util.Objects;
  *
  * <p>Portanto um horário futuro não é reservado antecipadamente.</p>
  *
- * <p>Isso permite que a publication outbox seja reagendada de forma
- * não bloqueante. Quando o horário chegar, os workers competem
- * novamente pelo slot; o PostgreSQL concede atomicamente o slot a
- * apenas uma execução por intervalo.</p>
+ * <p>A FASE 20-G acrescenta feedback do provider:</p>
+ *
+ * <pre>
+ * HTTP 429 + Retry-After
+ *          ↓
+ * extendNotBefore(...)
+ *          ↓
+ * nextAllowedAt =
+ *     max(
+ *         persistido,
+ *         Retry-After,
+ *         observedAt
+ *     )
+ * </pre>
+ *
+ * <p>Esse piso também não pertence exclusivamente à outbox que
+ * recebeu o 429. Ele protege toda a integração física compartilhada
+ * por múltiplos workers e instâncias.</p>
  *
  * <p>O bloqueio ocorre somente durante a decisão persistente.
  * Nenhuma chamada HTTP e nenhuma espera temporal ocorrem dentro da
@@ -107,6 +121,39 @@ public final class JdbcPublicationRateLimitReservationAdapter
                     validatedIntegrationKey,
                     validatedMinimumInterval,
                     requestedAt
+                )
+        );
+    }
+
+    @Override
+    public OffsetDateTime extendNotBefore(
+        String integrationKey,
+        OffsetDateTime notBefore,
+        OffsetDateTime observedAt
+    ) {
+
+        String validatedIntegrationKey =
+            requireText(
+                integrationKey,
+                "integrationKey"
+            );
+
+        Objects.requireNonNull(
+            notBefore,
+            "notBefore must not be null"
+        );
+
+        Objects.requireNonNull(
+            observedAt,
+            "observedAt must not be null"
+        );
+
+        return transactionAdapter.execute(
+            () ->
+                extendNotBeforeInsideTransaction(
+                    validatedIntegrationKey,
+                    notBefore,
+                    observedAt
                 )
         );
     }
@@ -181,6 +228,64 @@ public final class JdbcPublicationRateLimitReservationAdapter
 
             throw new IllegalStateException(
                 "Failed to reserve publication rate-limit slot "
+                    + "for integration "
+                    + integrationKey,
+                exception
+            );
+        }
+    }
+
+    private OffsetDateTime extendNotBeforeInsideTransaction(
+        String integrationKey,
+        OffsetDateTime notBefore,
+        OffsetDateTime observedAt
+    ) {
+
+        try {
+
+            /*
+             * A linha normalmente já existe porque a admissão
+             * preventiva ocorreu antes do provider. Ainda assim,
+             * mantemos a operação robusta para callers isolados.
+             */
+            ensureStateExists(
+                integrationKey,
+                observedAt
+            );
+
+            OffsetDateTime persistedNextAllowedAt =
+                lockNextAllowedAt(
+                    integrationKey
+                );
+
+            OffsetDateTime effectiveFloor =
+                maxInstant(
+                    notBefore,
+                    observedAt
+                );
+
+            /*
+             * Retry-After nunca reduz proteção já persistida.
+             */
+            if (!effectiveFloor.isAfter(
+                persistedNextAllowedAt
+            )) {
+
+                return persistedNextAllowedAt;
+            }
+
+            updateNextAllowedAt(
+                integrationKey,
+                effectiveFloor,
+                observedAt
+            );
+
+            return effectiveFloor;
+
+        } catch (SQLException exception) {
+
+            throw new IllegalStateException(
+                "Failed to extend publication rate-limit floor "
                     + "for integration "
                     + integrationKey,
                 exception
@@ -341,6 +446,22 @@ public final class JdbcPublicationRateLimitReservationAdapter
                 );
             }
         }
+    }
+
+    private static OffsetDateTime maxInstant(
+        OffsetDateTime left,
+        OffsetDateTime right
+    ) {
+
+        if (left.toInstant()
+            .isAfter(
+                right.toInstant()
+            )) {
+
+            return left;
+        }
+
+        return right;
     }
 
     private static Duration requirePositiveDuration(
