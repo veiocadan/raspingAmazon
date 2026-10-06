@@ -1,17 +1,18 @@
 # Rasping Amazon
 
-Sistema em desenvolvimento para **coleta, interpretação, enriquecimento, validação, filtragem, score, ranking, histórico, seleção e publicação automatizada de ofertas da Amazon Brasil**, com PostgreSQL como fonte principal de estado e foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade e evolução incremental.
+Sistema em desenvolvimento para **coleta, interpretação, enriquecimento, validação, filtragem, score, ranking, histórico, seleção e publicação automatizada de ofertas da Amazon Brasil**, com PostgreSQL como fonte principal de estado e foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade, resiliência e evolução incremental.
 
-> **Estado atual:** FASE 19 concluída e integrada à `main`. A FASE 20 — Resiliência, recuperação e falhas de produção — está em andamento na branch `feat/fase-20-resiliencia-recuperacao`. A FASE 20-A formalizou o contrato de resiliência no ADR-0015, e a FASE 20-B iniciou a taxonomia operacional de falhas, separando semântica de retry, origem, categoria, ações e códigos diagnósticos. O schema PostgreSQL/Flyway permanece em **V34** enquanto não houver necessidade persistente comprovada para a evolução da FASE 20.
+> **Estado atual:** FASE 20 concluída localmente na branch `feat/fase-20-resiliencia-recuperacao`. O pipeline já cobre processamento durável, geração versionada de `Publication`, interface operacional não bloqueante, observabilidade, execução contínua, seleção operacional, outbox de publicação, adapters de Telegram e WhatsApp, classificação operacional de falhas, recuperação após restart, `DELIVERY_UNKNOWN`, dead-letter lógico, reprocessamento controlado, `Retry-After`, rate limit persistente compartilhado e testes destrutivos de recuperação. O gate local final executou **1786 testes**, com **0 falhas, 0 erros e 0 ignorados**. O schema PostgreSQL/Flyway está em **V37**. O `external-probe` está verde. O fechamento remoto da FASE 20 ainda depende de commit documental final, push da branch e CI remoto. A próxima fase oficial é a **FASE 21 — Segurança, governança e fechamento da v1.0**.
+
 ---
 
 ## 1. Objetivo
 
 O Rasping Amazon não é apenas um raspador de ofertas.
 
-O objetivo é manter um pipeline em que aquisição de dados, interpretação, regras comerciais, decisão operacional, geração de conteúdo e entrega externa permaneçam desacopladas.
+O objetivo é manter um pipeline em que aquisição de dados, interpretação, regras comerciais, decisão operacional, geração de conteúdo, entrega externa e recuperação de falhas permaneçam desacopladas.
 
-Fluxo atual consolidado:
+Fluxo consolidado:
 
 ```text
 Amazon
@@ -40,18 +41,26 @@ Publication
   ↓
 liberação automática
   ↓
-outbox
+publication_outbox
   ↓
 worker
+  ↓
+start barrier persistente
   ↓
 Telegram / WhatsApp
   ↓
 PublicationAttempt
   ↓
-auditoria / histórico
+resultado conhecido
+ou
+DELIVERY_UNKNOWN
+  ↓
+retry / terminalidade / intervenção
+  ↓
+auditoria / histórico / recovery
 ```
 
-O sistema deve continuar operando sem depender de Excel, de edição manual no banco ou de uma interface de usuário no caminho crítico.
+O sistema deve continuar operando sem depender de Excel, de edição manual no banco ou de interface de usuário no caminho crítico.
 
 ---
 
@@ -68,22 +77,24 @@ ADRs aceitas
 
 relatórios de fase
 → registram o que efetivamente foi implementado
+
+README
+→ representa o estado operacional atual
 ```
 
 Quando uma ADR posterior altera uma decisão específica prevista originalmente pelo roadmap ou por documentação histórica, a ADR vigente prevalece naquele assunto.
 
 Relatórios históricos não são reescritos apenas para coincidir com decisões posteriores.
 
-Documentos principais:
+Estrutura documental relevante:
 
 ```text
 docs/phases/ROADMAP_RASPING_AMAZON_V1.md
 docs/adr/
 docs/phases/FASE_*_RESULTADO.md
+FASE_20_RESULTADO.md
 README.md
 ```
-
-O README representa o estado operacional atual do projeto.
 
 ---
 
@@ -115,10 +126,10 @@ O README representa o estado operacional atual do projeto.
 | FASE 17 | Agendamento e execução contínua | CONCLUÍDA |
 | FASE 18 | Contrato de canais e outbox de publicação | CONCLUÍDA |
 | FASE 19 | Telegram e WhatsApp | CONCLUÍDA |
-| FASE 20 | Resiliência, recuperação e falhas de produção | EM ANDAMENTO |
-| FASE 21 | Segurança, governança e fechamento da v1.0 | PLANEJADA |
+| FASE 20 | Resiliência, recuperação e falhas de produção | CONCLUÍDA LOCALMENTE |
+| FASE 21 | Segurança, governança e fechamento da v1.0 | PRÓXIMA |
 
-A FASE 19 também contém alguns componentes antecipados da FASE 20. Eles permanecem no código, mas não significam que a FASE 20 esteja concluída.
+O gate remoto da FASE 20 ainda está pendente.
 
 ---
 
@@ -138,19 +149,21 @@ src/
 │   └── resources/
 │       └── db/
 │           └── migration/
-└── test/
-    ├── java/
-    │   └── com/raspingamazon/
-    └── resources/
-        └── amazon/
-            └── fixtures/
+├── test/
+│   ├── java/
+│   │   └── com/raspingamazon/
+│   └── resources/
+│       └── amazon/
+│           └── fixtures/
+└── external-probe/
+    └── java/
 ```
 
 Responsabilidades:
 
 - `domain`: conceitos, invariantes e políticas de negócio sem dependência de infraestrutura;
-- `application`: casos de uso, ports, coordenação, seleção e contratos operacionais;
-- `infrastructure`: PostgreSQL, Flyway, JDBC, HTTP, Amazon, scheduler e adapters de canal;
+- `application`: casos de uso, ports, coordenação, seleção, resiliência e contratos operacionais;
+- `infrastructure`: PostgreSQL, Flyway, JDBC, HTTP, Amazon, scheduler, composition roots e adapters de canal;
 - `presentation`: interface operacional, atualmente CLI.
 
 Dependências devem apontar para dentro.
@@ -167,12 +180,14 @@ O projeto permanece em um único módulo Maven enquanto não houver pressão arq
 - Maven Wrapper
 - JUnit 5
 - PostgreSQL 18.6
-- Flyway
-- PostgreSQL JDBC
+- Flyway 11.14.1
+- PostgreSQL JDBC 42.7.8
 - Jackson
+- Jsoup
+- HTTP Client da plataforma Java
 - Docker / Docker Compose
 - GitHub Actions
-- HTTP/JSON para integrações externas
+- Playwright onde a composição renderizada da fonte exige navegador real
 
 O PostgreSQL continua sendo a fonte principal de estado durável.
 
@@ -194,10 +209,10 @@ Linux/macOS/CI:
 ./mvnw clean test
 ```
 
-Gate local final da FASE 19:
+Gate local final da FASE 20:
 
 ```text
-Tests run: 1608
+Tests run: 1786
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -205,13 +220,25 @@ Skipped: 0
 BUILD SUCCESS
 ```
 
-Também foi executado:
+Probe externa:
+
+```powershell
+.\mvnw.cmd -Pexternal-probe -DskipTests test
+```
+
+Resultado:
 
 ```text
+BUILD SUCCESS
+```
+
+Verificação de whitespace:
+
+```powershell
 git diff --check
 ```
 
-sem problemas.
+O gate local final terminou com working tree limpa.
 
 ---
 
@@ -235,7 +262,7 @@ O arquivo:
 
 documenta o contrato de configuração sem conter credenciais reais.
 
-Entre as configurações atualmente relevantes estão:
+Entre as configurações relevantes estão:
 
 ```text
 DB_HOST
@@ -287,6 +314,22 @@ PUBLICATION_CADENCE_INTERVAL
 PUBLICATION_CADENCE_WINDOW_START
 PUBLICATION_CADENCE_WINDOW_END
 PUBLICATION_CADENCE_ZONE
+
+PROCESSING_JOB_RECOVERY_LEASE_DURATION
+PROCESSING_JOB_RECOVERY_BATCH_SIZE
+PUBLICATION_OUTBOX_RECOVERY_LEASE_DURATION
+PUBLICATION_DISPATCH_MAX_ATTEMPTS
+PUBLICATION_DISPATCH_RECONCILIATION_LIMIT
+```
+
+Defaults de recovery consolidados na FASE 20:
+
+```text
+PROCESSING_JOB_RECOVERY_LEASE_DURATION=PT15M
+PROCESSING_JOB_RECOVERY_BATCH_SIZE=100
+PUBLICATION_OUTBOX_RECOVERY_LEASE_DURATION=PT5M
+PUBLICATION_DISPATCH_MAX_ATTEMPTS=3
+PUBLICATION_DISPATCH_RECONCILIATION_LIMIT=100
 ```
 
 Tokens, senhas e identificadores sensíveis nunca devem aparecer em código, documentação operacional versionada ou logs.
@@ -387,7 +430,54 @@ Nenhum preço, desconto ou parcelamento é fabricado a partir de hipótese.
 
 ---
 
-## 10. FASE 12 — Orquestração durável
+## 10. Coleta, parsing e enriquecimento
+
+A fonte funcional investigada permanece:
+
+```text
+https://www.amazon.com.br/deals
+```
+
+Fluxo:
+
+```text
+AmazonDealsCollector
+        ↓
+CollectionResult
+        ↓
+AmazonDealsParser
+        ↓
+ParsedDeal
+        ↓
+AmazonProductPageEnrichmentClient
+        ↓
+AmazonProductPageParser
+        ↓
+ProductEnrichmentResult
+```
+
+O ASIN é validado e normalizado.
+
+O parser preserva, conforme a evidência disponível:
+
+```text
+currentPrice
+basisPrice
+previousPrice
+soldPercentage
+rating
+reviewCount
+```
+
+O enriquecimento preserva seller, delivery, condições comerciais e provenance.
+
+Dados ausentes não são inferidos.
+
+A FASE 20 reforçou que estrutura inválida, bloqueio da fonte, indisponibilidade e ausência de evidência precisam permanecer semanticamente distintos.
+
+---
+
+## 11. FASE 12 — Orquestração durável
 
 A FASE 12 removeu a dependência de uma única execução síncrona longa.
 
@@ -426,7 +516,7 @@ A falha de uma etapa não exige reiniciar desnecessariamente todo o pipeline.
 
 ---
 
-## 11. FASE 13 — Geração de publicação
+## 12. FASE 13 — Geração de publicação
 
 A geração de conteúdo é um caso de uso independente de canal.
 
@@ -452,16 +542,9 @@ A geração não acessa novamente a Amazon para reconstruir dados.
 
 Uma `Publication` preserva informações suficientes para auditoria e reprodutibilidade.
 
-A branch atual também contém evolução versionada da apresentação e do template:
-
-```text
-AmazonCommercialPresentationV2
-AmazonPublicationV2
-```
-
 ---
 
-## 12. FASE 14 — Interface operacional
+## 13. FASE 14 — Interface operacional
 
 A interface inicial é uma CLI Java.
 
@@ -483,22 +566,19 @@ reimplementar filtros
 recalcular score
 recalcular momentum
 montar Publication manualmente
-controlar o caminho crítico do pipeline
 ```
 
 A interface permanece substituível por outra apresentação futura sem reescrever regras de negócio.
 
 ---
 
-## 13. Publicação sem aprovação manual
+## 14. Publicação sem aprovação manual
 
 A aprovação humana obrigatória não faz parte do fluxo normal.
 
-A decisão vigente foi registrada pela ADR de interface operacional não bloqueante.
-
 Estados de `Publication` são estados de ciclo de vida, não etapas obrigatórias de aprovação humana.
 
-Semântica atual:
+Semântica:
 
 ```text
 CREATED
@@ -512,23 +592,13 @@ outbox
 entrega
 ```
 
-O antigo:
-
-```text
-PublicationApprovalService
-```
-
-foi removido.
-
-A liberação normal utiliza componentes de readiness automático.
-
-Nenhuma publicação normal deve depender de clique, confirmação ou aprovação manual de um operador.
+Intervenção humana permanece reservada a situações operacionais que realmente exigem decisão, como resolução de entrega ambígua ou reprocessamento controlado.
 
 ---
 
-## 14. FASE 15 — Qualidade integrada
+## 15. FASE 15 — Qualidade integrada
 
-A suíte de testes valida componentes isolados e jornadas completas.
+A suíte valida componentes isolados e jornadas completas.
 
 Cobertura inclui, entre outros:
 
@@ -547,13 +617,16 @@ outbox
 adapters
 falhas HTTP
 falhas de provider
+restart recovery
+rate limit
+testes destrutivos
 ```
 
 A suíte padrão permanece separada de probes externas reais sempre que o teste depende de disponibilidade de terceiros.
 
 ---
 
-## 15. FASE 16 — Observabilidade
+## 16. FASE 16 — Observabilidade
 
 A aplicação possui base de observabilidade operacional para correlacionar execução, trabalho e resultado.
 
@@ -566,6 +639,8 @@ asin
 snapshotId
 evaluationId
 publicationId
+publicationOutboxId
+publicationAttemptId
 ```
 
 Logs e diagnósticos devem permitir diferenciar falhas internas de falhas externas.
@@ -576,7 +651,7 @@ A observabilidade permanece desacoplada das regras de negócio.
 
 ---
 
-## 16. FASE 17 — Execução contínua
+## 17. FASE 17 — Execução contínua
 
 A execução contínua utiliza scheduler e estado durável.
 
@@ -595,11 +670,17 @@ workers
 múltiplos ciclos
 ```
 
-Estratégias de espera com `Thread.sleep` pertencem à infraestrutura operacional do scheduler/worker idle wait e não ao publisher nem ao rate limiter.
+A FASE 20 acrescentou um requisito adicional:
+
+```text
+recovery síncrono
+ANTES
+de iniciar o runtime normal
+```
 
 ---
 
-## 17. Seleção operacional, quota e cadência
+## 18. Seleção operacional, quota e cadência
 
 Qualidade comercial e prioridade operacional de publicação são conceitos distintos.
 
@@ -643,7 +724,7 @@ Quota e schedule permanecem responsabilidades diferentes.
 
 ---
 
-## 18. FASE 18 — Contrato de canais e outbox
+## 19. FASE 18 — Contrato de canais e outbox
 
 A FASE 18 estabeleceu o contrato de entrega independente de provider.
 
@@ -655,14 +736,6 @@ PublicationChannel
 PublicationResult
 PublicationOutbox
 PublicationAttempt
-```
-
-Estados estruturados de resultado:
-
-```text
-SUCCESS
-FAILED_TRANSIENT
-FAILED_PERMANENT
 ```
 
 A outbox representa trabalho a entregar.
@@ -689,7 +762,7 @@ O PostgreSQL é utilizado para fila durável, concorrência, lease e proteção 
 
 ---
 
-## 19. FASE 19 — Telegram
+## 20. FASE 19 — Telegram
 
 Foi implementado adapter concreto:
 
@@ -730,13 +803,11 @@ PublicationContentFormatter
 TelegramPublicationFormatter
 ```
 
-Link preview é configurável.
-
 O conteúdo específico do Telegram não modifica os fatos comerciais da `Publication`.
 
 ---
 
-## 20. FASE 19 — WhatsApp
+## 21. FASE 19 — WhatsApp
 
 Foi implementado adapter oficial:
 
@@ -751,15 +822,15 @@ WhatsAppChannelConfig
 WhatsAppChannelConfigProvider
 ```
 
-A integração foi preparada para a API oficial compatível com a configuração definida pelo projeto.
+A integração foi preparada para API oficial compatível com a configuração definida pelo projeto.
 
-O canal oficial permanece operacionalmente desabilitado até existir onboarding e configuração real válidos junto ao provider.
+O canal oficial permanece operacionalmente condicionado ao onboarding e à configuração real válidos junto ao provider.
 
 Credenciais permanecem fora do código.
 
 ---
 
-## 21. `WHATSAPP_MANUAL`
+## 22. `WHATSAPP_MANUAL`
 
 Também existe o fluxo:
 
@@ -785,22 +856,13 @@ cópia manual posterior para WhatsApp
 
 Não significa aprovação humana.
 
-Componentes:
-
-```text
-WhatsAppManualStagingChannel
-WhatsAppManualStagingConfig
-WhatsAppManualStagingConfigProvider
-WhatsAppManualPublicationFormatter
-```
-
 O sistema registra sucesso do staging quando a mensagem chega ao Telegram privado.
 
 Ele não afirma que a cópia posterior para o WhatsApp ocorreu.
 
 ---
 
-## 22. Ativação de canais
+## 23. Ativação de canais
 
 Os canais podem ser ativados independentemente.
 
@@ -812,22 +874,15 @@ WHATSAPP_MANUAL
 WHATSAPP
 ```
 
-Configuração:
-
-```text
-PublicationChannelActivationConfig
-PublicationChannelActivationConfigProvider
-```
-
 Quando um canal está desabilitado, a composição utiliza comportamento explícito de canal desabilitado.
 
 Isso evita espalhar condicionais específicas de Telegram ou WhatsApp pela aplicação.
 
 ---
 
-## 23. Composition root de entrega
+## 24. Composition root de entrega
 
-A composição de entrega concreta é centralizada em:
+A composição concreta é centralizada em:
 
 ```text
 PublicationDeliveryComposition
@@ -841,9 +896,10 @@ transport HTTP
 adapters concretos
 resolver de canais
 outbox queue
+attempt start
 completion
 retry
-rate-limit
+rate limit
 worker
 ```
 
@@ -851,15 +907,38 @@ A aplicação continua dependendo de contratos e não de detalhes dos providers.
 
 ---
 
-## 24. Tentativas, status e referência do provider
+## 25. PublicationAttempt e start barrier
 
-Cada chamada efetiva ao provider pode produzir um `PublicationAttempt`.
+A FASE 20 consolidou a tentativa externa como evidência durável.
 
-Dados persistidos incluem, quando aplicável:
+Antes de chamar um provider:
+
+```text
+publication_attempt = STARTED
+COMMIT
+↓
+provider HTTP
+```
+
+Nenhuma transação JDBC permanece aberta durante a chamada HTTP externa.
+
+Depois da chamada, a tentativa é concluída conforme a evidência disponível.
+
+Estados atuais relevantes:
+
+```text
+STARTED
+SUCCESS
+FAILED_TRANSIENT
+FAILED_PERMANENT
+DELIVERY_UNKNOWN
+```
+
+Dados persistidos incluem, conforme aplicável:
 
 ```text
 publication
-outbox
+publicationOutbox
 channel
 destination
 attemptNumber
@@ -870,21 +949,355 @@ startedAt
 finishedAt
 ```
 
-Estados:
+Esse start barrier permite distinguir:
 
 ```text
-SUCCESS
-FAILED_TRANSIENT
-FAILED_PERMANENT
+processo morreu antes da chamada
 ```
 
-A referência retornada pelo provider é preservada quando existe.
+de:
 
-Isso permite correlacionar o estado local com a evidência externa.
+```text
+processo morreu depois de registrar que a chamada começaria
+```
 
 ---
 
-## 25. Retry e backoff de publicação
+## 26. Taxonomia operacional de falhas
+
+A FASE 20 separa três dimensões.
+
+### Semântica de retry
+
+```text
+TRANSIENT
+PERMANENT
+```
+
+### Categoria de origem
+
+```text
+NETWORK
+SOURCE_RESTRICTION
+SOURCE_CHANGED
+AUTHENTICATION
+RATE_LIMIT
+DATA_UNAVAILABLE
+DATABASE
+CHANNEL
+CONFIGURATION
+PROCESSING
+UNKNOWN
+```
+
+### Ação operacional
+
+```text
+RETRY
+REJECT
+PAUSE
+ALERT
+REPROCESS
+OPERATOR_INTERVENTION
+```
+
+O sistema não transforma automaticamente toda exceção externa em retry.
+
+---
+
+## 27. Resiliência da fonte Amazon
+
+A FASE 20 reforçou o contrato fail closed para a fonte.
+
+Cenários tratados de forma explícita incluem:
+
+```text
+página indisponível
+restrição da fonte
+mudança estrutural
+HTML inesperado
+produto removido
+evidência insuficiente
+ausência de seller/delivery
+falha de aquisição
+```
+
+A arquitetura não deve contornar CAPTCHA, challenge ou bloqueio.
+
+Uma mudança de layout não pode produzir dados falsos silenciosamente.
+
+Quando não houver evidência suficiente, o sistema preserva ausência ou falha classificada.
+
+---
+
+## 28. `DELIVERY_UNKNOWN`
+
+Resultado externo ambíguo é um estado próprio:
+
+```text
+DELIVERY_UNKNOWN
+```
+
+Semântica:
+
+```text
+a chamada externa pode ter produzido efeito
+mas a aplicação não possui confirmação confiável
+```
+
+Portanto:
+
+```text
+DELIVERY_UNKNOWN
+!= FAILED_TRANSIENT
+
+DELIVERY_UNKNOWN
+!= FAILED_PERMANENT
+```
+
+Casos típicos classificados como ambíguos:
+
+```text
+falha de transporte após início da chamada
+HTTP 408 genérico
+HTTP 5xx genérico sem rejeição confiável
+2xx cujo corpo não confirma semanticamente a entrega
+STARTED abandonado após crash/restart
+```
+
+Regra central:
+
+```text
+DELIVERY_UNKNOWN
+→ não retry automático
+```
+
+---
+
+## 29. Classificação dos canais
+
+A política consolidada de publicação externa é:
+
+```text
+transport exception
+→ DELIVERY_UNKNOWN
+
+HTTP 408 genérico
+→ DELIVERY_UNKNOWN
+
+HTTP 5xx genérico
+→ DELIVERY_UNKNOWN
+
+2xx sem confirmação suficiente
+→ DELIVERY_UNKNOWN
+
+HTTP 429
+→ FAILED_TRANSIENT
+
+rejeição explícita e conhecida do provider
+→ FAILED_TRANSIENT ou FAILED_PERMANENT
+```
+
+Essa separação impede reenvio cego de uma mensagem que pode ter sido entregue.
+
+---
+
+## 30. Recovery de publicação abandonada
+
+Quando existe:
+
+```text
+publication_outbox = PROCESSING
+publication_attempt = STARTED
+```
+
+e o lease do worker expira, o startup recovery trata o cenário como ambíguo.
+
+Resultado:
+
+```text
+publication_outbox = DELIVERY_UNKNOWN
+publication_attempt = DELIVERY_UNKNOWN
+```
+
+A outbox deixa de ser automaticamente reclamável.
+
+O sistema exige evidência posterior para decidir se pode reenviar.
+
+---
+
+## 31. Resolução operacional de entrega ambígua
+
+A FASE 20 introduziu decisão auditável para `DELIVERY_UNKNOWN`.
+
+Decisões:
+
+```text
+CONFIRMED_DELIVERED
+→ outbox = SUCCEEDED
+→ não reenviar
+
+CONFIRMED_NOT_DELIVERED
+→ outbox = PENDING
+→ redelivery permitida
+
+REMAINS_UNKNOWN
+→ outbox = DELIVERY_UNKNOWN
+→ não reenviar
+```
+
+A tentativa original permanece imutável como verdade histórica.
+
+Exemplo:
+
+```text
+publication_attempt.status = DELIVERY_UNKNOWN
+```
+
+não é reescrito retroativamente para `SUCCESS`.
+
+O conhecimento posterior é armazenado separadamente em:
+
+```text
+publication_delivery_resolution_event
+```
+
+---
+
+## 32. Recovery no startup
+
+Antes de iniciar loops normais, o runtime executa recovery síncrono.
+
+Ordem:
+
+```text
+1. publication_outbox recovery
+2. processing_job lease recovery
+3. PUBLICATION_DISPATCH reconciliation
+4. somente então runtime normal
+```
+
+Se qualquer etapa lançar exceção:
+
+```text
+startup falha fechado
+```
+
+Não há transação global entre as três autoridades.
+
+Cada componente mantém sua própria unidade transacional.
+
+---
+
+## 33. Drain do backlog até quiescência
+
+A FASE 20 corrigiu o comportamento de recovery paginado.
+
+Parâmetros como:
+
+```text
+PROCESSING_JOB_RECOVERY_BATCH_SIZE
+PUBLICATION_DISPATCH_RECONCILIATION_LIMIT
+```
+
+representam tamanho de página, não limite total de recovery.
+
+Semântica:
+
+```text
+página cheia
+→ continuar
+
+página cheia
+→ continuar
+
+página parcial
+→ quiescência
+```
+
+Na reconciliação de `PUBLICATION_DISPATCH`:
+
+```text
+página cheia sem progresso durável
+→ fail closed
+```
+
+Isso evita loops infinitos e evita liberar o runtime com backlog escondido atrás de uma página sem progresso.
+
+---
+
+## 34. `ProcessingJob.DEAD` como dead-letter lógico
+
+A FASE 20 não introduziu uma fila externa apenas para dead-letter.
+
+O estado:
+
+```text
+ProcessingJob.DEAD
+```
+
+é o dead-letter lógico persistente.
+
+Ele preserva:
+
+```text
+identidade
+attemptCount
+maxAttempts
+última falha
+timestamps
+sujeito do job
+```
+
+Um job em `DEAD` não retorna automaticamente para processamento.
+
+---
+
+## 35. Reprocessamento controlado
+
+Reprocessamento de `ProcessingJob.DEAD` exige uma decisão explícita.
+
+O contrato preserva:
+
+```text
+requestKey
+requestedBy
+reason
+requestedAt
+snapshot do estado DEAD anterior
+```
+
+Semântica:
+
+```text
+DEAD
+↓
+decisão auditável
+↓
+mesmo processing_job
+↓
+PENDING
+```
+
+Não é criada uma nova identidade lógica.
+
+O reprocessamento é:
+
+```text
+atômico
+idempotente por requestKey
+auditável
+```
+
+Auditoria:
+
+```text
+processing_job_reprocess_event
+```
+
+---
+
+## 36. Retry e backoff de publicação
 
 Falhas transitórias podem ser repetidas.
 
@@ -902,27 +1315,145 @@ PublicationOutboxRetryConfigProvider
 Semântica:
 
 ```text
-falha transitória
+FAILED_TRANSIENT
     ↓
-PublicationAttempt persistido
-    ↓
-há tentativa disponível?
-    ├── sim
+há tentativa local disponível?
+    ├── não
     │   ↓
-    │ backoff exponencial limitado
-    │   ↓
-    │ mesma outbox volta para PENDING
+    │ estado terminal
     │
-    └── não
+    └── sim
         ↓
-      estado terminal
+        backoff
+        ↓
+        mesma outbox volta a PENDING
 ```
 
 Retry não cria nova `Publication`, não recalcula score, não repete seleção e não cria nova outbox lógica.
 
 ---
 
-## 26. Fanout de entrega
+## 37. `Retry-After`
+
+A FASE 20 passou a preservar headers HTTP relevantes.
+
+`PublicationHttpResponse` carrega:
+
+```text
+statusCode
+body
+headers
+```
+
+O parser aceita:
+
+```text
+Retry-After: delay-seconds
+Retry-After: HTTP-date
+```
+
+Se o header estiver ausente ou inválido:
+
+```text
+a política local continua valendo
+```
+
+Se houver mais de um valor válido, o mais conservador é utilizado.
+
+---
+
+## 38. Provider retry floor
+
+Um `HTTP 429` permanece:
+
+```text
+FAILED_TRANSIENT
+```
+
+e pode carregar:
+
+```text
+retryNotBefore
+```
+
+A política usa:
+
+```text
+nextRetryAt =
+max(
+    backoff local,
+    retryNotBefore do provider
+)
+```
+
+Regra importante:
+
+```text
+provider pode atrasar
+provider não pode antecipar
+```
+
+Outra regra:
+
+```text
+sem orçamento local de retry
++
+Retry-After do provider
+=
+sem nova tentativa
+```
+
+O provider não aumenta `maxAttempts`.
+
+---
+
+## 39. Rate limiting persistente compartilhado
+
+O rate limiter preventivo permanece persistido em:
+
+```text
+publication_rate_limit_state
+```
+
+Escopo:
+
+```text
+integrationKey
+```
+
+Integrações físicas:
+
+```text
+TELEGRAM
+WHATSAPP_MANUAL
+    ↓
+TELEGRAM_BOT_API
+
+WHATSAPP
+    ↓
+WHATSAPP_CLOUD_API
+```
+
+Quando um provider responde `429 + Retry-After`, o floor também é propagado para a integração física.
+
+Semântica:
+
+```text
+next_allowed_at =
+max(
+    next_allowed_at persistido,
+    provider retry floor,
+    instante observado
+)
+```
+
+Assim um worker que recebeu 429 protege outros workers que usam a mesma integração.
+
+O rate limiter não depende de memória local.
+
+---
+
+## 40. Fanout de entrega
 
 A outbox suporta trabalho derivado para os destinos operacionais configurados.
 
@@ -949,89 +1480,7 @@ WHATSAPP_MANUAL
 
 ---
 
-## 27. Rate limiting preventivo
-
-A branch da FASE 19 contém uma base persistente de rate limiting, registrada como antecipação da FASE 20.
-
-Componentes:
-
-```text
-PublicationRateLimitPolicy
-PublicationRateLimitRule
-PublicationRateLimitReservation
-PublicationRateLimitReservationPort
-PublicationRateLimitConfig
-PublicationRateLimitConfigProvider
-JdbcPublicationRateLimitReservationAdapter
-MapPublicationRateLimitPolicy
-```
-
-Semântica não bloqueante:
-
-```text
-slot disponível
-→ chamada externa permitida
-
-slot indisponível
-→ provider não é chamado
-→ PublicationAttempt não é criado
-→ outbox volta para PENDING
-→ availableAt indica nova tentativa de admissão
-```
-
-Não há `Thread.sleep` dentro do publisher ou do rate limiter.
-
-Integrações físicas:
-
-```text
-TELEGRAM
-WHATSAPP_MANUAL
-    ↓
-TELEGRAM_BOT_API
-
-WHATSAPP
-    ↓
-WHATSAPP_CLOUD_API
-```
-
-Telegram público e staging manual compartilham a mesma capacidade física do Telegram Bot API.
-
----
-
-## 28. Trabalho antecipado da FASE 20
-
-A branch atual também contém preparação de dispatch durável e reconciliação.
-
-Entre os componentes antecipados estão:
-
-```text
-ProcessingRunPublicationReadiness
-PublicationDispatchJobService
-PublicationDispatchReconciliationService
-PublicationProcessingRunDispatchService
-```
-
-A orquestração passou a conhecer:
-
-```text
-PUBLICATION_DISPATCH
-```
-
-Objetivo:
-
-```text
-descobrir trabalho durável
-reconciliar dispatch
-preparar recuperação após interrupção
-```
-
-Esses componentes não significam que a FASE 20 esteja concluída.
-
-Eles deverão ser auditados e fechados formalmente dentro da FASE 20.
-
----
-
-## 29. Persistência atual
+## 41. Persistência atual
 
 O modelo persistente inclui, entre outros:
 
@@ -1041,18 +1490,24 @@ offer_snapshot
 offer_payment_condition
 offer_payment_condition_method
 offer_evidence
+
 deal_evaluation
 deal_evaluation_rule_result
 deal_evaluation_score_factor
 deal_evaluation_momentum_audit
+
 processing_run
 processing_job
+processing_job_reprocess_event
+
 publication
 publication_attempt
 publication_outbox
+publication_delivery_resolution_event
+
 publication selection/configuration state
 publication cadence/configuration state
-publication rate-limit state
+publication_rate_limit_state
 ```
 
 O PostgreSQL permanece responsável por:
@@ -1066,30 +1521,46 @@ fila operacional
 quota
 auditoria
 concorrência
+recovery
+dead-letter lógico
+reprocessamento
+rate limit compartilhado
 ```
 
-Não há dependência de uma fila externa para a versão 1.0 neste momento.
+Não há dependência de Kafka ou RabbitMQ na versão atual.
 
 ---
 
-## 30. Migrations
+## 42. Migrations
 
-O schema local da branch da FASE 19 está em:
+O schema local da branch da FASE 20 está em:
 
 ```text
-V34
+V37
 ```
 
-Evoluções recentes da publicação:
+Flyway validou:
 
 ```text
-V28__publication_attempt_timing.sql
-V29__publication_outbox_delivery_fanout.sql
-V30__publication_cadence_profile.sql
-V31__publication_cadence_reservation_index.sql
-V32__publication_outbox_cadence_audit.sql
-V33__processing_publication_dispatch_job.sql
-V34__publication_rate_limit_state.sql
+37 migrations
+```
+
+Entre as evoluções relevantes recentes estão:
+
+```text
+publication attempt timing
+publication outbox fanout
+cadence
+PUBLICATION_DISPATCH
+publication rate-limit state
+processing job reprocess audit
+publication delivery resolution audit
+```
+
+Última migration:
+
+```text
+V37__publication_delivery_resolution_audit.sql
 ```
 
 Migrations aplicadas não devem ser reescritas retroativamente.
@@ -1098,12 +1569,12 @@ Toda evolução de schema deve ocorrer por nova migration versionada.
 
 ---
 
-## 31. Testes
+## 43. Testes
 
-Gate local integral da FASE 19:
+Gate local integral da FASE 20:
 
 ```text
-Tests run: 1608
+Tests run: 1786
 Failures: 0
 Errors: 0
 Skipped: 0
@@ -1139,22 +1610,119 @@ WhatsApp manual staging
 HTTP de publicação
 retry
 backoff
+Retry-After
 rate limiting
+recovery de restart
+DEAD / reprocessamento
+DELIVERY_UNKNOWN
+resolução operacional
 migrations
 integrações end-to-end
+testes destrutivos
 ```
-
-O gate também validou:
-
-```text
-git diff --check
-```
-
-sem problemas após os ajustes finais.
 
 ---
 
-## 32. Testes externos
+## 44. Testes destrutivos da FASE 20
+
+O gate destrutivo usa PostgreSQL real e fabrica estados equivalentes a crash/restart.
+
+Foram validados seis cenários:
+
+```text
+1. vários ProcessingJobs RUNNING expirados
+   → recovery drena mais de uma página
+
+2. job esgotado
+   → DEAD
+   → reprocessamento controlado
+   → mesma identidade volta a PENDING
+
+3. publication_outbox PROCESSING
+   + publication_attempt STARTED
+   + worker desaparece
+   → DELIVERY_UNKNOWN
+   → nenhum retry cego
+   → CONFIRMED_NOT_DELIVERED libera redelivery
+
+4. REMAINS_UNKNOWN
+   → permanece DELIVERY_UNKNOWN
+   → fora do claim automático
+
+5. várias ProcessingRuns sem PUBLICATION_DISPATCH
+   + reconciliation page size = 1
+   → todos os jobs são criados
+   → replay não duplica
+
+6. provider retry floor persistido
+   → Connection fecha
+   → nova Connection continua respeitando o limite
+```
+
+Gate isolado:
+
+```text
+Tests run: 6
+Failures: 0
+Errors: 0
+Skipped: 0
+
+BUILD SUCCESS
+```
+
+---
+
+## 45. Diagnóstico do shutdown do Surefire
+
+Na suíte completa da FASE 20 foi observado uma vez:
+
+```text
+Surefire is going to kill self fork JVM.
+The exit has elapsed 30 seconds after System.exit(0).
+```
+
+O Maven ainda terminou:
+
+```text
+BUILD SUCCESS
+```
+
+O thread dump correspondente mostrou apenas:
+
+```text
+threads padrão da JVM
+threads internas do Maven Surefire
+```
+
+A thread `main` estava em:
+
+```text
+ForkedBooter.acquireOnePermit
+ForkedBooter.acknowledgedExit
+```
+
+Não apareceu thread da aplicação, worker do Rasping Amazon, scheduler, HTTP server, Playwright ou executor da aplicação impedindo shutdown.
+
+Os seis testes destrutivos foram reexecutados isoladamente e não reproduziram o aviso.
+
+Classificação:
+
+```text
+bloqueador da FASE 20:
+NÃO
+
+regressão demonstrada da FASE 20:
+NÃO
+
+observação de tooling:
+SIM
+```
+
+O timeout não foi aumentado para mascarar o comportamento.
+
+---
+
+## 46. Testes externos
 
 A suíte padrão não deve depender da Amazon real.
 
@@ -1166,15 +1734,22 @@ Objetivo:
 suíte padrão
 → determinística e reproduzível
 
-probe externa
+external-probe
 → diagnóstico da fonte real
+```
+
+Na FASE 20:
+
+```text
+external-probe
+→ BUILD SUCCESS
 ```
 
 Falhas externas não devem ser mascaradas como regras de negócio internas.
 
 ---
 
-## 33. CI
+## 47. CI
 
 Workflow principal:
 
@@ -1190,30 +1765,30 @@ PostgreSQL
 Maven Wrapper
 ```
 
-A FASE 19 está concluída localmente.
+A FASE 20 está concluída localmente.
 
 O fechamento remoto ainda depende de:
 
 ```text
-commit
+commit dos documentos finais
 push da branch
-Pull Request
-CI do PR
+CI remoto
+Pull Request conforme fluxo do repositório
 merge em main
-CI pós-merge
+CI pós-merge quando aplicável
 ```
 
 Até esse ciclo terminar, o status correto é:
 
 ```text
-FASE 19
-→ CONCLUÍDA LOCALMENTE
-→ FECHAMENTO REMOTO PENDENTE
+FASE 20
+→ GATE LOCAL FECHADO
+→ GATE REMOTO PENDENTE
 ```
 
 ---
 
-## 34. Documentação
+## 48. Documentação
 
 Estrutura relevante:
 
@@ -1231,62 +1806,46 @@ docs/
 │   ├── FASE_18_RESULTADO.md
 │   └── FASE_19_RESULTADO.md
 └── research/
+
+FASE_20_RESULTADO.md
+README.md
 ```
 
-ADRs relevantes ao estado atual incluem decisões sobre:
+A FASE 20 também possui ADR específica de resiliência e recuperação.
+
+Decisões documentadas incluem:
 
 ```text
-semântica comercial
-score e ranking
-histórico e momentum
-geração de Publication
-interface não bloqueante
-seleção, recorrência e cadência
-observabilidade
-agendamento
-outbox e entrega
-fonte Amazon
+taxonomia operacional
+falhas de fonte
+DELIVERY_UNKNOWN
+start barrier
+restart recovery
+dead-letter lógico
+reprocessamento controlado
+resolução de ambiguidade
+Retry-After
+rate limit compartilhado
 ```
 
 A documentação histórica deve permanecer preservada.
 
 ---
 
-## 35. Decisão sobre aprovação manual
-
-A arquitetura vigente não utiliza aprovação manual obrigatória.
-
-A regra é:
-
-```text
-pipeline normal
-→ automático
-
-interface operacional
-→ observação e administração
-→ fora do caminho crítico
-```
-
-Assim:
-
-```text
-CREATED
-→ READY
-```
-
-pode ocorrer automaticamente quando as regras aplicáveis forem satisfeitas.
-
-A existência de referências históricas a aprovação manual em roadmap ou relatórios antigos não reintroduz essa etapa no fluxo vigente.
-
----
-
-## 36. Fonte Amazon e limites operacionais
+## 49. Fonte Amazon e limites operacionais
 
 A fonte da Amazon permanece desacoplada do domínio.
 
-O projeto não deve implementar mecanismos para contornar CAPTCHA, challenge, bloqueio ou outras proteções.
+O projeto não deve implementar mecanismos para contornar:
 
-Respostas como:
+```text
+CAPTCHA
+challenge
+bloqueio
+restrição operacional
+```
+
+Respostas e evidências como:
 
 ```text
 403
@@ -1295,9 +1854,11 @@ challenge
 CAPTCHA
 timeout
 layout inesperado
+produto removido
+HTML inválido
 ```
 
-devem ser classificadas como falhas ou restrições operacionais da fonte.
+devem ser classificadas explicitamente.
 
 Mudança de layout não deve produzir dados falsos silenciosamente.
 
@@ -1305,25 +1866,29 @@ Quando faltar evidência crítica, preservar fail closed.
 
 ---
 
-## 37. Idempotência
+## 50. Idempotência
 
 Idempotência continua sendo requisito transversal.
 
 Ela protege:
 
 ```text
-persistência de snapshots
+snapshots
 avaliações
-jobs
+ProcessingJobs
 seleção
 Publication
 outbox
-entregas concluídas
+PublicationAttempt
+reprocessamento
+resolução de entrega ambígua
 ```
 
 Reexecutar trabalho não deve criar duplicidade indevida.
 
-Para publicação, uma identidade importante é:
+Identidades persistentes e constraints do banco são preferidas a verificações somente em memória.
+
+Para publicação, identidade importante:
 
 ```text
 publication
@@ -1333,11 +1898,17 @@ channel
 destination
 ```
 
-Banco e aplicação trabalham juntos; verificações apenas em memória não são suficientes.
+Para reprocessamento e resolução operacional:
+
+```text
+requestKey
+```
+
+é parte do contrato idempotente.
 
 ---
 
-## 38. Transações e concorrência
+## 51. Transações e concorrência
 
 O PostgreSQL é utilizado para garantir consistência em operações críticas.
 
@@ -1346,106 +1917,344 @@ Princípios:
 ```text
 transação explícita
 unique constraints
-locking
-leases
+FOR UPDATE
 SKIP LOCKED quando aplicável
+leases
 estado persistido
 desempate determinístico
+```
+
+A arquitetura evita:
+
+```text
+transação JDBC aberta durante HTTP externo
+```
+
+A sequência externa é deliberadamente:
+
+```text
+persistir STARTED
+COMMIT
+↓
+provider
+↓
+persistir resultado
 ```
 
 Concorrência não deve permitir:
 
 ```text
 duas reservas da última vaga de quota
-dois workers possuindo o mesmo trabalho normalmente
+dois workers possuindo normalmente o mesmo trabalho
 duplicação de enqueue lógico
-duplicação de sucesso já persistido
+duplicação de reprocessamento por requestKey
+reenvio automático de DELIVERY_UNKNOWN
 ```
 
 A arquitetura não promete exactly-once externo absoluto quando o provider não oferece mecanismo correspondente.
 
 ---
 
-## 39. Próxima fase — FASE 20
+## 52. Circuit breaker
+
+A FASE 20 avaliou explicitamente o tema.
+
+Decisão atual:
+
+```text
+circuit breaker
+→ NÃO INTRODUZIDO
+```
+
+Motivo:
+
+```text
+não houve necessidade demonstrada suficiente
+```
+
+O sistema já possui:
+
+```text
+retry limitado
+backoff
+rate limit
+Retry-After
+persistência durável
+classificação de falhas
+fail closed
+restart recovery
+```
+
+Circuit breaker só deve ser introduzido futuramente quando métricas e comportamento real demonstrarem benefício concreto.
+
+---
+
+## 53. O que não foi introduzido na FASE 20
+
+Para evitar complexidade sem evidência:
+
+```text
+Kafka
+RabbitMQ
+microservices
+fila externa
+retry infinito
+retry cego de DELIVERY_UNKNOWN
+circuit breaker especulativo
+transação aberta durante HTTP
+reescrita retroativa de tentativa histórica
+estado de recovery somente em memória
+```
+
+O PostgreSQL continua suficiente para a escala e o contrato atuais.
+
+---
+
+## 54. Regras de desenvolvimento
+
+1. Uma fase deve possuir resultado verificável antes da próxima ser declarada concluída.
+2. Coleta não implementa regra de negócio.
+3. Parser descreve fatos; domínio decide.
+4. Dados ausentes não são inventados.
+5. Seller e delivery preservam fail closed.
+6. Excel não é fonte de estado.
+7. Segredos ficam fora do repositório.
+8. Migrations aplicadas são imutáveis.
+9. Reexecução deve preservar idempotência.
+10. Toda decisão importante deve ser auditável.
+11. Telegram e WhatsApp são adapters substituíveis.
+12. A interface operacional não é parte obrigatória do caminho crítico.
+13. Publicação normal não depende de aprovação humana.
+14. Estado operacional relevante deve ser durável.
+15. Resultado externo ambíguo não deve ser reenviado cegamente.
+16. Recovery deve ocorrer antes do runtime normal.
+17. Provider pode aumentar um retry floor, mas não o orçamento de tentativas.
+18. Infraestrutura distribuída só entra quando métricas demonstrarem necessidade.
+
+---
+
+## 55. Commits funcionais da FASE 20
+
+Sequência local de implementação da FASE 20:
+
+```text
+acba934 test: validate destructive phase 20 recovery scenarios
+16b5c74 fix: drain startup recovery backlog before runtime
+0591860 feat: propagate provider rate limits across publication workers
+7996af4 feat: honor provider retry floors for publication
+6bd1bf3 feat: preserve publication retry after metadata
+9aaab44 feat: compose ambiguous publication delivery resolution
+ab45a99 feat: resolve ambiguous publication deliveries atomically
+29a194f feat: define ambiguous publication delivery resolution
+002f9ec feat: compose controlled processing job reprocessing
+8392eb7 feat: reprocess dead processing jobs atomically
+875084f feat: define controlled processing job reprocessing
+28d0fa0 feat: recover durable work before continuous startup
+df46c51 feat: support publication dispatch in continuous composition
+d6c2621 feat: define continuous startup recovery
+f12d6c7 feat: classify ambiguous channel outcomes as unknown
+f63f56e feat: model unknown publication delivery result
+ffa983b feat: recover ambiguous publication deliveries safely
+f3bbbf4 feat: persist publication attempt before provider call
+86992ba feat: complete durable publication attempts
+5dc140c feat: add durable publication attempt start barrier
+b75f30e feat: define unknown publication delivery persistence
+6d23434 feat: distinguish unavailable Amazon products from unknown evidence
+6d949df feat: fail closed on invalid Amazon product pages
+32c14c9 feat: use rendered product pages in continuous runtime
+c7ce687 feat: preserve product page acquisition failure semantics
+b748e85 feat: introduce operational failure taxonomy
+e19515c docs: define resilience and recovery semantics for phase 20
+```
+
+Documentação final da fase deve ser versionada antes do push.
+
+---
+
+## 56. Estado consolidado
+
+```text
+FASE ATUAL:
+20 — Resiliência, recuperação e falhas de produção
+
+STATUS LOCAL:
+CONCLUÍDA
+
+BRANCH:
+feat/fase-20-resiliencia-recuperacao
+
+GATE FUNCIONAL:
+acba934
+
+PIPELINE DURÁVEL:
+IMPLEMENTADO
+
+INTERFACE OPERACIONAL:
+CLI NÃO BLOQUEANTE
+
+EXECUÇÃO CONTÍNUA:
+IMPLEMENTADA
+
+STARTUP RECOVERY:
+IMPLEMENTADO
+
+DRAIN DE BACKLOG:
+IMPLEMENTADO
+
+PUBLICATION:
+VERSIONADA E PERSISTIDA
+
+APROVAÇÃO MANUAL OBRIGATÓRIA:
+NÃO
+
+SELEÇÃO OPERACIONAL:
+IMPLEMENTADA
+
+QUOTA / CADÊNCIA:
+IMPLEMENTADAS
+
+OUTBOX:
+IMPLEMENTADA
+
+PUBLICATION ATTEMPT:
+IMPLEMENTADO
+
+START BARRIER:
+IMPLEMENTADO
+
+DELIVERY_UNKNOWN:
+IMPLEMENTADO
+
+RESOLUÇÃO DE ENTREGA AMBÍGUA:
+IMPLEMENTADA
+
+TELEGRAM:
+IMPLEMENTADO
+
+WHATSAPP OFICIAL:
+ADAPTER IMPLEMENTADO
+ATIVAÇÃO REAL DEPENDE DE CONFIGURAÇÃO DO PROVIDER
+
+WHATSAPP MANUAL STAGING:
+IMPLEMENTADO
+
+RETRY:
+IMPLEMENTADO
+
+BACKOFF:
+IMPLEMENTADO
+
+RETRY-AFTER:
+IMPLEMENTADO
+
+RATE LIMIT:
+PERSISTENTE E COMPARTILHADO POR INTEGRAÇÃO
+
+DEAD-LETTER:
+ProcessingJob.DEAD
+
+REPROCESSAMENTO CONTROLADO:
+IMPLEMENTADO
+
+CIRCUIT BREAKER:
+NÃO INTRODUZIDO
+SEM NECESSIDADE DEMONSTRADA
+
+TESTES DESTRUTIVOS:
+6 / 6 PASSOU
+
+TESTES COMPLETOS:
+1786
+
+FALHAS:
+0
+
+ERROS:
+0
+
+IGNORADOS:
+0
+
+BUILD:
+SUCCESS
+
+EXTERNAL PROBE:
+SUCCESS
+
+POSTGRESQL:
+18.6
+
+FLYWAY:
+37 MIGRATIONS
+
+SCHEMA:
+V37
+
+WORKING TREE DO GATE FUNCIONAL:
+CLEAN
+
+SUREFIRE SHUTDOWN:
+OBSERVAÇÃO NÃO BLOQUEANTE
+SEM THREAD DA APLICAÇÃO PRESA NO DUMP
+
+DAEMON:
+NÃO EXECUTADO
+
+FECHAMENTO REMOTO DA FASE 20:
+PENDENTE
+
+PRÓXIMA FASE:
+21 — Segurança, governança e fechamento da v1.0
+```
+
+---
+
+## 57. Próxima fase — FASE 21
 
 A próxima fase oficial é:
 
 ```text
-FASE 20 — Resiliência, recuperação e falhas de produção
+FASE 21 — Segurança, governança e fechamento da v1.0
 ```
 
-Objetivo:
+Responsabilidades previstas:
 
 ```text
-garantir que falhas externas,
-reinicializações
-e erros operacionais
-
-não deixem o sistema
-em estado inconsistente
+segurança operacional
+governança
+permissões
+backup e restore
+retenção
+proteção de dados sensíveis
+operação reproduzível
+fechamento da v1.0
 ```
 
-Responsabilidades a fechar formalmente incluem:
-
-```text
-taxonomia final de falhas
-políticas por integração
-timeout
-rate limit
-autenticação inválida
-destino inexistente
-resposta desconhecida
-recuperação após restart
-trabalho abandonado
-reprocessamento operacional
-dead-letter quando necessário
-testes controlados de falha
-circuit breaker somente se necessário
-```
-
-A FASE 20 deve começar auditando o que já foi antecipado na FASE 19.
-
-Ela não deve reimplementar componentes que já estão corretos e testados.
+A FASE 21 não deve reimplementar decisões de resiliência já fechadas na FASE 20.
 
 ---
 
-## 40. FASE 21 e versão 1.0
+## 58. Gate antes da FASE 21
 
-Depois da FASE 20:
-
-```text
-FASE 21
-→ segurança
-→ governança
-→ backup/restore
-→ retenção
-→ operação reproduzível
-→ fechamento da v1.0
-```
-
-A versão 1.0 deve conseguir:
+Antes de iniciar a FASE 21:
 
 ```text
-configurar
-→ iniciar
-→ coletar
-→ avaliar
-→ ranquear
-→ acompanhar histórico
-→ selecionar
-→ gerar Publication
-→ publicar em canais configurados
-→ evitar duplicações
-→ diagnosticar falhas
-→ recuperar processamento
-→ preservar histórico
+1. versionar FASE_20_RESULTADO.md;
+2. versionar este README atualizado;
+3. confirmar git diff --check;
+4. confirmar working tree limpa após os commits;
+5. push da branch da FASE 20;
+6. validar CI remoto;
+7. abrir/atualizar Pull Request conforme fluxo do repositório;
+8. confirmar merge e CI pós-merge quando aplicável;
+9. somente então declarar gate remoto da FASE 20 fechado.
 ```
 
-sem depender da IDE, de Excel ou de manipulação manual do PostgreSQL.
+O daemon de produção não faz parte desse gate.
 
 ---
 
-## 41. Itens pós-v1.0
+## 59. Itens pós-v1.0
 
 Permanecem fora do escopo obrigatório da v1.0:
 
@@ -1473,119 +2282,7 @@ A arquitetura deve permitir evolução futura sem antecipar complexidade sem evi
 
 ---
 
-## 42. Regras de desenvolvimento
-
-1. Uma fase deve possuir resultado verificável antes da próxima ser declarada concluída.
-2. Coleta não implementa regra de negócio.
-3. Parser descreve fatos; domínio decide.
-4. Dados ausentes não são inventados.
-5. Seller e delivery preservam fail closed.
-6. Excel não é fonte de estado.
-7. Segredos ficam fora do repositório.
-8. Migrations aplicadas são imutáveis.
-9. Reexecução deve preservar idempotência.
-10. Toda decisão importante deve ser auditável.
-11. Telegram e WhatsApp são adapters substituíveis.
-12. A interface operacional não é parte obrigatória do caminho crítico.
-13. Publicação normal não depende de aprovação humana.
-14. Estado operacional relevante deve ser durável.
-15. Infraestrutura distribuída só entra quando métricas demonstrarem necessidade.
-
----
-
-## 43. Estado consolidado
-
-```text
-FASE ATUAL:
-19 — Telegram e WhatsApp
-
-STATUS LOCAL:
-CONCLUÍDA
-
-BRANCH:
-feat/fase-19-telegram-whatsapp
-
-PIPELINE DURÁVEL:
-IMPLEMENTADO
-
-INTERFACE OPERACIONAL:
-CLI NÃO BLOQUEANTE
-
-EXECUÇÃO CONTÍNUA:
-IMPLEMENTADA
-
-PUBLICATION:
-VERSIONADA E PERSISTIDA
-
-APROVAÇÃO MANUAL OBRIGATÓRIA:
-NÃO
-
-SELEÇÃO OPERACIONAL:
-IMPLEMENTADA
-
-QUOTA / CADÊNCIA:
-IMPLEMENTADAS
-
-OUTBOX:
-IMPLEMENTADA
-
-PUBLICATION ATTEMPT:
-IMPLEMENTADO
-
-TELEGRAM:
-IMPLEMENTADO
-
-WHATSAPP OFICIAL:
-ADAPTER IMPLEMENTADO
-ATIVAÇÃO REAL DEPENDE DE CONFIGURAÇÃO DO PROVIDER
-
-WHATSAPP MANUAL STAGING:
-IMPLEMENTADO
-
-RETRY:
-IMPLEMENTADO
-
-BACKOFF:
-IMPLEMENTADO
-
-RATE LIMIT:
-BASE PERSISTENTE IMPLEMENTADA
-FECHAMENTO FORMAL NA FASE 20
-
-TESTES:
-1608
-
-FALHAS:
-0
-
-ERROS:
-0
-
-IGNORADOS:
-0
-
-BUILD:
-SUCCESS
-
-POSTGRESQL:
-18.6
-
-FLYWAY:
-34 MIGRATIONS
-
-SCHEMA:
-V34
-
-FECHAMENTO REMOTO DA FASE 19:
-PENDENTE
-
-PRÓXIMA FASE:
-20 — Resiliência, recuperação e falhas de produção
-```
-
----
-
-## 44. Regra de continuidade
+## 60. Regra de continuidade
 
 O projeto deve continuar usando:
 
@@ -1606,3 +2303,82 @@ README
 Diferenças entre planejamento e execução devem permanecer explícitas.
 
 Não reescrever retrospectivamente documentos históricos para esconder decisões que mudaram ao longo do projeto.
+
+---
+
+## 61. Encerramento local da FASE 20
+
+```text
+FASE 20 — RESILIÊNCIA, RECUPERAÇÃO E FALHAS DE PRODUÇÃO
+
+GATE LOCAL:
+FECHADO
+
+BRANCH:
+feat/fase-20-resiliencia-recuperacao
+
+GATE FUNCIONAL:
+acba934
+
+TESTES:
+1786
+
+FAILURES:
+0
+
+ERRORS:
+0
+
+SKIPPED:
+0
+
+BUILD:
+SUCCESS
+
+EXTERNAL PROBE:
+SUCCESS
+
+POSTGRESQL:
+OK
+
+FLYWAY:
+OK
+
+MIGRATIONS:
+37
+
+SCHEMA:
+V37
+
+TESTES DESTRUTIVOS:
+6 / PASSOU
+
+DELIVERY_UNKNOWN:
+FECHADO
+
+STARTUP RECOVERY:
+FECHADO
+
+DEAD-LETTER / REPROCESSAMENTO:
+FECHADO
+
+RETRY-AFTER / RATE LIMIT:
+FECHADO
+
+CIRCUIT BREAKER:
+NÃO NECESSÁRIO NESTA FASE
+
+AVISO DE SHUTDOWN DO SUREFIRE:
+DIAGNOSTICADO
+NÃO BLOQUEANTE
+SEM THREAD DA APLICAÇÃO PRESA
+
+GATE REMOTO:
+PENDENTE
+
+DAEMON:
+NÃO EXECUTADO
+
+PRÓXIMA FASE APÓS GATE REMOTO:
+FASE 21 — Segurança, governança e fechamento da v1.0
+```
