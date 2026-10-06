@@ -12,7 +12,7 @@ import java.util.Objects;
  * no cliente HTTP da plataforma Java.
  *
  * <p>A classe executa POST JSON e preserva integralmente
- * status e corpo da resposta para interpretação pelo
+ * status, corpo e headers da resposta para interpretação pelo
  * adapter concreto do provedor.</p>
  */
 public final class JavaPublicationHttpTransport
@@ -92,7 +92,9 @@ public final class JavaPublicationHttpTransport
 
             return new PublicationHttpResponse(
                 response.statusCode(),
-                response.body()
+                response.body(),
+                response.headers()
+                    .map()
             );
 
         } catch (InterruptedException exception) {
