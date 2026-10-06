@@ -22,11 +22,11 @@ import java.util.Objects;
  *         DELIVERY_UNKNOWN;
  *     </li>
  *     <li>
- *         recuperar ProcessingJobs RUNNING abandonados;
+ *         drenar ProcessingJobs RUNNING abandonados até quiescência;
  *     </li>
  *     <li>
- *         reconciliar ProcessingRuns que ainda precisam da unidade
- *         durável PUBLICATION_DISPATCH.
+ *         drenar a reconciliação de ProcessingRuns que ainda precisam
+ *         da unidade durável PUBLICATION_DISPATCH.
  *     </li>
  * </ol>
  *
@@ -36,6 +36,11 @@ import java.util.Objects;
  *
  * <p>Nenhuma transação global envolve as três etapas. Cada autoridade
  * durável mantém sua própria unidade transacional.</p>
+ *
+ * <p>A publication_outbox não utiliza paginação no adapter JDBC de
+ * recovery; ProcessingJob e reconciliação usam seus limites
+ * configurados como tamanhos de página, nunca como teto total do
+ * startup recovery.</p>
  */
 public final class ContinuousProcessingStartupRecoveryService {
 
@@ -87,7 +92,7 @@ public final class ContinuousProcessingStartupRecoveryService {
     }
 
     /**
-     * Executa uma rodada completa de recovery de startup.
+     * Executa recovery completo de startup até quiescência.
      *
      * <p>Este método é síncrono por design. Somente depois de seu
      * retorno bem-sucedido o runtime deve iniciar worker/scheduler.</p>
@@ -98,13 +103,14 @@ public final class ContinuousProcessingStartupRecoveryService {
             publicationOutboxRecoveryService.recoverOnce();
 
         ProcessingJobLeaseRecoveryResult processingJobRecovery =
-            processingJobRecoveryService.recoverOnce();
+            processingJobRecoveryService.recoverUntilQuiescent();
 
         PublicationDispatchReconciliationResult
             publicationDispatchReconciliation =
-                publicationDispatchReconciliationService.reconcile(
-                    publicationDispatchReconciliationLimit
-                );
+                publicationDispatchReconciliationService
+                    .reconcileUntilQuiescent(
+                        publicationDispatchReconciliationLimit
+                    );
 
         return new ContinuousProcessingStartupRecoveryResult(
             publicationOutboxRecovery,

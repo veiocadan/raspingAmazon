@@ -23,31 +23,9 @@ import java.util.Set;
  * <p>Sua responsabilidade termina na existência idempotente do job
  * que posteriormente executará a publicação.</p>
  *
- * <p>Fluxo:</p>
- *
- * <pre>
- * candidata
- *    |
- *    v
- * readiness
- *    |
- *    +-- IN_PROGRESS
- *    |       -> nenhuma ação
- *    |
- *    +-- READY
- *    |       -> enqueue PUBLICATION_DISPATCH
- *    |
- *    +-- BLOCKED
- *            -> enqueue PUBLICATION_DISPATCH
- * </pre>
- *
- * <p>Runs BLOCKED também recebem job porque precisamos transformar
- * esse estado lógico em uma conclusão operacional auditável da etapa
- * de publicação. O futuro handler será responsável por encerrá-lo
- * como DEAD sem produzir publicação parcial.</p>
- *
- * <p>IN_PROGRESS deliberadamente não produz retry nem incrementa
- * attemptCount de ProcessingJob.</p>
+ * <p>{@link #reconcile(int)} preserva uma única página histórica.
+ * {@link #reconcileUntilQuiescent(int)} drena o backlog de startup
+ * usando o mesmo limite como tamanho de página.</p>
  */
 public final class PublicationDispatchReconciliationService {
 
@@ -136,13 +114,6 @@ public final class PublicationDispatchReconciliationService {
             );
         }
 
-        /*
-         * Evita executar duas vezes a mesma identidade caso uma
-         * implementação defeituosa da porta produza duplicatas.
-         *
-         * A constraint da fila continuaria protegendo a persistência,
-         * mas a fronteira de aplicação deve permanecer determinística.
-         */
         Set<Long> seenProcessingRunIds =
             new HashSet<>();
 
@@ -233,6 +204,96 @@ public final class PublicationDispatchReconciliationService {
         );
     }
 
+    /**
+     * Drena páginas de candidatos até que a consulta devolva menos
+     * registros que o limite.
+     *
+     * <p>Uma página cheia sem nenhum enqueue significa que a
+     * reconciliação não produziu progresso durável. Continuar nesse
+     * cenário poderia gerar loop infinito e, pior, esconder candidatos
+     * posteriores. O startup falha fechado.</p>
+     */
+    public PublicationDispatchReconciliationResult
+    reconcileUntilQuiescent(
+        int limit
+    ) {
+
+        if (limit <= 0) {
+
+            throw new IllegalArgumentException(
+                "limit must be positive"
+            );
+        }
+
+        int inspectedRunCount = 0;
+        int readyRunCount = 0;
+        int inProgressRunCount = 0;
+        int blockedRunCount = 0;
+        int enqueuedJobCount = 0;
+
+        while (true) {
+
+            PublicationDispatchReconciliationResult page =
+                reconcile(
+                    limit
+                );
+
+            inspectedRunCount =
+                addExact(
+                    inspectedRunCount,
+                    page.inspectedRunCount(),
+                    "inspectedRunCount"
+                );
+
+            readyRunCount =
+                addExact(
+                    readyRunCount,
+                    page.readyRunCount(),
+                    "readyRunCount"
+                );
+
+            inProgressRunCount =
+                addExact(
+                    inProgressRunCount,
+                    page.inProgressRunCount(),
+                    "inProgressRunCount"
+                );
+
+            blockedRunCount =
+                addExact(
+                    blockedRunCount,
+                    page.blockedRunCount(),
+                    "blockedRunCount"
+                );
+
+            enqueuedJobCount =
+                addExact(
+                    enqueuedJobCount,
+                    page.enqueuedJobCount(),
+                    "enqueuedJobCount"
+                );
+
+            if (page.inspectedRunCount() < limit) {
+
+                return new PublicationDispatchReconciliationResult(
+                    inspectedRunCount,
+                    readyRunCount,
+                    inProgressRunCount,
+                    blockedRunCount,
+                    enqueuedJobCount
+                );
+            }
+
+            if (page.enqueuedJobCount() == 0) {
+
+                throw new IllegalStateException(
+                    "Publication dispatch reconciliation returned "
+                        + "a full page without durable progress"
+                );
+            }
+        }
+    }
+
     private void enqueue(
         long processingRunId,
         OffsetDateTime availableAt
@@ -305,5 +366,29 @@ public final class PublicationDispatchReconciliationService {
 
         return IDEMPOTENCY_PREFIX
             + processingRunId;
+    }
+
+    private static int addExact(
+        int current,
+        int increment,
+        String fieldName
+    ) {
+
+        try {
+
+            return Math.addExact(
+                current,
+                increment
+            );
+
+        } catch (ArithmeticException exception) {
+
+            throw new IllegalStateException(
+                "Aggregated publication dispatch reconciliation "
+                    + fieldName
+                    + " overflowed",
+                exception
+            );
+        }
     }
 }
