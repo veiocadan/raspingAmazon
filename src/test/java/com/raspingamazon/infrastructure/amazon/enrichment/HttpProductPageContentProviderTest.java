@@ -15,7 +15,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Testes herméticos do provider HTTP da página individual.
@@ -90,7 +92,7 @@ class HttpProductPageContentProviderTest {
     }
 
     @Test
-    void shouldRejectNonSuccessfulHttpStatus()
+    void shouldPreserveHttpStatusAndBodyExcerptOnFailure()
         throws Exception {
 
         try (TestHttpServer server =
@@ -104,19 +106,161 @@ class HttpProductPageContentProviderTest {
                     HttpClient.newHttpClient()
                 );
 
-            assertThrows(
-                ProductPageContentProviderException.class,
-                () -> provider.load(
-                    URI.create(
-                        server.url()
+            ProductPageContentProviderException exception =
+                assertThrows(
+                    ProductPageContentProviderException.class,
+                    () -> provider.load(
+                        URI.create(
+                            server.url()
+                        )
                     )
-                )
+                );
+
+            assertEquals(
+                503,
+                exception.httpStatusCode()
+            );
+
+            assertEquals(
+                "Service unavailable",
+                exception.responseBodyExcerpt()
+            );
+
+            assertEquals(
+                "Product page returned HTTP 503",
+                exception.getMessage()
             );
         }
     }
 
     @Test
-    void shouldRejectEmptyBody()
+    void shouldPreserveRateLimitStatus()
+        throws Exception {
+
+        try (TestHttpServer server =
+                 TestHttpServer.start(
+                     429,
+                     "Too many requests"
+                 )) {
+
+            HttpProductPageContentProvider provider =
+                new HttpProductPageContentProvider(
+                    HttpClient.newHttpClient()
+                );
+
+            ProductPageContentProviderException exception =
+                assertThrows(
+                    ProductPageContentProviderException.class,
+                    () -> provider.load(
+                        URI.create(
+                            server.url()
+                        )
+                    )
+                );
+
+            assertEquals(
+                429,
+                exception.httpStatusCode()
+            );
+
+            assertEquals(
+                "Too many requests",
+                exception.responseBodyExcerpt()
+            );
+        }
+    }
+
+    @Test
+    void shouldPreserveNotFoundStatus()
+        throws Exception {
+
+        try (TestHttpServer server =
+                 TestHttpServer.start(
+                     404,
+                     "Product not found"
+                 )) {
+
+            HttpProductPageContentProvider provider =
+                new HttpProductPageContentProvider(
+                    HttpClient.newHttpClient()
+                );
+
+            ProductPageContentProviderException exception =
+                assertThrows(
+                    ProductPageContentProviderException.class,
+                    () -> provider.load(
+                        URI.create(
+                            server.url()
+                        )
+                    )
+                );
+
+            assertEquals(
+                404,
+                exception.httpStatusCode()
+            );
+
+            assertEquals(
+                "Product not found",
+                exception.responseBodyExcerpt()
+            );
+        }
+    }
+
+    @Test
+    void shouldLimitFailureBodyExcerpt()
+        throws Exception {
+
+        String body =
+            "x".repeat(
+                2500
+            );
+
+        try (TestHttpServer server =
+                 TestHttpServer.start(
+                     503,
+                     body
+                 )) {
+
+            HttpProductPageContentProvider provider =
+                new HttpProductPageContentProvider(
+                    HttpClient.newHttpClient()
+                );
+
+            ProductPageContentProviderException exception =
+                assertThrows(
+                    ProductPageContentProviderException.class,
+                    () -> provider.load(
+                        URI.create(
+                            server.url()
+                        )
+                    )
+                );
+
+            assertEquals(
+                503,
+                exception.httpStatusCode()
+            );
+
+            assertEquals(
+                2000,
+                exception.responseBodyExcerpt()
+                    .length()
+            );
+
+            assertTrue(
+                exception.responseBodyExcerpt()
+                    .chars()
+                    .allMatch(
+                        character ->
+                            character == 'x'
+                    )
+            );
+        }
+    }
+
+    @Test
+    void shouldRejectEmptyBodyWithoutInventingHttpFailureStatus()
         throws Exception {
 
         try (TestHttpServer server =
@@ -130,13 +274,27 @@ class HttpProductPageContentProviderTest {
                     HttpClient.newHttpClient()
                 );
 
-            assertThrows(
-                ProductPageContentProviderException.class,
-                () -> provider.load(
-                    URI.create(
-                        server.url()
+            ProductPageContentProviderException exception =
+                assertThrows(
+                    ProductPageContentProviderException.class,
+                    () -> provider.load(
+                        URI.create(
+                            server.url()
+                        )
                     )
-                )
+                );
+
+            assertNull(
+                exception.httpStatusCode()
+            );
+
+            assertNull(
+                exception.responseBodyExcerpt()
+            );
+
+            assertEquals(
+                "Product page returned an empty response",
+                exception.getMessage()
             );
         }
     }

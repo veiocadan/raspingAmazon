@@ -395,13 +395,12 @@ class PublicationDeliveryCompositionEndToEndTest {
                      applicationConfig
                  )) {
 
-            /*
-             * Toda a prova E2E pertence a uma transação externa.
-             *
-             * JdbcTransactionAdapter utiliza savepoints quando encontra
-             * autoCommit=false, portanto podemos desfazer integralmente
-             * a fixture no finally sem persistir lixo de teste.
-             */
+            ReadyScenario scenario =
+                null;
+
+            boolean scenarioCommitted =
+                false;
+
             connection.setAutoCommit(
                 false
             );
@@ -411,7 +410,7 @@ class PublicationDeliveryCompositionEndToEndTest {
                 String asin =
                     uniqueAsin();
 
-                ReadyScenario scenario =
+                scenario =
                     createReadyScenario(
                         connection,
                         channel,
@@ -453,6 +452,25 @@ class PublicationDeliveryCompositionEndToEndTest {
                         connection,
                         outboxId
                     )
+                );
+
+                /*
+                 * ----------------------------------------------------
+                 * FASE 20: COMMIT DA FIXTURE ANTES DO WORKER
+                 * ----------------------------------------------------
+                 *
+                 * JdbcPublicationAttemptStartAdapter exige uma
+                 * fronteira própria de commit antes do efeito externo.
+                 * Portanto o worker não pode participar da transação
+                 * externa utilizada apenas para montar a fixture.
+                 */
+                connection.commit();
+
+                scenarioCommitted =
+                    true;
+
+                connection.setAutoCommit(
+                    true
                 );
 
                 AtomicReference<PublicationHttpRequest> capturedRequest =
@@ -533,10 +551,19 @@ class PublicationDeliveryCompositionEndToEndTest {
                     outbox.finishedAt()
                 );
 
+                /*
+                 * O novo worker lê o relógio três vezes:
+                 *
+                 * T      = claim/lease
+                 * T + 1s = STARTED durável
+                 * T + 2s = conclusão depois do provider
+                 */
                 assertEquals(
                     WORKER_STARTED_AT
                         .plus(
-                            WORKER_CLOCK_STEP
+                            WORKER_CLOCK_STEP.multipliedBy(
+                                2L
+                            )
                         ),
                     outbox.finishedAt()
                         .toInstant()
@@ -573,29 +600,32 @@ class PublicationDeliveryCompositionEndToEndTest {
                     attempt.attemptNumber()
                 );
 
-                /*
-                 * started_at é o instante do claim/lease.
-                 */
-                assertEquals(
-                    WORKER_STARTED_AT,
-                    attempt.startedAt()
-                        .toInstant()
-                );
-
-                /*
-                 * finished_at é obtido depois do retorno do canal.
-                 */
                 assertEquals(
                     WORKER_STARTED_AT
                         .plus(
                             WORKER_CLOCK_STEP
                         ),
-                    attempt.finishedAt()
+                    attempt.startedAt()
                         .toInstant()
                 );
 
                 assertEquals(
+                    WORKER_STARTED_AT
+                        .plus(
+                            WORKER_CLOCK_STEP.multipliedBy(
+                                2L
+                            )
+                        ),
                     attempt.finishedAt()
+                        .toInstant()
+                );
+
+                /*
+                 * created_at agora pertence ao STARTED, não à
+                 * conclusão posterior da tentativa.
+                 */
+                assertEquals(
+                    attempt.startedAt()
                         .toInstant(),
                     attempt.createdAt()
                         .toInstant()
@@ -642,9 +672,24 @@ class PublicationDeliveryCompositionEndToEndTest {
                     scenario.content()
                 );
 
+            } catch (Exception exception) {
+
+                if (!scenarioCommitted) {
+                    connection.rollback();
+                }
+
+                throw exception;
+
             } finally {
 
-                connection.rollback();
+                if (scenarioCommitted
+                    && scenario != null) {
+
+                    cleanupCommittedScenario(
+                        connection,
+                        scenario
+                    );
+                }
             }
         }
     }
@@ -713,6 +758,11 @@ class PublicationDeliveryCompositionEndToEndTest {
             );
 
         return new ReadyScenario(
+            channel,
+            destination,
+            productId,
+            snapshotId,
+            evaluationId,
             selectionRunId,
             publicationId,
             content
@@ -1465,6 +1515,179 @@ class PublicationDeliveryCompositionEndToEndTest {
         }
     }
 
+    private void cleanupCommittedScenario(
+        Connection connection,
+        ReadyScenario scenario
+    ) throws Exception {
+
+        boolean originalAutoCommit =
+            connection.getAutoCommit();
+
+        if (originalAutoCommit) {
+            connection.setAutoCommit(
+                false
+            );
+        }
+
+        try {
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM publication_attempt
+                WHERE publication_id = ?
+                """,
+                scenario.publicationId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM publication_outbox
+                WHERE publication_id = ?
+                """,
+                scenario.publicationId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM publication
+                WHERE id = ?
+                """,
+                scenario.publicationId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM publication_selection_decision
+                WHERE selection_run_id = ?
+                """,
+                scenario.selectionRunId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM publication_selection_run
+                WHERE id = ?
+                """,
+                scenario.selectionRunId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM deal_evaluation
+                WHERE id = ?
+                """,
+                scenario.evaluationId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM offer_snapshot
+                WHERE id = ?
+                """,
+                scenario.snapshotId()
+            );
+
+            deleteByLong(
+                connection,
+                """
+                DELETE FROM product
+                WHERE id = ?
+                """,
+                scenario.productId()
+            );
+
+            deleteProfile(
+                connection,
+                "publication_selection_profile",
+                scenario.channel(),
+                scenario.destination()
+            );
+
+            deleteProfile(
+                connection,
+                "publication_quota_profile",
+                scenario.channel(),
+                scenario.destination()
+            );
+
+            connection.commit();
+
+        } catch (Exception exception) {
+
+            connection.rollback();
+
+            throw exception;
+
+        } finally {
+
+            if (originalAutoCommit
+                && !connection.getAutoCommit()) {
+
+                connection.setAutoCommit(
+                    true
+                );
+            }
+        }
+    }
+
+    private void deleteByLong(
+        Connection connection,
+        String sql,
+        long id
+    ) throws Exception {
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                id
+            );
+
+            statement.executeUpdate();
+        }
+    }
+
+    private void deleteProfile(
+        Connection connection,
+        String tableName,
+        String channel,
+        String destination
+    ) throws Exception {
+
+        String sql =
+            "DELETE FROM "
+                + tableName
+                + " WHERE channel = ? AND destination = ?";
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setString(
+                1,
+                channel
+            );
+
+            statement.setString(
+                2,
+                destination
+            );
+
+            statement.executeUpdate();
+        }
+    }
+
     private String uniqueTelegramDestination() {
 
         long suffix =
@@ -1508,6 +1731,11 @@ class PublicationDeliveryCompositionEndToEndTest {
     }
 
     private record ReadyScenario(
+        String channel,
+        String destination,
+        long productId,
+        long snapshotId,
+        long evaluationId,
         long selectionRunId,
         long publicationId,
         String content
@@ -1549,9 +1777,14 @@ class PublicationDeliveryCompositionEndToEndTest {
     /**
      * Clock determinístico que avança um passo a cada leitura.
      *
-     * <p>PublicationOutboxWorker consulta o relógio uma vez no claim
-     * e uma segunda vez ao concluir a tentativa. Isso permite provar
-     * startedAt e finishedAt com valores distintos.</p>
+     * <p>PublicationOutboxWorker consulta o relógio três vezes numa
+     * entrega efetiva:</p>
+     *
+     * <ol>
+     *     <li>claim/lease;</li>
+     *     <li>STARTED durável imediatamente antes do provider;</li>
+     *     <li>conclusão depois do retorno do provider.</li>
+     * </ol>
      */
     private static final class StepClock
         extends Clock {

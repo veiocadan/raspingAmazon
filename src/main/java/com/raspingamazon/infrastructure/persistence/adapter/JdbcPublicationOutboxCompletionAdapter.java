@@ -17,21 +17,21 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Implementação PostgreSQL da conclusão de uma tentativa da outbox.
+ * ImplementaÃ§Ã£o PostgreSQL da conclusÃ£o de uma tentativa da outbox.
  *
- * <p>A operação inteira pertence a uma única transação:</p>
+ * <p>A operaÃ§Ã£o inteira pertence a uma Ãºnica transaÃ§Ã£o:</p>
  *
  * <pre>
  * bloquear outbox
- *      ↓
+ *      â†“
  * validar ownership
- *      ↓
- * recuperar início da tentativa
- *      ↓
+ *      â†“
+ * recuperar inÃ­cio da tentativa
+ *      â†“
  * calcular attemptNumber
- *      ↓
+ *      â†“
  * inserir publication_attempt
- *      ↓
+ *      â†“
  * SUCCESS
  *      -> SUCCEEDED
  *
@@ -39,30 +39,30 @@ import java.util.Optional;
  *      -> FAILED_PERMANENT
  *
  * FAILED_TRANSIENT
- *      ↓
+ *      â†“
  * retry permitido?
- *      ├─ sim
- *      │    -> PENDING
- *      │    -> novo availableAt
- *      │
- *      └─ não
+ *      â”œâ”€ sim
+ *      â”‚    -> PENDING
+ *      â”‚    -> novo availableAt
+ *      â”‚
+ *      â””â”€ nÃ£o
  *           -> FAILED_TRANSIENT terminal
- *      ↓
+ *      â†“
  * commit
  * </pre>
  *
- * <p>PublicationAttempt representa a evidência imutável de cada
+ * <p>PublicationAttempt representa a evidÃªncia imutÃ¡vel de cada
  * chamada externa.</p>
  *
- * <p>PublicationOutbox representa a unidade durável de trabalho.
- * Um retry reutiliza a mesma linha de outbox; não cria nova reserva
- * de quota, não recalcula seleção e não gera nova Publication.</p>
+ * <p>PublicationOutbox representa a unidade durÃ¡vel de trabalho.
+ * Um retry reutiliza a mesma linha de outbox; nÃ£o cria nova reserva
+ * de quota, nÃ£o recalcula seleÃ§Ã£o e nÃ£o gera nova Publication.</p>
  *
- * <p>O início da tentativa é o instante em que a entrada foi
- * reivindicada pelo worker e recebeu seu lease. Esse instante já
- * está persistido em publication_outbox.locked_at.</p>
+ * <p>O inÃ­cio da tentativa Ã© o instante em que a entrada foi
+ * reivindicada pelo worker e recebeu seu lease. Esse instante jÃ¡
+ * estÃ¡ persistido em publication_outbox.locked_at.</p>
  *
- * <p>O estado global de Publication não é utilizado como fonte de
+ * <p>O estado global de Publication nÃ£o Ã© utilizado como fonte de
  * verdade da entrega por canal/destino.</p>
  */
 public final class JdbcPublicationOutboxCompletionAdapter
@@ -77,8 +77,8 @@ public final class JdbcPublicationOutboxCompletionAdapter
     /**
      * Construtor de compatibilidade.
      *
-     * <p>Preserva o comportamento histórico de uma única tentativa.
-     * A composição operacional da FASE 19 deverá utilizar o
+     * <p>Preserva o comportamento histÃ³rico de uma Ãºnica tentativa.
+     * A composiÃ§Ã£o operacional da FASE 19 deverÃ¡ utilizar o
      * construtor que recebe PublicationOutboxRetryPolicy.</p>
      */
     public JdbcPublicationOutboxCompletionAdapter(
@@ -92,7 +92,7 @@ public final class JdbcPublicationOutboxCompletionAdapter
     }
 
     /**
-     * Construtor operacional com retry explícito.
+     * Construtor operacional com retry explÃ­cito.
      */
     public JdbcPublicationOutboxCompletionAdapter(
         Connection connection,
@@ -190,11 +190,11 @@ public final class JdbcPublicationOutboxCompletionAdapter
                 );
 
             /*
-             * A tentativa é registrada antes da decisão de retry.
+             * A tentativa Ã© registrada antes da decisÃ£o de retry.
              *
-             * Como tudo ocorre na mesma transação, não existe estado
+             * Como tudo ocorre na mesma transaÃ§Ã£o, nÃ£o existe estado
              * persistente em que a outbox foi reagendada sem a
-             * respectiva evidência de tentativa.
+             * respectiva evidÃªncia de tentativa.
              */
             insertAttempt(
                 outbox,
@@ -528,11 +528,11 @@ public final class JdbcPublicationOutboxCompletionAdapter
             );
 
             /*
-             * Mantemos created_at com sua semântica histórica atual:
+             * Mantemos created_at com sua semÃ¢ntica histÃ³rica atual:
              * o instante em que a tentativa foi materializada como
              * registro persistente.
              *
-             * started_at e finished_at são a autoridade para duração.
+             * started_at e finished_at sÃ£o a autoridade para duraÃ§Ã£o.
              */
             statement.setObject(
                 11,
@@ -556,7 +556,7 @@ public final class JdbcPublicationOutboxCompletionAdapter
     /**
      * Reagenda a MESMA unidade de outbox.
      *
-     * <p>Não cria nova Publication, nova SelectionRun, nova reserva
+     * <p>NÃ£o cria nova Publication, nova SelectionRun, nova reserva
      * de quota ou nova linha de outbox.</p>
      */
     private PublicationOutboxItem requeueOutbox(
@@ -768,6 +768,9 @@ public final class JdbcPublicationOutboxCompletionAdapter
 
             case FAILED_PERMANENT ->
                 PublicationOutboxStatus.FAILED_PERMANENT;
+
+            case DELIVERY_UNKNOWN ->
+                PublicationOutboxStatus.DELIVERY_UNKNOWN;
         };
     }
 

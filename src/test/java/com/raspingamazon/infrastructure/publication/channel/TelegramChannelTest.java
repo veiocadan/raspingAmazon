@@ -52,37 +52,23 @@ class TelegramChannelTest {
                     request
                 );
 
-                return new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 345
-                      }
-                    }
-                    """
+                return successResponse(
+                    345
                 );
             };
 
-        TelegramChannel channel =
+        PublicationResult result =
             new TelegramChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                10L,
-                "TELEGRAM",
-                "@offers_channel",
-                "Oferta Amazon\nR$ 99,90"
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
+            ).publish(
+                new PublicationCommand(
+                    10L,
+                    "TELEGRAM",
+                    "@offers_channel",
+                    "Oferta Amazon\nR$ 99,90"
+                )
             );
 
         assertTrue(
@@ -155,7 +141,7 @@ class TelegramChannelTest {
     @Test
     void shouldClassifyHttpRateLimitAsTransient() {
 
-        TelegramChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     429,
@@ -167,10 +153,7 @@ class TelegramChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -186,23 +169,44 @@ class TelegramChannelTest {
     }
 
     @Test
-    void shouldClassifyServerErrorAsTransient() {
+    void shouldClassifyHttpTimeoutAsDeliveryUnknown() {
 
-        TelegramChannel channel =
+        PublicationResult result =
+            channelReturning(
+                new PublicationHttpResponse(
+                    408,
+                    ""
+                )
+            ).publish(
+                validCommand()
+            );
+
+        assertTrue(
+            result.deliveryUnknown()
+        );
+
+        assertEquals(
+            "TELEGRAM_PROVIDER_TIMEOUT",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
+    void shouldClassifyServerErrorAsDeliveryUnknown() {
+
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     503,
                     ""
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -215,7 +219,7 @@ class TelegramChannelTest {
     @Test
     void shouldClassifyClientErrorAsPermanent() {
 
-        TelegramChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     403,
@@ -227,10 +231,7 @@ class TelegramChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -248,7 +249,7 @@ class TelegramChannelTest {
     @Test
     void shouldClassifyApiRateLimitInsideSuccessfulHttpStatusAsTransient() {
 
-        TelegramChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     200,
@@ -263,10 +264,7 @@ class TelegramChannelTest {
                     }
                     """
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
@@ -282,7 +280,37 @@ class TelegramChannelTest {
     }
 
     @Test
-    void shouldConvertTransportFailureIntoTransientResult() {
+    void shouldPreserveExplicitProviderTransientFailureInsideSuccessfulHttpStatus() {
+
+        PublicationResult result =
+            channelReturning(
+                new PublicationHttpResponse(
+                    200,
+                    """
+                    {
+                      "ok": false,
+                      "error_code": 503,
+                      "description": "Temporarily unavailable"
+                    }
+                    """
+                )
+            ).publish(
+                validCommand()
+            );
+
+        assertTrue(
+            result.transientFailure()
+        );
+
+        assertEquals(
+            "TELEGRAM_PROVIDER_UNAVAILABLE",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
+    void shouldConvertTransportFailureIntoDeliveryUnknownResult() {
 
         PublicationHttpTransport transport =
             request -> {
@@ -295,20 +323,17 @@ class TelegramChannelTest {
                 );
             };
 
-        TelegramChannel channel =
+        PublicationResult result =
             new TelegramChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -319,23 +344,49 @@ class TelegramChannelTest {
     }
 
     @Test
-    void shouldClassifyMalformedSuccessfulResponseAsTransient() {
+    void shouldClassifyMalformedSuccessfulResponseAsDeliveryUnknown() {
 
-        TelegramChannel channel =
+        PublicationResult result =
             channelReturning(
                 new PublicationHttpResponse(
                     200,
                     "not-json"
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
+            ).publish(
                 validCommand()
             );
 
         assertTrue(
-            result.transientFailure()
+            result.deliveryUnknown()
+        );
+
+        assertEquals(
+            "TELEGRAM_INVALID_RESPONSE",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
+    void shouldClassifySuccessfulResponseWithoutMessageIdAsDeliveryUnknown() {
+
+        PublicationResult result =
+            channelReturning(
+                new PublicationHttpResponse(
+                    200,
+                    """
+                    {
+                      "ok": true,
+                      "result": {}
+                    }
+                    """
+                )
+            ).publish(
+                validCommand()
+            );
+
+        assertTrue(
+            result.deliveryUnknown()
         );
 
         assertEquals(
@@ -356,37 +407,23 @@ class TelegramChannelTest {
 
                 callCount.incrementAndGet();
 
-                return new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 1
-                      }
-                    }
-                    """
+                return successResponse(
+                    1
                 );
             };
 
-        TelegramChannel channel =
+        PublicationResult result =
             new TelegramChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                10L,
-                "TELEGRAM",
-                "invalid destination",
-                "Oferta"
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
+            ).publish(
+                new PublicationCommand(
+                    10L,
+                    "TELEGRAM",
+                    "invalid destination",
+                    "Oferta"
+                )
             );
 
         assertTrue(
@@ -416,39 +453,25 @@ class TelegramChannelTest {
 
                 callCount.incrementAndGet();
 
-                return new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 1
-                      }
-                    }
-                    """
+                return successResponse(
+                    1
                 );
             };
 
-        TelegramChannel channel =
+        PublicationResult result =
             new TelegramChannel(
                 config,
                 transport,
                 objectMapper
-            );
-
-        PublicationCommand command =
-            new PublicationCommand(
-                10L,
-                "TELEGRAM",
-                "@offers_channel",
-                "a".repeat(
-                    4097
+            ).publish(
+                new PublicationCommand(
+                    10L,
+                    "TELEGRAM",
+                    "@offers_channel",
+                    "a".repeat(
+                        4097
+                    )
                 )
-            );
-
-        PublicationResult result =
-            channel.publish(
-                command
             );
 
         assertTrue(
@@ -472,16 +495,8 @@ class TelegramChannelTest {
 
         TelegramChannel channel =
             channelReturning(
-                new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 1
-                      }
-                    }
-                    """
+                successResponse(
+                    1
                 )
             );
 
@@ -512,6 +527,25 @@ class TelegramChannelTest {
             "TELEGRAM",
             "@offers_channel",
             "Oferta Amazon"
+        );
+    }
+
+    private PublicationHttpResponse successResponse(
+        int messageId
+    ) {
+
+        return new PublicationHttpResponse(
+            200,
+            """
+            {
+              "ok": true,
+              "result": {
+                "message_id": %d
+              }
+            }
+            """.formatted(
+                messageId
+            )
         );
     }
 }

@@ -84,13 +84,32 @@ public interface PublicationOutboxQueuePort {
     /**
      * Recupera leases PROCESSING abandonados.
      *
-     * <p>A mesma linha volta para PENDING. Não é criada nova entrada,
-     * não é consumida nova quota e a seleção não é recalculada.</p>
+     * <p>A recuperação é consciente da barreira durável de publicação
+     * introduzida na FASE 20:</p>
+     *
+     * <ul>
+     *     <li>
+     *         PROCESSING sem PublicationAttempt STARTED significa que
+     *         a fronteira externa ainda não foi atravessada; a mesma
+     *         outbox pode voltar para PENDING;
+     *     </li>
+     *     <li>
+     *         PROCESSING com PublicationAttempt STARTED significa que
+     *         a chamada externa pode ter ocorrido; attempt e outbox
+     *         devem terminar em DELIVERY_UNKNOWN e não podem ser
+     *         reenviados automaticamente.
+     *     </li>
+     * </ul>
+     *
+     * <p>Nenhuma nova entrada de outbox é criada, nenhuma nova quota é
+     * consumida e a seleção não é recalculada.</p>
      *
      * <p>Somente entradas cujo lockedAt seja menor ou igual ao limite
-     * informado são recuperadas.</p>
+     * informado participam da recuperação.</p>
      *
-     * @return número de leases recuperados
+     * @return número total de leases recuperados, incluindo tanto os
+     *         reencaminhados para PENDING quanto os terminados como
+     *         DELIVERY_UNKNOWN
      */
     int recoverExpiredLeases(
         OffsetDateTime lockedBefore,

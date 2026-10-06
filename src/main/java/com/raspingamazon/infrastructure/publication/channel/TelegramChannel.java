@@ -14,8 +14,11 @@ import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
+import com.raspingamazon.infrastructure.publication.http.PublicationRetryAfterParser;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,6 +31,11 @@ import java.util.regex.Pattern;
  * <p>Utiliza o método {@code sendMessage} e transforma o resultado
  * HTTP/Telegram em {@link PublicationResult} independente do provider.</p>
  *
+ * <p>Falhas depois que a chamada HTTP foi iniciada são tratadas de
+ * forma conservadora. Quando não existe confirmação suficiente de que
+ * o provider rejeitou ou aceitou a mensagem, o resultado é
+ * DELIVERY_UNKNOWN e não uma falha automaticamente retentável.</p>
+ *
  * <p>O adapter suporta dois modos explícitos de apresentação:</p>
  *
  * <pre>
@@ -39,10 +47,6 @@ import java.util.regex.Pattern;
  *     -> converte a marcação canônica da Publication para HTML;
  *     -> envia parse_mode = HTML.
  * </pre>
- *
- * <p>O modo PLAIN é mantido como comportamento padrão do construtor
- * histórico. A composição de produção do canal Telegram público
- * escolhe HTML explicitamente.</p>
  */
 public final class TelegramChannel
     implements PublicationChannel {
@@ -71,12 +75,10 @@ public final class TelegramChannel
 
     private final PublicationContentFormatter contentFormatter;
 
-    /**
-     * Construtor histórico.
-     *
-     * <p>Permanece em modo PLAIN para preservar compatibilidade
-     * explícita com os contratos anteriores.</p>
-     */
+    private final Clock clock;
+
+    private final PublicationRetryAfterParser retryAfterParser;
+
     public TelegramChannel(
         TelegramChannelConfig config,
         PublicationHttpTransport transport,
@@ -91,14 +93,33 @@ public final class TelegramChannel
         );
     }
 
-    /**
-     * Construtor com modo de apresentação explícito.
-     */
     public TelegramChannel(
         TelegramChannelConfig config,
         PublicationHttpTransport transport,
         ObjectMapper objectMapper,
         MessageFormat messageFormat
+    ) {
+
+        this(
+            config,
+            transport,
+            objectMapper,
+            messageFormat,
+            Clock.systemUTC()
+        );
+    }
+
+    /**
+     * Construtor com Clock explícito para avaliação determinística de
+     * Retry-After sem acoplar o contrato de aplicação ao relógio do
+     * sistema.
+     */
+    public TelegramChannel(
+        TelegramChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper,
+        MessageFormat messageFormat,
+        Clock clock
     ) {
 
         this.config =
@@ -124,6 +145,15 @@ public final class TelegramChannel
                 messageFormat,
                 "messageFormat must not be null"
             );
+
+        this.clock =
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
+            );
+
+        this.retryAfterParser =
+            new PublicationRetryAfterParser();
 
         this.contentFormatter =
             switch (messageFormat) {
@@ -193,7 +223,7 @@ public final class TelegramChannel
             );
         }
 
-        String body;
+        final String body;
 
         try {
 
@@ -229,7 +259,12 @@ public final class TelegramChannel
 
         } catch (PublicationHttpTransportException exception) {
 
-            return PublicationResult.failedTransient(
+            /*
+             * O transporte não consegue provar se a falha ocorreu
+             * antes ou depois de o request atravessar a fronteira
+             * externa. Portanto retry automático seria inseguro.
+             */
+            return PublicationResult.deliveryUnknown(
                 "TELEGRAM_TRANSPORT_ERROR"
             );
         }
@@ -266,13 +301,6 @@ public final class TelegramChannel
             );
         }
 
-        /*
-         * A URL para preview é detectada no conteúdo canônico
-         * original, não no HTML escapado.
-         *
-         * Assim parâmetros com '&', por exemplo, continuam sendo
-         * enviados literalmente em link_preview_options.url.
-         */
         addLinkPreviewOptions(
             payload,
             command.content()
@@ -294,7 +322,6 @@ public final class TelegramChannel
             );
 
         if (previewUrl.isEmpty()) {
-
             return;
         }
 
@@ -339,9 +366,6 @@ public final class TelegramChannel
                 );
 
             case DEFAULT -> {
-                /*
-                 * O Telegram decide o tamanho padrão.
-                 */
             }
         }
     }
@@ -356,7 +380,6 @@ public final class TelegramChannel
             );
 
         if (!matcher.find()) {
-
             return Optional.empty();
         }
 
@@ -366,7 +389,6 @@ public final class TelegramChannel
             );
 
         if (candidate.isBlank()) {
-
             return Optional.empty();
         }
 
@@ -378,7 +400,6 @@ public final class TelegramChannel
                 );
 
             if (!uri.isAbsolute()) {
-
                 return Optional.empty();
             }
 
@@ -394,7 +415,6 @@ public final class TelegramChannel
                 );
 
             if (!supportedScheme) {
-
                 return Optional.empty();
             }
 
@@ -417,10 +437,10 @@ public final class TelegramChannel
 
         while (end > 0
             && isTrailingPunctuation(
-            candidate.charAt(
-                end - 1
-            )
-        )) {
+                candidate.charAt(
+                    end - 1
+                )
+            )) {
 
             end--;
         }
@@ -453,24 +473,25 @@ public final class TelegramChannel
         int statusCode =
             response.statusCode();
 
-        if (statusCode == 408) {
+        if (statusCode == 429) {
 
-            return PublicationResult.failedTransient(
-                "TELEGRAM_PROVIDER_TIMEOUT"
+            return rateLimitedResult(
+                response,
+                "TELEGRAM_RATE_LIMITED"
             );
         }
 
-        if (statusCode == 429) {
+        if (statusCode == 408) {
 
-            return PublicationResult.failedTransient(
-                "TELEGRAM_RATE_LIMITED"
+            return PublicationResult.deliveryUnknown(
+                "TELEGRAM_PROVIDER_TIMEOUT"
             );
         }
 
         if (statusCode >= 500
             && statusCode <= 599) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "TELEGRAM_PROVIDER_UNAVAILABLE"
             );
         }
@@ -491,7 +512,7 @@ public final class TelegramChannel
 
         if (responseBody == null) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "TELEGRAM_INVALID_RESPONSE"
             );
         }
@@ -504,7 +525,7 @@ public final class TelegramChannel
         if (okNode == null
             || !okNode.isBoolean()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "TELEGRAM_INVALID_RESPONSE"
             );
         }
@@ -518,8 +539,14 @@ public final class TelegramChannel
 
             if (telegramErrorCode.isPresent()) {
 
+                /*
+                 * Aqui há confirmação explícita do Telegram de que a
+                 * operação foi rejeitada. Portanto é seguro aplicar a
+                 * classificação conhecida do erro.
+                 */
                 return classifyTelegramApiError(
-                    telegramErrorCode.orElseThrow()
+                    telegramErrorCode.orElseThrow(),
+                    response
                 );
             }
 
@@ -538,7 +565,11 @@ public final class TelegramChannel
 
         if (!messageIdNode.isIntegralNumber()) {
 
-            return PublicationResult.failedTransient(
+            /*
+             * O HTTP foi 2xx e ok=true, mas não existe a prova local
+             * necessária para confirmar qual mensagem foi aceita.
+             */
+            return PublicationResult.deliveryUnknown(
                 "TELEGRAM_INVALID_RESPONSE"
             );
         }
@@ -591,7 +622,8 @@ public final class TelegramChannel
     }
 
     private PublicationResult classifyTelegramApiError(
-        int errorCode
+        int errorCode,
+        PublicationHttpResponse response
     ) {
 
         if (errorCode == 408) {
@@ -603,7 +635,8 @@ public final class TelegramChannel
 
         if (errorCode == 429) {
 
-            return PublicationResult.failedTransient(
+            return rateLimitedResult(
+                response,
                 "TELEGRAM_RATE_LIMITED"
             );
         }
@@ -619,6 +652,32 @@ public final class TelegramChannel
         return PublicationResult.failedPermanent(
             "TELEGRAM_API_REJECTED_"
                 + errorCode
+        );
+    }
+
+    private PublicationResult rateLimitedResult(
+        PublicationHttpResponse response,
+        String errorCode
+    ) {
+
+        Optional<OffsetDateTime> retryNotBefore =
+            retryAfterParser.retryNotBefore(
+                response,
+                OffsetDateTime.now(
+                    clock
+                )
+            );
+
+        if (retryNotBefore.isPresent()) {
+
+            return PublicationResult.failedTransientWithRetryNotBefore(
+                errorCode,
+                retryNotBefore.orElseThrow()
+            );
+        }
+
+        return PublicationResult.failedTransient(
+            errorCode
         );
     }
 
@@ -693,20 +752,10 @@ public final class TelegramChannel
             > MAX_TEXT_CODE_POINTS;
     }
 
-    /**
-     * Modo de apresentação da mensagem enviada pelo TelegramChannel.
-     */
     public enum MessageFormat {
 
-        /**
-         * Conteúdo enviado literalmente e sem parse_mode.
-         */
         PLAIN,
 
-        /**
-         * Conteúdo canônico convertido para HTML e enviado com
-         * parse_mode=HTML.
-         */
         HTML
     }
 }

@@ -4,12 +4,12 @@ import com.raspingamazon.application.publication.channel.PublicationChannel;
 import com.raspingamazon.application.publication.channel.PublicationChannelResolver;
 import com.raspingamazon.application.publication.channel.PublicationResult;
 import com.raspingamazon.application.publication.channel.PublicationResultStatus;
+import com.raspingamazon.application.publication.outbox.PublicationAttemptHandle;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxItem;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxStatus;
-import com.raspingamazon.application.publication.outbox.port.PublicationOutboxCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptStartPort;
 import com.raspingamazon.application.publication.outbox.port.PublicationOutboxQueuePort;
-import com.raspingamazon.infrastructure.publication.channel.FakePublicationChannel;
-import com.raspingamazon.infrastructure.publication.channel.MapPublicationChannelResolver;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -17,8 +17,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,7 +47,7 @@ class PublicationOutboxWorkerTest {
         );
 
     @Test
-    void shouldReturnIdleWhenNoOutboxIsAvailable() {
+    void shouldReturnIdleWithoutStartingAttempt() {
 
         RecordingQueue queue =
             new RecordingQueue();
@@ -57,8 +59,24 @@ class PublicationOutboxWorkerTest {
                 );
             };
 
-        PublicationOutboxCompletionPort completionPort =
-            (outboxId, workerId, result, completedAt) -> {
+        PublicationAttemptStartPort startPort =
+            (
+                outboxId,
+                workerId,
+                startedAt
+            ) -> {
+                throw new AssertionError(
+                    "start must not be called"
+                );
+            };
+
+        PublicationAttemptCompletionPort completionPort =
+            (
+                attempt,
+                workerId,
+                result,
+                completedAt
+            ) -> {
                 throw new AssertionError(
                     "completion must not be called"
                 );
@@ -69,6 +87,7 @@ class PublicationOutboxWorkerTest {
                 WORKER_ID,
                 queue,
                 resolver,
+                startPort,
                 completionPort,
                 CLOCK
             );
@@ -107,7 +126,7 @@ class PublicationOutboxWorkerTest {
     }
 
     @Test
-    void shouldPublishThroughFakeChannelAndPersistSuccess() {
+    void shouldStartBeforeProviderAndCompleteSameAttemptAfterProvider() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -118,34 +137,73 @@ class PublicationOutboxWorkerTest {
         queue.nextItem =
             claimed;
 
+        List<String> sequence =
+            new ArrayList<>();
+
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                sequence
+            );
+
         PublicationResult configuredResult =
             PublicationResult.success(
                 "fake-provider-reference"
             );
 
-        FakePublicationChannel fakeChannel =
-            new FakePublicationChannel(
-                configuredResult
-            );
+        AtomicInteger providerCalls =
+            new AtomicInteger();
 
-        MapPublicationChannelResolver resolver =
-            new MapPublicationChannelResolver(
-                Map.of(
-                    "FAKE",
-                    fakeChannel
-                )
-            );
+        PublicationChannel channel =
+            command -> {
+
+                sequence.add(
+                    "provider"
+                );
+
+                assertEquals(
+                    1,
+                    start.calls
+                );
+
+                providerCalls.incrementAndGet();
+
+                assertEquals(
+                    claimed.publicationId(),
+                    command.publicationId()
+                );
+
+                assertEquals(
+                    claimed.channel(),
+                    command.channel()
+                );
+
+                assertEquals(
+                    claimed.destination(),
+                    command.destination()
+                );
+
+                assertEquals(
+                    claimed.content(),
+                    command.content()
+                );
+
+                return configuredResult;
+            };
 
         RecordingCompletion completion =
             new RecordingCompletion(
-                claimed
+                claimed,
+                sequence
             );
 
         PublicationOutboxWorker worker =
             new PublicationOutboxWorker(
                 WORKER_ID,
                 queue,
-                resolver,
+                logicalChannel ->
+                    channel,
+                start,
                 completion,
                 CLOCK
             );
@@ -168,36 +226,37 @@ class PublicationOutboxWorkerTest {
         );
 
         assertEquals(
+            List.of(
+                "start",
+                "provider",
+                "complete"
+            ),
+            sequence
+        );
+
+        assertEquals(
             1,
-            fakeChannel.callCount()
+            providerCalls.get()
         );
 
         assertEquals(
-            claimed.publicationId(),
-            fakeChannel.lastCommand()
-                .orElseThrow()
-                .publicationId()
+            1,
+            start.calls
         );
 
         assertEquals(
-            claimed.channel(),
-            fakeChannel.lastCommand()
-                .orElseThrow()
-                .channel()
+            claimed.id(),
+            start.outboxId
         );
 
         assertEquals(
-            claimed.destination(),
-            fakeChannel.lastCommand()
-                .orElseThrow()
-                .destination()
+            WORKER_ID,
+            start.workerId
         );
 
         assertEquals(
-            claimed.content(),
-            fakeChannel.lastCommand()
-                .orElseThrow()
-                .content()
+            NOW,
+            start.startedAt
         );
 
         assertEquals(
@@ -205,9 +264,9 @@ class PublicationOutboxWorkerTest {
             completion.calls
         );
 
-        assertEquals(
-            claimed.id(),
-            completion.outboxId
+        assertSame(
+            start.handle,
+            completion.attempt
         );
 
         assertEquals(
@@ -227,7 +286,7 @@ class PublicationOutboxWorkerTest {
     }
 
     @Test
-    void shouldPersistTransientChannelResult() {
+    void shouldCompleteTransientChannelResultAgainstStartedAttempt() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -238,16 +297,16 @@ class PublicationOutboxWorkerTest {
         queue.nextItem =
             claimed;
 
-        FakePublicationChannel fakeChannel =
-            new FakePublicationChannel(
-                PublicationResult.failedTransient(
-                    "FAKE_TEMPORARY_FAILURE"
-                )
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
             );
 
         RecordingCompletion completion =
             new RecordingCompletion(
-                claimed
+                claimed,
+                new ArrayList<>()
             );
 
         PublicationOutboxWorkerRunResult result =
@@ -255,7 +314,11 @@ class PublicationOutboxWorkerTest {
                 WORKER_ID,
                 queue,
                 channel ->
-                    fakeChannel,
+                    command ->
+                        PublicationResult.failedTransient(
+                            "FAKE_TEMPORARY_FAILURE"
+                        ),
+                start,
                 completion,
                 CLOCK
             ).runOnce();
@@ -270,14 +333,14 @@ class PublicationOutboxWorkerTest {
             completion.result.status()
         );
 
-        assertEquals(
-            1,
-            fakeChannel.callCount()
+        assertSame(
+            start.handle,
+            completion.attempt
         );
     }
 
     @Test
-    void shouldPersistPermanentChannelResult() {
+    void shouldCompletePermanentChannelResultAgainstStartedAttempt() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -288,16 +351,16 @@ class PublicationOutboxWorkerTest {
         queue.nextItem =
             claimed;
 
-        FakePublicationChannel fakeChannel =
-            new FakePublicationChannel(
-                PublicationResult.failedPermanent(
-                    "FAKE_INVALID_DESTINATION"
-                )
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
             );
 
         RecordingCompletion completion =
             new RecordingCompletion(
-                claimed
+                claimed,
+                new ArrayList<>()
             );
 
         PublicationOutboxWorkerRunResult result =
@@ -305,7 +368,11 @@ class PublicationOutboxWorkerTest {
                 WORKER_ID,
                 queue,
                 channel ->
-                    fakeChannel,
+                    command ->
+                        PublicationResult.failedPermanent(
+                            "FAKE_INVALID_DESTINATION"
+                        ),
+                start,
                 completion,
                 CLOCK
             ).runOnce();
@@ -320,14 +387,14 @@ class PublicationOutboxWorkerTest {
             completion.result.status()
         );
 
-        assertEquals(
-            1,
-            fakeChannel.callCount()
+        assertSame(
+            start.handle,
+            completion.attempt
         );
     }
 
     @Test
-    void shouldPropagateChannelResolutionFailureWithoutCompletingOutbox() {
+    void shouldCompleteDeliveryUnknownChannelResultAgainstStartedAttempt() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -338,10 +405,94 @@ class PublicationOutboxWorkerTest {
         queue.nextItem =
             claimed;
 
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
+            );
+
         RecordingCompletion completion =
             new RecordingCompletion(
-                claimed
+                claimed,
+                new ArrayList<>()
             );
+
+        PublicationOutboxWorkerRunResult result =
+            new PublicationOutboxWorker(
+                WORKER_ID,
+                queue,
+                channel ->
+                    command ->
+                        PublicationResult.deliveryUnknown(
+                            "FAKE_DELIVERY_OUTCOME_UNKNOWN"
+                        ),
+                start,
+                completion,
+                CLOCK
+            ).runOnce();
+
+        assertEquals(
+            PublicationOutboxStatus.DELIVERY_UNKNOWN,
+            result.finalStatus()
+        );
+
+        assertEquals(
+            PublicationResultStatus.DELIVERY_UNKNOWN,
+            completion.result.status()
+        );
+
+        assertSame(
+            start.handle,
+            completion.attempt
+        );
+    }
+
+    @Test
+    void channelResolutionFailureShouldNotCreateAttempt() {
+
+        PublicationOutboxItem claimed =
+            processingItem();
+
+        RecordingQueue queue =
+            new RecordingQueue();
+
+        queue.nextItem =
+            claimed;
+
+        AtomicInteger startCalls =
+            new AtomicInteger();
+
+        PublicationAttemptStartPort start =
+            (
+                outboxId,
+                workerId,
+                startedAt
+            ) -> {
+
+                startCalls.incrementAndGet();
+
+                throw new AssertionError(
+                    "STARTED must not exist before channel resolution"
+                );
+            };
+
+        AtomicInteger completionCalls =
+            new AtomicInteger();
+
+        PublicationAttemptCompletionPort completion =
+            (
+                attempt,
+                workerId,
+                result,
+                completedAt
+            ) -> {
+
+                completionCalls.incrementAndGet();
+
+                throw new AssertionError(
+                    "completion must not be called"
+                );
+            };
 
         PublicationChannelResolver resolver =
             channel -> {
@@ -355,6 +506,7 @@ class PublicationOutboxWorkerTest {
                 WORKER_ID,
                 queue,
                 resolver,
+                start,
                 completion,
                 CLOCK
             );
@@ -366,12 +518,17 @@ class PublicationOutboxWorkerTest {
 
         assertEquals(
             0,
-            completion.calls
+            startCalls.get()
+        );
+
+        assertEquals(
+            0,
+            completionCalls.get()
         );
     }
 
     @Test
-    void shouldPropagateUnexpectedChannelExceptionWithoutInventingResult() {
+    void attemptStartFailureShouldPreventProviderCall() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -381,6 +538,93 @@ class PublicationOutboxWorkerTest {
 
         queue.nextItem =
             claimed;
+
+        AtomicInteger providerCalls =
+            new AtomicInteger();
+
+        PublicationChannel channel =
+            command -> {
+
+                providerCalls.incrementAndGet();
+
+                return PublicationResult.success(
+                    "must-not-be-sent"
+                );
+            };
+
+        PublicationAttemptStartPort failingStart =
+            (
+                outboxId,
+                workerId,
+                startedAt
+            ) -> {
+                throw new IllegalStateException(
+                    "failed to durably persist STARTED"
+                );
+            };
+
+        AtomicInteger completionCalls =
+            new AtomicInteger();
+
+        PublicationAttemptCompletionPort completion =
+            (
+                attempt,
+                workerId,
+                result,
+                completedAt
+            ) -> {
+
+                completionCalls.incrementAndGet();
+
+                throw new AssertionError(
+                    "completion must not be called"
+                );
+            };
+
+        PublicationOutboxWorker worker =
+            new PublicationOutboxWorker(
+                WORKER_ID,
+                queue,
+                logicalChannel ->
+                    channel,
+                failingStart,
+                completion,
+                CLOCK
+            );
+
+        assertThrows(
+            IllegalStateException.class,
+            worker::runOnce
+        );
+
+        assertEquals(
+            0,
+            providerCalls.get()
+        );
+
+        assertEquals(
+            0,
+            completionCalls.get()
+        );
+    }
+
+    @Test
+    void providerExceptionShouldLeaveStartedAttemptWithoutCompletion() {
+
+        PublicationOutboxItem claimed =
+            processingItem();
+
+        RecordingQueue queue =
+            new RecordingQueue();
+
+        queue.nextItem =
+            claimed;
+
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
+            );
 
         PublicationChannel failingChannel =
             command -> {
@@ -389,10 +633,23 @@ class PublicationOutboxWorkerTest {
                 );
             };
 
-        RecordingCompletion completion =
-            new RecordingCompletion(
-                claimed
-            );
+        AtomicInteger completionCalls =
+            new AtomicInteger();
+
+        PublicationAttemptCompletionPort completion =
+            (
+                attempt,
+                workerId,
+                result,
+                completedAt
+            ) -> {
+
+                completionCalls.incrementAndGet();
+
+                throw new AssertionError(
+                    "completion must not be called after provider exception"
+                );
+            };
 
         PublicationOutboxWorker worker =
             new PublicationOutboxWorker(
@@ -400,6 +657,7 @@ class PublicationOutboxWorkerTest {
                 queue,
                 channel ->
                     failingChannel,
+                start,
                 completion,
                 CLOCK
             );
@@ -410,13 +668,18 @@ class PublicationOutboxWorkerTest {
         );
 
         assertEquals(
+            1,
+            start.calls
+        );
+
+        assertEquals(
             0,
-            completion.calls
+            completionCalls.get()
         );
     }
 
     @Test
-    void shouldPropagateCompletionFailureAfterPublicationWithoutRepublishing() {
+    void completionFailureAfterProviderShouldNotRepublish() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -427,15 +690,43 @@ class PublicationOutboxWorkerTest {
         queue.nextItem =
             claimed;
 
-        FakePublicationChannel fakeChannel =
-            new FakePublicationChannel(
-                PublicationResult.success(
-                    "provider-reference"
-                )
+        RecordingStart start =
+            new RecordingStart(
+                claimed,
+                new ArrayList<>()
             );
 
-        PublicationOutboxCompletionPort failingCompletion =
-            (outboxId, workerId, result, completedAt) -> {
+        AtomicInteger providerCalls =
+            new AtomicInteger();
+
+        PublicationChannel channel =
+            command -> {
+
+                providerCalls.incrementAndGet();
+
+                return PublicationResult.success(
+                    "provider-reference"
+                );
+            };
+
+        AtomicInteger completionCalls =
+            new AtomicInteger();
+
+        PublicationAttemptCompletionPort failingCompletion =
+            (
+                attempt,
+                workerId,
+                result,
+                completedAt
+            ) -> {
+
+                completionCalls.incrementAndGet();
+
+                assertSame(
+                    start.handle,
+                    attempt
+                );
+
                 throw new IllegalStateException(
                     "database acknowledgement failed"
                 );
@@ -445,8 +736,9 @@ class PublicationOutboxWorkerTest {
             new PublicationOutboxWorker(
                 WORKER_ID,
                 queue,
-                channel ->
-                    fakeChannel,
+                logicalChannel ->
+                    channel,
+                start,
                 failingCompletion,
                 CLOCK
             );
@@ -456,15 +748,19 @@ class PublicationOutboxWorkerTest {
             worker::runOnce
         );
 
-        /*
-         * A mensagem já atravessou a fronteira do canal.
-         *
-         * O worker não chama publish novamente para tentar
-         * "compensar" uma falha de persistência.
-         */
         assertEquals(
             1,
-            fakeChannel.callCount()
+            start.calls
+        );
+
+        assertEquals(
+            1,
+            providerCalls.get()
+        );
+
+        assertEquals(
+            1,
+            completionCalls.get()
         );
     }
 
@@ -538,14 +834,79 @@ class PublicationOutboxWorkerTest {
         }
     }
 
-    private static final class RecordingCompletion
-        implements PublicationOutboxCompletionPort {
+    private static final class RecordingStart
+        implements PublicationAttemptStartPort {
 
         private final PublicationOutboxItem claimed;
+
+        private final List<String> sequence;
 
         private int calls;
 
         private long outboxId;
+
+        private String workerId;
+
+        private OffsetDateTime startedAt;
+
+        private PublicationAttemptHandle handle;
+
+        private RecordingStart(
+            PublicationOutboxItem claimed,
+            List<String> sequence
+        ) {
+
+            this.claimed =
+                claimed;
+
+            this.sequence =
+                sequence;
+        }
+
+        @Override
+        public PublicationAttemptHandle start(
+            long outboxId,
+            String workerId,
+            OffsetDateTime startedAt
+        ) {
+
+            sequence.add(
+                "start"
+            );
+
+            calls++;
+
+            this.outboxId =
+                outboxId;
+
+            this.workerId =
+                workerId;
+
+            this.startedAt =
+                startedAt;
+
+            this.handle =
+                new PublicationAttemptHandle(
+                    900L,
+                    claimed.id(),
+                    1,
+                    startedAt
+                );
+
+            return handle;
+        }
+    }
+
+    private static final class RecordingCompletion
+        implements PublicationAttemptCompletionPort {
+
+        private final PublicationOutboxItem claimed;
+
+        private final List<String> sequence;
+
+        private int calls;
+
+        private PublicationAttemptHandle attempt;
 
         private String workerId;
 
@@ -554,25 +915,33 @@ class PublicationOutboxWorkerTest {
         private OffsetDateTime completedAt;
 
         private RecordingCompletion(
-            PublicationOutboxItem claimed
+            PublicationOutboxItem claimed,
+            List<String> sequence
         ) {
 
             this.claimed =
                 claimed;
+
+            this.sequence =
+                sequence;
         }
 
         @Override
         public PublicationOutboxItem complete(
-            long outboxId,
+            PublicationAttemptHandle attempt,
             String workerId,
             PublicationResult result,
             OffsetDateTime completedAt
         ) {
 
+            sequence.add(
+                "complete"
+            );
+
             calls++;
 
-            this.outboxId =
-                outboxId;
+            this.attempt =
+                attempt;
 
             this.workerId =
                 workerId;
@@ -594,6 +963,9 @@ class PublicationOutboxWorkerTest {
 
                     case FAILED_PERMANENT ->
                         PublicationOutboxStatus.FAILED_PERMANENT;
+
+                    case DELIVERY_UNKNOWN ->
+                        PublicationOutboxStatus.DELIVERY_UNKNOWN;
                 };
 
             return new PublicationOutboxItem(

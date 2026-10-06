@@ -2,9 +2,11 @@ package com.raspingamazon.application.publication.outbox.worker;
 
 import com.raspingamazon.application.publication.channel.PublicationChannel;
 import com.raspingamazon.application.publication.channel.PublicationResult;
+import com.raspingamazon.application.publication.outbox.PublicationAttemptHandle;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxItem;
 import com.raspingamazon.application.publication.outbox.PublicationOutboxStatus;
-import com.raspingamazon.application.publication.outbox.port.PublicationOutboxCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptCompletionPort;
+import com.raspingamazon.application.publication.outbox.port.PublicationAttemptStartPort;
 import com.raspingamazon.application.publication.outbox.port.PublicationOutboxQueuePort;
 import com.raspingamazon.application.publication.ratelimit.PublicationRateLimitReservation;
 import com.raspingamazon.application.publication.ratelimit.PublicationRateLimitRule;
@@ -20,7 +22,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,7 +44,7 @@ class PublicationOutboxRateLimitWorkerTest {
         );
 
     @Test
-    void deferredAdmissionShouldRequeueWithoutCallingProviderOrCompletion() {
+    void deferredAdmissionShouldNotStartAttemptOrCallProvider() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -66,12 +67,29 @@ class PublicationOutboxRateLimitWorkerTest {
                 );
             };
 
+        AtomicInteger startCalls =
+            new AtomicInteger();
+
+        PublicationAttemptStartPort start =
+            (
+                outboxId,
+                workerId,
+                startedAt
+            ) -> {
+
+                startCalls.incrementAndGet();
+
+                throw new AssertionError(
+                    "STARTED must not be created when rate limit defers"
+                );
+            };
+
         AtomicInteger completionCalls =
             new AtomicInteger();
 
-        PublicationOutboxCompletionPort completion =
+        PublicationAttemptCompletionPort completion =
             (
-                outboxId,
+                attempt,
                 workerId,
                 result,
                 completedAt
@@ -96,6 +114,7 @@ class PublicationOutboxRateLimitWorkerTest {
                 queue,
                 logicalChannel ->
                     channel,
+                start,
                 completion,
                 CLOCK,
                 logicalChannel ->
@@ -139,6 +158,11 @@ class PublicationOutboxRateLimitWorkerTest {
 
         assertEquals(
             0,
+            startCalls.get()
+        );
+
+        assertEquals(
+            0,
             providerCalls.get()
         );
 
@@ -174,7 +198,7 @@ class PublicationOutboxRateLimitWorkerTest {
     }
 
     @Test
-    void immediateAdmissionShouldPublishNormally() {
+    void immediateAdmissionShouldStartThenPublishThenComplete() {
 
         PublicationOutboxItem claimed =
             processingItem();
@@ -184,11 +208,21 @@ class PublicationOutboxRateLimitWorkerTest {
                 claimed
             );
 
+        RecordingStart start =
+            new RecordingStart(
+                claimed
+            );
+
         AtomicInteger providerCalls =
             new AtomicInteger();
 
         PublicationChannel channel =
             command -> {
+
+                assertEquals(
+                    1,
+                    start.calls
+                );
 
                 providerCalls.incrementAndGet();
 
@@ -208,6 +242,7 @@ class PublicationOutboxRateLimitWorkerTest {
                 queue,
                 logicalChannel ->
                     channel,
+                start,
                 completion,
                 CLOCK,
                 logicalChannel ->
@@ -244,6 +279,11 @@ class PublicationOutboxRateLimitWorkerTest {
 
         assertEquals(
             1,
+            start.calls
+        );
+
+        assertEquals(
+            1,
             providerCalls.get()
         );
 
@@ -253,19 +293,29 @@ class PublicationOutboxRateLimitWorkerTest {
         );
 
         assertEquals(
+            start.handle,
+            completion.attempt
+        );
+
+        assertEquals(
             0,
             queue.deferCalls
         );
     }
 
     @Test
-    void disabledRateLimitPolicyShouldPreserveHistoricalWorkerBehavior() {
+    void disabledRateLimitShouldStillRequireDurableAttemptBarrier() {
 
         PublicationOutboxItem claimed =
             processingItem();
 
         RecordingQueue queue =
             new RecordingQueue(
+                claimed
+            );
+
+        RecordingStart start =
+            new RecordingStart(
                 claimed
             );
 
@@ -284,12 +334,18 @@ class PublicationOutboxRateLimitWorkerTest {
                 logicalChannel ->
                     command -> {
 
+                        assertEquals(
+                            1,
+                            start.calls
+                        );
+
                         providerCalls.incrementAndGet();
 
                         return PublicationResult.success(
                             "provider-reference"
                         );
                     },
+                start,
                 completion,
                 CLOCK
             );
@@ -304,12 +360,22 @@ class PublicationOutboxRateLimitWorkerTest {
 
         assertEquals(
             1,
+            start.calls
+        );
+
+        assertEquals(
+            1,
             providerCalls.get()
         );
 
         assertEquals(
             1,
             completion.calls
+        );
+
+        assertEquals(
+            start.handle,
+            completion.attempt
         );
 
         assertEquals(
@@ -434,12 +500,52 @@ class PublicationOutboxRateLimitWorkerTest {
         }
     }
 
-    private static final class RecordingCompletion
-        implements PublicationOutboxCompletionPort {
+    private static final class RecordingStart
+        implements PublicationAttemptStartPort {
 
         private final PublicationOutboxItem claimed;
 
         private int calls;
+
+        private PublicationAttemptHandle handle;
+
+        private RecordingStart(
+            PublicationOutboxItem claimed
+        ) {
+
+            this.claimed =
+                claimed;
+        }
+
+        @Override
+        public PublicationAttemptHandle start(
+            long outboxId,
+            String workerId,
+            OffsetDateTime startedAt
+        ) {
+
+            calls++;
+
+            handle =
+                new PublicationAttemptHandle(
+                    700L,
+                    claimed.id(),
+                    1,
+                    startedAt
+                );
+
+            return handle;
+        }
+    }
+
+    private static final class RecordingCompletion
+        implements PublicationAttemptCompletionPort {
+
+        private final PublicationOutboxItem claimed;
+
+        private int calls;
+
+        private PublicationAttemptHandle attempt;
 
         private RecordingCompletion(
             PublicationOutboxItem claimed
@@ -451,13 +557,16 @@ class PublicationOutboxRateLimitWorkerTest {
 
         @Override
         public PublicationOutboxItem complete(
-            long outboxId,
+            PublicationAttemptHandle attempt,
             String workerId,
             PublicationResult result,
             OffsetDateTime completedAt
         ) {
 
             calls++;
+
+            this.attempt =
+                attempt;
 
             return new PublicationOutboxItem(
                 claimed.id(),

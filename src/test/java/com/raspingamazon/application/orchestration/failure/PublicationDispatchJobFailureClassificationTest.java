@@ -1,5 +1,6 @@
 package com.raspingamazon.application.orchestration.failure;
 
+import com.raspingamazon.application.observability.OperationalFailureOrigin;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import com.raspingamazon.application.orchestration.ProcessingRunStatus;
 import com.raspingamazon.application.publication.ProcessingRunPublicationReadiness;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PublicationDispatchJobFailureClassificationTest {
 
@@ -15,7 +17,7 @@ class PublicationDispatchJobFailureClassificationTest {
         new DefaultProcessingFailureClassifier();
 
     @Test
-    void blockedRunShouldBePermanentWithExplicitCode() {
+    void blockedRunShouldBePermanentInternalProcessingFailure() {
 
         FailureClassification result =
             classifier.classify(
@@ -37,6 +39,16 @@ class PublicationDispatchJobFailureClassificationTest {
         );
 
         assertEquals(
+            OperationalFailureOrigin.INTERNAL,
+            result.origin()
+        );
+
+        assertEquals(
+            FailureCategory.PROCESSING,
+            result.category()
+        );
+
+        assertEquals(
             "PUBLICATION_DISPATCH_RUN_BLOCKED",
             result.code()
         );
@@ -44,10 +56,16 @@ class PublicationDispatchJobFailureClassificationTest {
         assertFalse(
             result.retryable()
         );
+
+        assertTrue(
+            result.requires(
+                FailureHandlingAction.REJECT
+            )
+        );
     }
 
     @Test
-    void notReadyInvariantShouldBePermanentWithExplicitCode() {
+    void notReadyInvariantShouldBePermanentInternalProcessingFailure() {
 
         FailureClassification result =
             classifier.classify(
@@ -69,6 +87,16 @@ class PublicationDispatchJobFailureClassificationTest {
         );
 
         assertEquals(
+            OperationalFailureOrigin.INTERNAL,
+            result.origin()
+        );
+
+        assertEquals(
+            FailureCategory.PROCESSING,
+            result.category()
+        );
+
+        assertEquals(
             "PUBLICATION_DISPATCH_NOT_READY_INVARIANT",
             result.code()
         );
@@ -79,7 +107,7 @@ class PublicationDispatchJobFailureClassificationTest {
     }
 
     @Test
-    void missingRunShouldBePermanentWithExplicitCode() {
+    void missingRunShouldBePermanentInternalProcessingFailure() {
 
         FailureClassification result =
             classifier.classify(
@@ -95,6 +123,16 @@ class PublicationDispatchJobFailureClassificationTest {
         );
 
         assertEquals(
+            OperationalFailureOrigin.INTERNAL,
+            result.origin()
+        );
+
+        assertEquals(
+            FailureCategory.PROCESSING,
+            result.category()
+        );
+
+        assertEquals(
             "PUBLICATION_DISPATCH_RUN_NOT_FOUND",
             result.code()
         );
@@ -105,7 +143,7 @@ class PublicationDispatchJobFailureClassificationTest {
     }
 
     @Test
-    void wrappedPublicationDispatchFailureShouldPreserveCode() {
+    void wrappedPublicationDispatchFailureShouldPreserveClassification() {
 
         FailureClassification result =
             classifier.classify(
@@ -121,6 +159,16 @@ class PublicationDispatchJobFailureClassificationTest {
         assertEquals(
             ProcessingFailureType.PERMANENT,
             result.type()
+        );
+
+        assertEquals(
+            OperationalFailureOrigin.INTERNAL,
+            result.origin()
+        );
+
+        assertEquals(
+            FailureCategory.PROCESSING,
+            result.category()
         );
 
         assertEquals(

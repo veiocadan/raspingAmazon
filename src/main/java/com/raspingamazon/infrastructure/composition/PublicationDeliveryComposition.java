@@ -21,7 +21,8 @@ import com.raspingamazon.infrastructure.config.WhatsAppChannelConfig;
 import com.raspingamazon.infrastructure.config.WhatsAppChannelConfigProvider;
 import com.raspingamazon.infrastructure.config.WhatsAppManualStagingConfig;
 import com.raspingamazon.infrastructure.config.WhatsAppManualStagingConfigProvider;
-import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOutboxCompletionAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationAttemptCompletionAdapter;
+import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationAttemptStartAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationOutboxQueueAdapter;
 import com.raspingamazon.infrastructure.persistence.adapter.JdbcPublicationRateLimitReservationAdapter;
 import com.raspingamazon.infrastructure.publication.channel.DisabledPublicationChannel;
@@ -68,9 +69,11 @@ import java.util.Objects;
  * <p>O runtime real injeta:</p>
  *
  * <ul>
- *     <li>retry/backoff persistente da publication outbox;</li>
- *     <li>rate limiting preventivo persistente por integração
- *     física.</li>
+ *     <li>outbox persistente;</li>
+ *     <li>PublicationAttempt STARTED antes da chamada externa;</li>
+ *     <li>conclusão da mesma tentativa depois do provider;</li>
+ *     <li>retry/backoff persistente;</li>
+ *     <li>rate limiting preventivo persistente por integração física.</li>
  * </ul>
  *
  * <p>TELEGRAM e WHATSAPP_MANUAL compartilham TELEGRAM_BOT_API porque
@@ -319,6 +322,17 @@ public final class PublicationDeliveryComposition {
      *
      * <p>Esta é a fronteira preferencial para testes de integração
      * entre retry, rate limiting, canais e outbox.</p>
+     *
+     * <p>A FASE 20 substitui a conclusão histórica pós-provider por
+     * duas fronteiras explícitas:</p>
+     *
+     * <pre>
+     * JdbcPublicationAttemptStartAdapter
+     *     ↓
+     * provider
+     *     ↓
+     * JdbcPublicationAttemptCompletionAdapter
+     * </pre>
      */
     public static PublicationOutboxWorker create(
         Connection connection,
@@ -396,8 +410,18 @@ public final class PublicationDeliveryComposition {
                 connection
             );
 
-        JdbcPublicationOutboxCompletionAdapter completion =
-            new JdbcPublicationOutboxCompletionAdapter(
+        /*
+         * STARTED precisa usar a mesma conexão operacional, porém seu
+         * próprio adapter exige autoCommit=true e produz commit antes
+         * de retornar ao worker.
+         */
+        JdbcPublicationAttemptStartAdapter attemptStart =
+            new JdbcPublicationAttemptStartAdapter(
+                connection
+            );
+
+        JdbcPublicationAttemptCompletionAdapter attemptCompletion =
+            new JdbcPublicationAttemptCompletionAdapter(
                 connection,
                 retryPolicy
             );
@@ -406,7 +430,8 @@ public final class PublicationDeliveryComposition {
             validatedWorkerId,
             queue,
             channelResolver,
-            completion,
+            attemptStart,
+            attemptCompletion,
             clock,
             rateLimitPolicy,
             rateLimitReservationPort

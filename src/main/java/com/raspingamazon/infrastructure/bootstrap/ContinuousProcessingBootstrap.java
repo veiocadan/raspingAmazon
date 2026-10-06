@@ -11,13 +11,16 @@ import com.raspingamazon.infrastructure.amazon.enrichment.AmazonCustomerReviewPa
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonPaymentConditionParser;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageEnrichmentClient;
 import com.raspingamazon.infrastructure.amazon.enrichment.AmazonProductPageParser;
-import com.raspingamazon.infrastructure.amazon.enrichment.HttpProductPageContentProvider;
+import com.raspingamazon.infrastructure.amazon.enrichment.PlaywrightRenderedProductPageContentProvider;
 import com.raspingamazon.infrastructure.amazon.parser.AmazonDealsParser;
 import com.raspingamazon.infrastructure.collection.HttpCollectionCollector;
 import com.raspingamazon.infrastructure.composition.ContinuousProcessingComposition;
+import com.raspingamazon.infrastructure.composition.ContinuousProcessingRecoveryComposition;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import com.raspingamazon.infrastructure.config.ContinuousProcessingEnvironmentConfig;
 import com.raspingamazon.infrastructure.config.ContinuousProcessingEnvironmentConfigProvider;
+import com.raspingamazon.infrastructure.config.ContinuousProcessingRecoveryConfig;
+import com.raspingamazon.infrastructure.config.ContinuousProcessingRecoveryEnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.config.EnvironmentConfigProvider;
 import com.raspingamazon.infrastructure.http.JavaHttpTransport;
 import com.raspingamazon.infrastructure.observability.JsonStructuredOperationalLogAdapter;
@@ -34,6 +37,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * Bootstrap do processo contínuo.
@@ -46,8 +50,11 @@ import java.time.Duration;
  *     <li>garantir a existência do schedule;</li>
  *     <li>montar integrações Amazon;</li>
  *     <li>montar observabilidade;</li>
+ *     <li>montar publicação durável e recovery;</li>
+ *     <li>executar a barreira síncrona de recovery;</li>
  *     <li>montar composition e runtime;</li>
- *     <li>transferir ownership para ContinuousProcessingApplication.</li>
+ *     <li>transferir ownership dos recursos físicos para
+ *         ContinuousProcessingApplication.</li>
  * </ol>
  */
 public final class ContinuousProcessingBootstrap {
@@ -74,6 +81,9 @@ public final class ContinuousProcessingBootstrap {
         ContinuousProcessingEnvironmentConfig runtimeConfig =
             ContinuousProcessingEnvironmentConfigProvider.load();
 
+        ContinuousProcessingRecoveryConfig recoveryConfig =
+            ContinuousProcessingRecoveryEnvironmentConfigProvider.load();
+
         Clock clock =
             Clock.systemUTC();
 
@@ -87,6 +97,10 @@ public final class ContinuousProcessingBootstrap {
             null;
 
         Connection workerConnection =
+            null;
+
+        PlaywrightRenderedProductPageContentProvider
+            productPageContentProvider =
             null;
 
         try {
@@ -163,6 +177,9 @@ public final class ContinuousProcessingBootstrap {
             /*
              * -----------------------------------------------------
              * SHARED HTTP CLIENT
+             *
+             * Permanece necessário para /deals.
+             * A página individual deixa de utilizar HTTP bruto.
              * -----------------------------------------------------
              */
             HttpClient httpClient =
@@ -213,15 +230,26 @@ public final class ContinuousProcessingBootstrap {
 
             /*
              * -----------------------------------------------------
-             * AMAZON ENRICHMENT
+             * AMAZON PRODUCT PAGE ACQUISITION
+             *
+             * Conforme ADR-0014, a página individual é adquirida por
+             * DOM renderizado.
+             *
+             * Existe uma única instância de Chromium para o lifecycle
+             * do processo. Cada load() utiliza um BrowserContext
+             * independente.
              * -----------------------------------------------------
              */
-            HttpProductPageContentProvider productPageContentProvider =
-                new HttpProductPageContentProvider(
-                    httpClient,
+            productPageContentProvider =
+                new PlaywrightRenderedProductPageContentProvider(
                     clock
                 );
 
+            /*
+             * -----------------------------------------------------
+             * AMAZON ENRICHMENT
+             * -----------------------------------------------------
+             */
             AmazonProductPageEnrichmentClient enrichmentClient =
                 new AmazonProductPageEnrichmentClient(
                     productPageContentProvider,
@@ -232,6 +260,25 @@ public final class ContinuousProcessingBootstrap {
                     ENRICHMENT_INTEGRATION,
                     observationRecorder,
                     failureClassifier
+                );
+
+            /*
+             * -----------------------------------------------------
+             * PUBLICATION DISPATCH + STARTUP RECOVERY
+             * -----------------------------------------------------
+             *
+             * A mesma workerConnection é utilizada sequencialmente
+             * durante o bootstrap e, depois da transferência de
+             * ownership, pela thread do worker.
+             *
+             * Nenhuma thread existe neste ponto.
+             */
+            ContinuousProcessingRecoveryComposition.Components
+                recoveryComponents =
+                ContinuousProcessingRecoveryComposition.create(
+                    workerConnection,
+                    recoveryConfig,
+                    clock
                 );
 
             /*
@@ -261,6 +308,7 @@ public final class ContinuousProcessingBootstrap {
                     amazonDealsCollector,
                     dealsParser,
                     enrichmentClient,
+                    recoveryComponents.publicationDispatchHandler(),
                     operationalLog,
                     clock,
                     new ThreadSleepProcessingSchedulerWaitStrategy(),
@@ -274,19 +322,46 @@ public final class ContinuousProcessingBootstrap {
                     composition.workerRunner()
                 );
 
+            /*
+             * -----------------------------------------------------
+             * STARTUP RECOVERY BARRIER
+             * -----------------------------------------------------
+             *
+             * Ordem interna:
+             *
+             * publication_outbox
+             *      ↓
+             * processing_job
+             *      ↓
+             * PUBLICATION_DISPATCH reconciliation
+             *
+             * Qualquer falha interrompe o bootstrap antes da
+             * transferência de ownership. O catch abaixo fecha
+             * Playwright + Connections.
+             */
+            recoveryComponents
+                .startupRecoveryService()
+                .recover();
+
             ContinuousProcessingApplication application =
                 new ContinuousProcessingApplication(
                     runtime,
                     schedulerConnection,
-                    workerConnection
+                    workerConnection,
+                    List.of(
+                        productPageContentProvider
+                    )
                 );
 
             /*
-             * Ownership transferido.
+             * Ownership transferido para a aplicação.
              *
-             * A partir daqui o catch abaixo não deve mais fechar essas
-             * Connections.
+             * A partir daqui os catch blocks não podem mais fechar
+             * browser nem Connections.
              */
+            productPageContentProvider =
+                null;
+
             schedulerConnection =
                 null;
 
@@ -296,6 +371,10 @@ public final class ContinuousProcessingBootstrap {
             return application;
 
         } catch (SQLException exception) {
+
+            closeBestEffort(
+                productPageContentProvider
+            );
 
             closeBestEffort(
                 workerConnection
@@ -311,6 +390,10 @@ public final class ContinuousProcessingBootstrap {
             );
 
         } catch (RuntimeException exception) {
+
+            closeBestEffort(
+                productPageContentProvider
+            );
 
             closeBestEffort(
                 workerConnection
@@ -340,8 +423,28 @@ public final class ContinuousProcessingBootstrap {
 
             /*
              * Estamos em rollback estrutural do bootstrap.
-             * A causa original da montagem deve permanecer a causa
-             * principal observada pelo processo.
+             * A causa original deve permanecer como causa principal.
+             */
+        }
+    }
+
+    private static void closeBestEffort(
+        AutoCloseable resource
+    ) {
+
+        if (resource == null) {
+            return;
+        }
+
+        try {
+
+            resource.close();
+
+        } catch (Exception ignored) {
+
+            /*
+             * Estamos desfazendo um bootstrap que já falhou.
+             * Não escondemos a causa que iniciou o rollback.
              */
         }
     }

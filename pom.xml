@@ -102,6 +102,21 @@
             <version>${jsoup.version}</version>
         </dependency>
 
+        <!--
+            Aquisição produtiva da página individual de produto.
+
+            Conforme ADR-0014, a página individual precisa ser observada
+            depois da execução de JavaScript e da renderização do DOM.
+
+            Os binários do Chromium continuam sendo uma dependência
+            operacional instalada separadamente pelo CLI do Playwright.
+        -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -132,16 +147,6 @@
                 <version>${maven.jar.plugin.version}</version>
             </plugin>
 
-            <!--
-                Execução local da interface operacional.
-
-                O plugin não é associado automaticamente a nenhuma fase
-                do lifecycle Maven. A CLI é executada somente quando
-                exec:java é solicitado explicitamente.
-
-                blockSystemExit protege a JVM do Maven caso o entrypoint
-                precise produzir um código de saída diferente de zero.
-            -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -173,17 +178,6 @@
         <profile>
 
             <id>external-probe</id>
-
-            <dependencies>
-
-                <dependency>
-                    <groupId>com.microsoft.playwright</groupId>
-                    <artifactId>playwright</artifactId>
-                    <version>${playwright.version}</version>
-                    <scope>test</scope>
-                </dependency>
-
-            </dependencies>
 
             <build>
 

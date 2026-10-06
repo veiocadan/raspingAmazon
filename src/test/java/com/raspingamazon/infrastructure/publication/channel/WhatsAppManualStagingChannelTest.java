@@ -9,8 +9,10 @@ import com.raspingamazon.infrastructure.config.WhatsAppManualStagingConfig;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
+import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,27 +41,14 @@ class WhatsAppManualStagingChannelTest {
                     request
                 );
 
-                return new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 9001
-                      }
-                    }
-                    """
+                return telegramSuccess(
+                    9001
                 );
             };
 
         WhatsAppManualStagingChannel channel =
-            new WhatsAppManualStagingChannel(
-                new WhatsAppManualStagingConfig(
-                    "-1001234567890"
-                ),
-                telegramConfig(),
-                transport,
-                objectMapper
+            channel(
+                transport
             );
 
         String canonicalContent =
@@ -93,12 +82,10 @@ class WhatsAppManualStagingChannelTest {
                 .orElseThrow()
         );
 
-        PublicationHttpRequest request =
-            capturedRequest.get();
-
         JsonNode body =
             objectMapper.readTree(
-                request.body()
+                capturedRequest.get()
+                    .body()
             );
 
         assertEquals(
@@ -125,9 +112,6 @@ class WhatsAppManualStagingChannelTest {
                 .asText()
         );
 
-        /*
-         * O staging não deve produzir preview visual.
-         */
         JsonNode previewOptions =
             body.path(
                 "link_preview_options"
@@ -163,18 +147,10 @@ class WhatsAppManualStagingChannelTest {
                 );
             };
 
-        WhatsAppManualStagingChannel channel =
-            new WhatsAppManualStagingChannel(
-                new WhatsAppManualStagingConfig(
-                    "-1001234567890"
-                ),
-                telegramConfig(),
-                transport,
-                objectMapper
-            );
-
         PublicationResult result =
-            channel.publish(
+            channel(
+                transport
+            ).publish(
                 new PublicationCommand(
                     101L,
                     "WHATSAPP_MANUAL",
@@ -202,32 +178,13 @@ class WhatsAppManualStagingChannelTest {
     @Test
     void shouldPreserveTelegramProviderReference() {
 
-        PublicationHttpTransport transport =
-            request ->
-                new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 4321
-                      }
-                    }
-                    """
-                );
-
-        WhatsAppManualStagingChannel channel =
-            new WhatsAppManualStagingChannel(
-                new WhatsAppManualStagingConfig(
-                    "-1001234567890"
-                ),
-                telegramConfig(),
-                transport,
-                objectMapper
-            );
-
         PublicationResult result =
-            channel.publish(
+            channel(
+                request ->
+                    telegramSuccess(
+                        4321
+                    )
+            ).publish(
                 new PublicationCommand(
                     102L,
                     "WHATSAPP_MANUAL",
@@ -254,6 +211,43 @@ class WhatsAppManualStagingChannelTest {
     }
 
     @Test
+    void shouldPropagateTelegramTransportAmbiguityAsDeliveryUnknown() {
+
+        PublicationHttpTransport transport =
+            request -> {
+
+                throw new PublicationHttpTransportException(
+                    "test transport failure",
+                    new IOException(
+                        "connection unavailable"
+                    )
+                );
+            };
+
+        PublicationResult result =
+            channel(
+                transport
+            ).publish(
+                new PublicationCommand(
+                    104L,
+                    "WHATSAPP_MANUAL",
+                    "-1001234567890",
+                    "Oferta"
+                )
+            );
+
+        assertTrue(
+            result.deliveryUnknown()
+        );
+
+        assertEquals(
+            "TELEGRAM_TRANSPORT_ERROR",
+            result.errorCodeValue()
+                .orElseThrow()
+        );
+    }
+
+    @Test
     void shouldAllowFormatterInjection() {
 
         AtomicReference<PublicationHttpRequest> capturedRequest =
@@ -266,16 +260,8 @@ class WhatsAppManualStagingChannelTest {
                     request
                 );
 
-                return new PublicationHttpResponse(
-                    200,
-                    """
-                    {
-                      "ok": true,
-                      "result": {
-                        "message_id": 5000
-                      }
-                    }
-                    """
+                return telegramSuccess(
+                    5000
                 );
             };
 
@@ -332,6 +318,20 @@ class WhatsAppManualStagingChannelTest {
         );
     }
 
+    private WhatsAppManualStagingChannel channel(
+        PublicationHttpTransport transport
+    ) {
+
+        return new WhatsAppManualStagingChannel(
+            new WhatsAppManualStagingConfig(
+                "-1001234567890"
+            ),
+            telegramConfig(),
+            transport,
+            objectMapper
+        );
+    }
+
     private TelegramChannelConfig telegramConfig() {
 
         return new TelegramChannelConfig(
@@ -345,6 +345,25 @@ class WhatsAppManualStagingChannelTest {
             true,
             TelegramChannelConfig.LinkPreviewPosition.ABOVE,
             TelegramChannelConfig.LinkPreviewSize.LARGE
+        );
+    }
+
+    private PublicationHttpResponse telegramSuccess(
+        int messageId
+    ) {
+
+        return new PublicationHttpResponse(
+            200,
+            """
+            {
+              "ok": true,
+              "result": {
+                "message_id": %d
+              }
+            }
+            """.formatted(
+                messageId
+            )
         );
     }
 }

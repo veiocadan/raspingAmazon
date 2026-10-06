@@ -11,23 +11,23 @@ import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
+import com.raspingamazon.infrastructure.publication.http.PublicationRetryAfterParser;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
  * Adapter concreto de publicação através da WhatsApp Cloud API.
  *
- * <p>O adapter utiliza um message template previamente aprovado
- * na plataforma Meta. O conteúdo já aprovado da Publication é
- * fornecido como primeiro parâmetro textual do corpo do template.</p>
- *
- * <p>O número destinatário é recebido em PublicationCommand.
- * A configuração do canal contém apenas informações do remetente
- * e da integração com a plataforma.</p>
+ * <p>Quando a chamada externa pode ter produzido efeito mas a
+ * confirmação local não é confiável, o adapter devolve
+ * DELIVERY_UNKNOWN. Esse estado não entra em retry automático.</p>
  */
 public final class WhatsAppChannel
     implements PublicationChannel {
@@ -50,10 +50,33 @@ public final class WhatsAppChannel
 
     private final URI messagesUri;
 
+    private final Clock clock;
+
+    private final PublicationRetryAfterParser retryAfterParser;
+
     public WhatsAppChannel(
         WhatsAppChannelConfig config,
         PublicationHttpTransport transport,
         ObjectMapper objectMapper
+    ) {
+
+        this(
+            config,
+            transport,
+            objectMapper,
+            Clock.systemUTC()
+        );
+    }
+
+    /**
+     * Construtor com Clock explícito para avaliação determinística de
+     * Retry-After.
+     */
+    public WhatsAppChannel(
+        WhatsAppChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper,
+        Clock clock
     ) {
 
         this.config =
@@ -73,6 +96,15 @@ public final class WhatsAppChannel
                 objectMapper,
                 "objectMapper must not be null"
             );
+
+        this.clock =
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
+            );
+
+        this.retryAfterParser =
+            new PublicationRetryAfterParser();
 
         this.messagesUri =
             buildMessagesUri(
@@ -144,7 +176,7 @@ public final class WhatsAppChannel
 
         } catch (PublicationHttpTransportException exception) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_TRANSPORT_ERROR"
             );
         }
@@ -244,7 +276,7 @@ public final class WhatsAppChannel
 
         } catch (JsonProcessingException exception) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -252,7 +284,7 @@ public final class WhatsAppChannel
         if (root == null
             || !root.isObject()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -266,7 +298,7 @@ public final class WhatsAppChannel
             || !messagesNode.isArray()
             || messagesNode.isEmpty()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -285,7 +317,7 @@ public final class WhatsAppChannel
             || messageIdNode.asText()
             .isBlank()) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_INVALID_RESPONSE"
             );
         }
@@ -302,24 +334,25 @@ public final class WhatsAppChannel
         int statusCode =
             response.statusCode();
 
-        if (statusCode == 408) {
+        if (statusCode == 429) {
 
-            return PublicationResult.failedTransient(
-                "WHATSAPP_PROVIDER_TIMEOUT"
+            return rateLimitedResult(
+                response,
+                "WHATSAPP_RATE_LIMITED"
             );
         }
 
-        if (statusCode == 429) {
+        if (statusCode == 408) {
 
-            return PublicationResult.failedTransient(
-                "WHATSAPP_RATE_LIMITED"
+            return PublicationResult.deliveryUnknown(
+                "WHATSAPP_PROVIDER_TIMEOUT"
             );
         }
 
         if (statusCode >= 500
             && statusCode <= 599) {
 
-            return PublicationResult.failedTransient(
+            return PublicationResult.deliveryUnknown(
                 "WHATSAPP_PROVIDER_UNAVAILABLE"
             );
         }
@@ -337,6 +370,10 @@ public final class WhatsAppChannel
                 false
             )) {
 
+            /*
+             * O provider respondeu explicitamente que a requisição
+             * falhou de modo transitório. Não é ausência de resposta.
+             */
             return PublicationResult.failedTransient(
                 "WHATSAPP_PROVIDER_TRANSIENT"
             );
@@ -370,6 +407,32 @@ public final class WhatsAppChannel
         return PublicationResult.failedPermanent(
             "WHATSAPP_REJECTED_"
                 + statusCode
+        );
+    }
+
+    private PublicationResult rateLimitedResult(
+        PublicationHttpResponse response,
+        String errorCode
+    ) {
+
+        Optional<OffsetDateTime> retryNotBefore =
+            retryAfterParser.retryNotBefore(
+                response,
+                OffsetDateTime.now(
+                    clock
+                )
+            );
+
+        if (retryNotBefore.isPresent()) {
+
+            return PublicationResult.failedTransientWithRetryNotBefore(
+                errorCode,
+                retryNotBefore.orElseThrow()
+            );
+        }
+
+        return PublicationResult.failedTransient(
+            errorCode
         );
     }
 

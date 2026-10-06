@@ -15,12 +15,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifica o contrato estrutural introduzido pela migration V28.
+ * Verifica o contrato final das colunas de timing originalmente
+ * introduzidas pela V28 e posteriormente evoluídas pela V35.
+ *
+ * <p>started_at continua obrigatório.</p>
+ *
+ * <p>finished_at passa a aceitar NULL exclusivamente porque uma
+ * tentativa STARTED ainda não possui resultado externo final.</p>
  */
 class PublicationAttemptTimingMigrationTest {
 
     @Test
-    void shouldAddAttemptTimingAuditColumns()
+    void shouldPreserveAttemptTimingAuditContract()
         throws Exception {
 
         ApplicationConfig config =
@@ -39,14 +45,20 @@ class PublicationAttemptTimingMigrationTest {
                 connection
             );
 
-            assertTimingColumn(
-                connection,
-                "started_at"
+            assertMigrationVersionThirtyFiveApplied(
+                connection
             );
 
             assertTimingColumn(
                 connection,
-                "finished_at"
+                "started_at",
+                "NO"
+            );
+
+            assertTimingColumn(
+                connection,
+                "finished_at",
+                "YES"
             );
 
             assertTimingConstraint(
@@ -59,37 +71,66 @@ class PublicationAttemptTimingMigrationTest {
         Connection connection
     ) throws Exception {
 
+        assertMigrationApplied(
+            connection,
+            "28"
+        );
+    }
+
+    private void assertMigrationVersionThirtyFiveApplied(
+        Connection connection
+    ) throws Exception {
+
+        assertMigrationApplied(
+            connection,
+            "35"
+        );
+    }
+
+    private void assertMigrationApplied(
+        Connection connection,
+        String version
+    ) throws Exception {
+
         String sql =
             """
             SELECT COUNT(*) AS migration_count
             FROM flyway_schema_history
-            WHERE version = '28'
+            WHERE version = ?
               AND success = true
             """;
 
         try (PreparedStatement statement =
                  connection.prepareStatement(
                      sql
-                 );
-             ResultSet resultSet =
-                 statement.executeQuery()) {
+                 )) {
 
-            assertTrue(
-                resultSet.next()
+            statement.setString(
+                1,
+                version
             );
 
-            assertEquals(
-                1L,
-                resultSet.getLong(
-                    "migration_count"
-                )
-            );
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                assertTrue(
+                    resultSet.next()
+                );
+
+                assertEquals(
+                    1L,
+                    resultSet.getLong(
+                        "migration_count"
+                    )
+                );
+            }
         }
     }
 
     private void assertTimingColumn(
         Connection connection,
-        String columnName
+        String columnName,
+        String expectedNullable
     ) throws Exception {
 
         String sql =
@@ -129,7 +170,7 @@ class PublicationAttemptTimingMigrationTest {
                 );
 
                 assertEquals(
-                    "NO",
+                    expectedNullable,
                     resultSet.getString(
                         "is_nullable"
                     )

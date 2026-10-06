@@ -10,6 +10,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -18,11 +20,32 @@ import java.util.Optional;
  *
  * <p>O claim utiliza FOR UPDATE SKIP LOCKED no mesmo padrão da
  * fila durável de processamento.</p>
+ *
+ * <p>A recuperação de lease da FASE 20 é fail-closed:</p>
+ *
+ * <ul>
+ *     <li>
+ *         PROCESSING expirado sem STARTED volta para PENDING;
+ *     </li>
+ *     <li>
+ *         PROCESSING expirado com STARTED termina como
+ *         DELIVERY_UNKNOWN, juntamente com a tentativa.
+ *     </li>
+ * </ul>
+ *
+ * <p>Recovery e completion bloqueiam primeiro a mesma linha de outbox.
+ * Isso serializa as duas decisões e impede que uma conclusão conhecida
+ * e uma recuperação ambígua avancem em paralelo.</p>
  */
 public final class JdbcPublicationOutboxQueueAdapter
     implements PublicationOutboxQueuePort {
 
+    static final String UNKNOWN_AFTER_LEASE_EXPIRY_ERROR =
+        "PUBLICATION_DELIVERY_OUTCOME_UNKNOWN_AFTER_LEASE_EXPIRY";
+
     private final Connection connection;
+
+    private final JdbcTransactionAdapter transactionAdapter;
 
     public JdbcPublicationOutboxQueueAdapter(
         Connection connection
@@ -32,6 +55,11 @@ public final class JdbcPublicationOutboxQueueAdapter
             Objects.requireNonNull(
                 connection,
                 "connection must not be null"
+            );
+
+        this.transactionAdapter =
+            new JdbcTransactionAdapter(
+                connection
             );
     }
 
@@ -292,18 +320,20 @@ public final class JdbcPublicationOutboxQueueAdapter
         OffsetDateTime recoveredAt
     ) {
 
-        Objects.requireNonNull(
-            lockedBefore,
-            "lockedBefore must not be null"
-        );
+        OffsetDateTime validatedLockedBefore =
+            Objects.requireNonNull(
+                lockedBefore,
+                "lockedBefore must not be null"
+            );
 
-        Objects.requireNonNull(
-            recoveredAt,
-            "recoveredAt must not be null"
-        );
+        OffsetDateTime validatedRecoveredAt =
+            Objects.requireNonNull(
+                recoveredAt,
+                "recoveredAt must not be null"
+            );
 
-        if (recoveredAt.isBefore(
-            lockedBefore
+        if (validatedRecoveredAt.isBefore(
+            validatedLockedBefore
         )) {
 
             throw new IllegalArgumentException(
@@ -311,16 +341,245 @@ public final class JdbcPublicationOutboxQueueAdapter
             );
         }
 
+        return transactionAdapter.execute(
+            () ->
+                recoverExpiredLeasesInsideTransaction(
+                    validatedLockedBefore,
+                    validatedRecoveredAt
+                )
+        );
+    }
+
+    private int recoverExpiredLeasesInsideTransaction(
+        OffsetDateTime lockedBefore,
+        OffsetDateTime recoveredAt
+    ) {
+
+        try {
+
+            List<Long> expiredOutboxIds =
+                lockExpiredOutboxes(
+                    lockedBefore
+                );
+
+            for (long outboxId : expiredOutboxIds) {
+
+                Optional<Long> startedAttemptId =
+                    findStartedAttemptForUpdate(
+                        outboxId
+                    );
+
+                if (startedAttemptId.isPresent()) {
+
+                    markAttemptDeliveryUnknown(
+                        startedAttemptId.orElseThrow(),
+                        recoveredAt
+                    );
+
+                    markOutboxDeliveryUnknown(
+                        outboxId,
+                        recoveredAt
+                    );
+
+                } else {
+
+                    returnOutboxToPending(
+                        outboxId,
+                        recoveredAt
+                    );
+                }
+            }
+
+            return expiredOutboxIds.size();
+
+        } catch (SQLException exception) {
+
+            throw new IllegalStateException(
+                "Failed to recover expired publication outbox leases",
+                exception
+            );
+        }
+    }
+
+    /**
+     * Bloqueia primeiro a outbox.
+     *
+     * <p>Completion utiliza a mesma ordem de lock. O SKIP LOCKED evita
+     * que o recovery espere por uma conclusão ainda em andamento.</p>
+     */
+    private List<Long> lockExpiredOutboxes(
+        OffsetDateTime lockedBefore
+    ) throws SQLException {
+
+        String sql =
+            """
+            SELECT id
+            FROM publication_outbox
+            WHERE status = 'PROCESSING'
+              AND locked_at <= ?
+            ORDER BY
+                locked_at ASC,
+                id ASC
+            FOR UPDATE SKIP LOCKED
+            """;
+
+        List<Long> ids =
+            new ArrayList<>();
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                lockedBefore
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                while (resultSet.next()) {
+
+                    ids.add(
+                        resultSet.getLong(
+                            "id"
+                        )
+                    );
+                }
+            }
+        }
+
+        return ids;
+    }
+
+    /**
+     * Procura a tentativa física ainda aberta da outbox.
+     *
+     * <p>V35 garante no máximo um STARTED ativo por outbox. A checagem
+     * de multiplicidade permanece aqui como defesa adicional.</p>
+     */
+    private Optional<Long> findStartedAttemptForUpdate(
+        long outboxId
+    ) throws SQLException {
+
+        String sql =
+            """
+            SELECT id
+            FROM publication_attempt
+            WHERE publication_outbox_id = ?
+              AND status = 'STARTED'
+            ORDER BY id ASC
+            FOR UPDATE
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setLong(
+                1,
+                outboxId
+            );
+
+            try (ResultSet resultSet =
+                     statement.executeQuery()) {
+
+                if (!resultSet.next()) {
+
+                    return Optional.empty();
+                }
+
+                long attemptId =
+                    resultSet.getLong(
+                        "id"
+                    );
+
+                if (resultSet.next()) {
+
+                    throw new IllegalStateException(
+                        "Publication outbox item "
+                            + outboxId
+                            + " contains more than one STARTED attempt"
+                    );
+                }
+
+                return Optional.of(
+                    attemptId
+                );
+            }
+        }
+    }
+
+    private void markAttemptDeliveryUnknown(
+        long attemptId,
+        OffsetDateTime recoveredAt
+    ) throws SQLException {
+
+        String sql =
+            """
+            UPDATE publication_attempt
+            SET
+                status = 'DELIVERY_UNKNOWN',
+                error_code = ?,
+                finished_at = ?
+            WHERE id = ?
+              AND status = 'STARTED'
+              AND finished_at IS NULL
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setString(
+                1,
+                UNKNOWN_AFTER_LEASE_EXPIRY_ERROR
+            );
+
+            statement.setObject(
+                2,
+                recoveredAt
+            );
+
+            statement.setLong(
+                3,
+                attemptId
+            );
+
+            int updated =
+                statement.executeUpdate();
+
+            if (updated != 1) {
+
+                throw new IllegalStateException(
+                    "Publication attempt "
+                        + attemptId
+                        + " could not be moved from STARTED "
+                        + "to DELIVERY_UNKNOWN"
+                );
+            }
+        }
+    }
+
+    private void markOutboxDeliveryUnknown(
+        long outboxId,
+        OffsetDateTime recoveredAt
+    ) throws SQLException {
+
         String sql =
             """
             UPDATE publication_outbox
             SET
-                status = 'PENDING',
+                status = 'DELIVERY_UNKNOWN',
                 locked_at = NULL,
                 locked_by = NULL,
-                updated_at = ?
-            WHERE status = 'PROCESSING'
-              AND locked_at <= ?
+                updated_at = ?,
+                finished_at = ?
+            WHERE id = ?
+              AND status = 'PROCESSING'
             """;
 
         try (PreparedStatement statement =
@@ -335,17 +594,74 @@ public final class JdbcPublicationOutboxQueueAdapter
 
             statement.setObject(
                 2,
-                lockedBefore
+                recoveredAt
             );
 
-            return statement.executeUpdate();
-
-        } catch (SQLException exception) {
-
-            throw new IllegalStateException(
-                "Failed to recover expired publication outbox leases",
-                exception
+            statement.setLong(
+                3,
+                outboxId
             );
+
+            int updated =
+                statement.executeUpdate();
+
+            if (updated != 1) {
+
+                throw new IllegalStateException(
+                    "Publication outbox item "
+                        + outboxId
+                        + " could not be moved from PROCESSING "
+                        + "to DELIVERY_UNKNOWN"
+                );
+            }
+        }
+    }
+
+    private void returnOutboxToPending(
+        long outboxId,
+        OffsetDateTime recoveredAt
+    ) throws SQLException {
+
+        String sql =
+            """
+            UPDATE publication_outbox
+            SET
+                status = 'PENDING',
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = ?,
+                finished_at = NULL
+            WHERE id = ?
+              AND status = 'PROCESSING'
+            """;
+
+        try (PreparedStatement statement =
+                 connection.prepareStatement(
+                     sql
+                 )) {
+
+            statement.setObject(
+                1,
+                recoveredAt
+            );
+
+            statement.setLong(
+                2,
+                outboxId
+            );
+
+            int updated =
+                statement.executeUpdate();
+
+            if (updated != 1) {
+
+                throw new IllegalStateException(
+                    "Publication outbox item "
+                        + outboxId
+                        + " could not be returned from PROCESSING "
+                        + "to PENDING"
+                );
+            }
         }
     }
 

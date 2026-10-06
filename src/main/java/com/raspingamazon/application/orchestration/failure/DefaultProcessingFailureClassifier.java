@@ -1,34 +1,39 @@
 package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
+import com.raspingamazon.application.collection.contract.SourceChangedException;
+import com.raspingamazon.application.collection.contract.SourceDataUnavailableException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
+import com.raspingamazon.application.observability.OperationalFailureOrigin;
 import com.raspingamazon.application.orchestration.ProcessingFailureType;
 import com.raspingamazon.application.publication.PublicationDispatchJobException;
 
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
-import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
+import java.util.EnumSet;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Classificação padrão das falhas conhecidas pela aplicação.
+ * Classificação operacional padrão das falhas conhecidas pela aplicação.
  *
- * <p>A política é deliberadamente conservadora:</p>
+ * <p>As dimensões permanecem independentes:</p>
  *
  * <ul>
- *     <li>falhas claramente transitórias recebem retry;</li>
- *     <li>restrições explícitas da fonte não recebem retry automático;</li>
- *     <li>condições terminais de PUBLICATION_DISPATCH não recebem retry;</li>
- *     <li>falhas de entrada/regra/programação não recebem retry;</li>
- *     <li>falhas desconhecidas são permanentes até serem classificadas
- *     explicitamente.</li>
+ *     <li>semântica de retry;</li>
+ *     <li>origem;</li>
+ *     <li>categoria operacional;</li>
+ *     <li>ações recomendadas;</li>
+ *     <li>código diagnóstico.</li>
  * </ul>
  *
- * <p>Isso evita loops automáticos de retry para bugs, dados inválidos,
- * estados terminais ou páginas de proteção de uma fonte externa.</p>
+ * <p>A política é conservadora e fail-closed. Falhas desconhecidas,
+ * mudanças estruturais e restrições explícitas não recebem retry
+ * automático.</p>
  */
 public final class DefaultProcessingFailureClassifier
     implements ProcessingFailureClassifier {
@@ -44,10 +49,11 @@ public final class DefaultProcessingFailureClassifier
         );
 
         /*
-         * SourceRestrictionException também é CollectionException.
+         * As três exceções abaixo também derivam de
+         * CollectionException.
          *
-         * Portanto ela precisa ser localizada antes da regra genérica
-         * de CollectionException sem status HTTP.
+         * Portanto precisam ser classificadas antes da regra genérica
+         * de collection.
          */
         SourceRestrictionException sourceRestriction =
             findCause(
@@ -58,21 +64,58 @@ public final class DefaultProcessingFailureClassifier
         if (sourceRestriction != null) {
 
             return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.SOURCE_RESTRICTION,
                 "SOURCE_RESTRICTION_"
-                    + sourceRestriction.restrictionType()
+                    + sourceRestriction
+                    .restrictionType()
                     .name(),
-                sourceRestriction
+                sourceRestriction,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.ALERT,
+                FailureHandlingAction.OPERATOR_INTERVENTION
             );
         }
 
-        /*
-         * PUBLICATION_DISPATCH possui condições funcionais terminais
-         * próprias.
-         *
-         * Elas são classificadas antes dos fallbacks genéricos para
-         * preservar códigos operacionais explícitos no ProcessingJob.
-         */
-        PublicationDispatchJobException publicationDispatchFailure =
+        SourceChangedException sourceChanged =
+            findCause(
+                failure,
+                SourceChangedException.class
+            );
+
+        if (sourceChanged != null) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.SOURCE_CHANGED,
+                sourceChanged.errorCode(),
+                sourceChanged,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.PAUSE,
+                FailureHandlingAction.ALERT,
+                FailureHandlingAction.OPERATOR_INTERVENTION
+            );
+        }
+
+        SourceDataUnavailableException dataUnavailable =
+            findCause(
+                failure,
+                SourceDataUnavailableException.class
+            );
+
+        if (dataUnavailable != null) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.DATA_UNAVAILABLE,
+                dataUnavailable.errorCode(),
+                dataUnavailable,
+                FailureHandlingAction.REJECT
+            );
+        }
+
+        PublicationDispatchJobException
+            publicationDispatchFailure =
             findCause(
                 failure,
                 PublicationDispatchJobException.class
@@ -81,8 +124,11 @@ public final class DefaultProcessingFailureClassifier
         if (publicationDispatchFailure != null) {
 
             return permanentFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.PROCESSING,
                 publicationDispatchFailure.errorCode(),
-                publicationDispatchFailure
+                publicationDispatchFailure,
+                FailureHandlingAction.REJECT
             );
         }
 
@@ -99,72 +145,109 @@ public final class DefaultProcessingFailureClassifier
             );
         }
 
-        if (hasCause(
-            failure,
-            HttpTimeoutException.class
-        )
-            || hasCause(
-            failure,
-            HttpConnectTimeoutException.class
-        )
-            || hasCause(
-            failure,
-            SocketTimeoutException.class
-        )) {
+        HttpTimeoutException httpTimeout =
+            findCause(
+                failure,
+                HttpTimeoutException.class
+            );
+
+        if (httpTimeout != null) {
 
             return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
                 "NETWORK_TIMEOUT",
-                failure
+                httpTimeout
             );
         }
 
-        if (hasCause(
-            failure,
-            ConnectException.class
-        )) {
+        SocketTimeoutException socketTimeout =
+            findCause(
+                failure,
+                SocketTimeoutException.class
+            );
+
+        if (socketTimeout != null) {
 
             return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
+                "NETWORK_TIMEOUT",
+                socketTimeout
+            );
+        }
+
+        ConnectException connectionFailure =
+            findCause(
+                failure,
+                ConnectException.class
+            );
+
+        if (connectionFailure != null) {
+
+            return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
                 "NETWORK_CONNECTION_FAILED",
-                failure
+                connectionFailure
             );
         }
 
-        if (hasCause(
-            failure,
-            SQLTransientException.class
-        )
-            || hasCause(
-            failure,
-            SQLRecoverableException.class
-        )) {
+        SQLException sqlFailure =
+            findCause(
+                failure,
+                SQLException.class
+            );
 
-            return transientFailure(
-                "DATABASE_TRANSIENT",
-                failure
+        if (sqlFailure != null) {
+
+            return classifySql(
+                sqlFailure
             );
         }
 
-        if (failure
-            instanceof IllegalArgumentException) {
+        IllegalArgumentException invalidInput =
+            findCause(
+                failure,
+                IllegalArgumentException.class
+            );
+
+        if (invalidInput != null) {
 
             return permanentFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.PROCESSING,
                 "INVALID_PROCESSING_INPUT",
-                failure
+                invalidInput,
+                FailureHandlingAction.REJECT
             );
         }
 
-        if (failure
-            instanceof IllegalStateException) {
+        IllegalStateException invalidState =
+            findCause(
+                failure,
+                IllegalStateException.class
+            );
+
+        if (invalidState != null) {
 
             return permanentFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.PROCESSING,
                 "INVALID_PROCESSING_STATE",
-                failure
+                invalidState,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.ALERT
             );
         }
 
         return permanentFailure(
+            OperationalFailureOrigin.INTERNAL,
+            FailureCategory.UNKNOWN,
             "UNCLASSIFIED_FAILURE",
-            failure
+            failure,
+            FailureHandlingAction.REJECT,
+            FailureHandlingAction.ALERT
         );
     }
 
@@ -175,75 +258,223 @@ public final class DefaultProcessingFailureClassifier
         Integer statusCode =
             failure.httpStatusCode();
 
-        /*
-         * Ausência de status em uma CollectionException genérica
-         * significa que a coleta falhou antes de obter uma resposta
-         * HTTP utilizável.
-         *
-         * SourceRestrictionException já foi tratada anteriormente.
-         */
         if (statusCode == null) {
 
             return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
                 "COLLECTION_TRANSPORT",
                 failure
             );
         }
 
-        /*
-         * Request timeout, too early e rate limiting são
-         * explicitamente retryable.
-         */
-        if (statusCode == 408
-            || statusCode == 425
-            || statusCode == 429) {
+        if (statusCode == 429) {
 
             return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.RATE_LIMIT,
+                "COLLECTION_HTTP_429",
+                failure
+            );
+        }
+
+        if (statusCode == 408
+            || statusCode == 425) {
+
+            return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
                 "COLLECTION_HTTP_" + statusCode,
                 failure
             );
         }
 
-        /*
-         * Falhas 5xx pertencem ao servidor remoto.
-         */
         if (statusCode >= 500
             && statusCode <= 599) {
 
             return transientFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.NETWORK,
                 "COLLECTION_HTTP_" + statusCode,
                 failure
             );
         }
 
-        /*
-         * Outros 4xx normalmente representam uma requisição que
-         * não será corrigida repetindo exatamente o mesmo job.
-         *
-         * Isso inclui HTTP 403.
-         */
+        if (statusCode == 401) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.AUTHENTICATION,
+                "COLLECTION_HTTP_401",
+                failure,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.PAUSE,
+                FailureHandlingAction.ALERT,
+                FailureHandlingAction.OPERATOR_INTERVENTION
+            );
+        }
+
+        if (statusCode == 403) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.SOURCE_RESTRICTION,
+                "COLLECTION_HTTP_403",
+                failure,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.ALERT,
+                FailureHandlingAction.OPERATOR_INTERVENTION
+            );
+        }
+
+        if (statusCode == 404
+            || statusCode == 410) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.DATA_UNAVAILABLE,
+                "COLLECTION_HTTP_" + statusCode,
+                failure,
+                FailureHandlingAction.REJECT
+            );
+        }
+
         if (statusCode >= 400
             && statusCode <= 499) {
 
             return permanentFailure(
+                OperationalFailureOrigin.EXTERNAL,
+                FailureCategory.PROCESSING,
                 "COLLECTION_HTTP_" + statusCode,
-                failure
+                failure,
+                FailureHandlingAction.REJECT
             );
         }
 
         return permanentFailure(
+            OperationalFailureOrigin.EXTERNAL,
+            FailureCategory.UNKNOWN,
             "COLLECTION_HTTP_UNEXPECTED",
-            failure
+            failure,
+            FailureHandlingAction.REJECT,
+            FailureHandlingAction.ALERT
+        );
+    }
+
+    private FailureClassification classifySql(
+        SQLException failure
+    ) {
+
+        String sqlState =
+            normalizeSqlState(
+                failure.getSQLState()
+            );
+
+        if (sqlState != null
+            && sqlState.startsWith(
+            "08"
+        )) {
+
+            return transientFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_CONNECTION",
+                failure
+            );
+        }
+
+        if ("40001".equals(
+            sqlState
+        )
+            || "40P01".equals(
+            sqlState
+        )) {
+
+            return transientFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_TRANSACTION_RETRY",
+                failure
+            );
+        }
+
+        if ("55P03".equals(
+            sqlState
+        )) {
+
+            return transientFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_LOCK_NOT_AVAILABLE",
+                failure
+            );
+        }
+
+        if ("57P01".equals(
+            sqlState
+        )
+            || "57P02".equals(
+            sqlState
+        )
+            || "57P03".equals(
+            sqlState
+        )) {
+
+            return transientFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_UNAVAILABLE",
+                failure
+            );
+        }
+
+        if (failure instanceof SQLTransientException
+            || failure instanceof SQLRecoverableException) {
+
+            return transientFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_TRANSIENT",
+                failure
+            );
+        }
+
+        if (sqlState != null) {
+
+            return permanentFailure(
+                OperationalFailureOrigin.INTERNAL,
+                FailureCategory.DATABASE,
+                "DATABASE_SQLSTATE_" + sqlState,
+                failure,
+                FailureHandlingAction.REJECT,
+                FailureHandlingAction.ALERT
+            );
+        }
+
+        return permanentFailure(
+            OperationalFailureOrigin.INTERNAL,
+            FailureCategory.DATABASE,
+            "DATABASE_FAILURE",
+            failure,
+            FailureHandlingAction.REJECT,
+            FailureHandlingAction.ALERT
         );
     }
 
     private FailureClassification transientFailure(
+        OperationalFailureOrigin origin,
+        FailureCategory category,
         String code,
         Throwable failure
     ) {
 
         return new FailureClassification(
             ProcessingFailureType.TRANSIENT,
+            origin,
+            category,
+            EnumSet.of(
+                FailureHandlingAction.RETRY
+            ),
             code,
             safeMessage(
                 failure
@@ -252,12 +483,22 @@ public final class DefaultProcessingFailureClassifier
     }
 
     private FailureClassification permanentFailure(
+        OperationalFailureOrigin origin,
+        FailureCategory category,
         String code,
-        Throwable failure
+        Throwable failure,
+        FailureHandlingAction firstAction,
+        FailureHandlingAction... additionalActions
     ) {
 
         return new FailureClassification(
             ProcessingFailureType.PERMANENT,
+            origin,
+            category,
+            EnumSet.of(
+                firstAction,
+                additionalActions
+            ),
             code,
             safeMessage(
                 failure
@@ -283,15 +524,24 @@ public final class DefaultProcessingFailureClassifier
         return message;
     }
 
-    private boolean hasCause(
-        Throwable failure,
-        Class<? extends Throwable> type
+    private String normalizeSqlState(
+        String sqlState
     ) {
 
-        return findCause(
-            failure,
-            type
-        ) != null;
+        if (sqlState == null) {
+            return null;
+        }
+
+        String normalized =
+            sqlState
+                .trim()
+                .toUpperCase(
+                    Locale.ROOT
+                );
+
+        return normalized.isEmpty()
+            ? null
+            : normalized;
     }
 
     private <T extends Throwable> T findCause(
