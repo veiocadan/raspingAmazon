@@ -52,6 +52,11 @@ import java.util.Optional;
  * <p>DELIVERY_UNKNOWN é terminal para retry automático. Quando o
  * canal informa ambiguidade externa, a mesma tentativa STARTED e a
  * mesma outbox são concluídas como DELIVERY_UNKNOWN.</p>
+ *
+ * <p>Para FAILED_TRANSIENT, um retryNotBefore informado pelo provider
+ * funciona somente como piso temporal sobre a política local. O
+ * orçamento local continua soberano e o instante persistido é o mais
+ * distante entre backoff local e limite do provider.</p>
  */
 public final class JdbcPublicationAttemptCompletionAdapter
     implements PublicationAttemptCompletionPort {
@@ -180,7 +185,8 @@ public final class JdbcPublicationAttemptCompletionAdapter
                 Optional<OffsetDateTime> nextAttemptAt =
                     retryPolicy.nextAttemptAt(
                         handle.attemptNumber(),
-                        completedAt
+                        completedAt,
+                        result.retryNotBeforeValue()
                     );
 
                 if (nextAttemptAt.isPresent()) {

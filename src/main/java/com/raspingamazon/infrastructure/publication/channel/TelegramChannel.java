@@ -14,8 +14,11 @@ import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
+import com.raspingamazon.infrastructure.publication.http.PublicationRetryAfterParser;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,6 +75,10 @@ public final class TelegramChannel
 
     private final PublicationContentFormatter contentFormatter;
 
+    private final Clock clock;
+
+    private final PublicationRetryAfterParser retryAfterParser;
+
     public TelegramChannel(
         TelegramChannelConfig config,
         PublicationHttpTransport transport,
@@ -91,6 +98,28 @@ public final class TelegramChannel
         PublicationHttpTransport transport,
         ObjectMapper objectMapper,
         MessageFormat messageFormat
+    ) {
+
+        this(
+            config,
+            transport,
+            objectMapper,
+            messageFormat,
+            Clock.systemUTC()
+        );
+    }
+
+    /**
+     * Construtor com Clock explícito para avaliação determinística de
+     * Retry-After sem acoplar o contrato de aplicação ao relógio do
+     * sistema.
+     */
+    public TelegramChannel(
+        TelegramChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper,
+        MessageFormat messageFormat,
+        Clock clock
     ) {
 
         this.config =
@@ -116,6 +145,15 @@ public final class TelegramChannel
                 messageFormat,
                 "messageFormat must not be null"
             );
+
+        this.clock =
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
+            );
+
+        this.retryAfterParser =
+            new PublicationRetryAfterParser();
 
         this.contentFormatter =
             switch (messageFormat) {
@@ -437,7 +475,8 @@ public final class TelegramChannel
 
         if (statusCode == 429) {
 
-            return PublicationResult.failedTransient(
+            return rateLimitedResult(
+                response,
                 "TELEGRAM_RATE_LIMITED"
             );
         }
@@ -506,7 +545,8 @@ public final class TelegramChannel
                  * classificação conhecida do erro.
                  */
                 return classifyTelegramApiError(
-                    telegramErrorCode.orElseThrow()
+                    telegramErrorCode.orElseThrow(),
+                    response
                 );
             }
 
@@ -582,7 +622,8 @@ public final class TelegramChannel
     }
 
     private PublicationResult classifyTelegramApiError(
-        int errorCode
+        int errorCode,
+        PublicationHttpResponse response
     ) {
 
         if (errorCode == 408) {
@@ -594,7 +635,8 @@ public final class TelegramChannel
 
         if (errorCode == 429) {
 
-            return PublicationResult.failedTransient(
+            return rateLimitedResult(
+                response,
                 "TELEGRAM_RATE_LIMITED"
             );
         }
@@ -610,6 +652,32 @@ public final class TelegramChannel
         return PublicationResult.failedPermanent(
             "TELEGRAM_API_REJECTED_"
                 + errorCode
+        );
+    }
+
+    private PublicationResult rateLimitedResult(
+        PublicationHttpResponse response,
+        String errorCode
+    ) {
+
+        Optional<OffsetDateTime> retryNotBefore =
+            retryAfterParser.retryNotBefore(
+                response,
+                OffsetDateTime.now(
+                    clock
+                )
+            );
+
+        if (retryNotBefore.isPresent()) {
+
+            return PublicationResult.failedTransientWithRetryNotBefore(
+                errorCode,
+                retryNotBefore.orElseThrow()
+            );
+        }
+
+        return PublicationResult.failedTransient(
+            errorCode
         );
     }
 

@@ -11,11 +11,15 @@ import com.raspingamazon.infrastructure.publication.http.PublicationHttpRequest;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpResponse;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransport;
 import com.raspingamazon.infrastructure.publication.http.PublicationHttpTransportException;
+import com.raspingamazon.infrastructure.publication.http.PublicationRetryAfterParser;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -46,10 +50,33 @@ public final class WhatsAppChannel
 
     private final URI messagesUri;
 
+    private final Clock clock;
+
+    private final PublicationRetryAfterParser retryAfterParser;
+
     public WhatsAppChannel(
         WhatsAppChannelConfig config,
         PublicationHttpTransport transport,
         ObjectMapper objectMapper
+    ) {
+
+        this(
+            config,
+            transport,
+            objectMapper,
+            Clock.systemUTC()
+        );
+    }
+
+    /**
+     * Construtor com Clock explícito para avaliação determinística de
+     * Retry-After.
+     */
+    public WhatsAppChannel(
+        WhatsAppChannelConfig config,
+        PublicationHttpTransport transport,
+        ObjectMapper objectMapper,
+        Clock clock
     ) {
 
         this.config =
@@ -69,6 +96,15 @@ public final class WhatsAppChannel
                 objectMapper,
                 "objectMapper must not be null"
             );
+
+        this.clock =
+            Objects.requireNonNull(
+                clock,
+                "clock must not be null"
+            );
+
+        this.retryAfterParser =
+            new PublicationRetryAfterParser();
 
         this.messagesUri =
             buildMessagesUri(
@@ -300,7 +336,8 @@ public final class WhatsAppChannel
 
         if (statusCode == 429) {
 
-            return PublicationResult.failedTransient(
+            return rateLimitedResult(
+                response,
                 "WHATSAPP_RATE_LIMITED"
             );
         }
@@ -370,6 +407,32 @@ public final class WhatsAppChannel
         return PublicationResult.failedPermanent(
             "WHATSAPP_REJECTED_"
                 + statusCode
+        );
+    }
+
+    private PublicationResult rateLimitedResult(
+        PublicationHttpResponse response,
+        String errorCode
+    ) {
+
+        Optional<OffsetDateTime> retryNotBefore =
+            retryAfterParser.retryNotBefore(
+                response,
+                OffsetDateTime.now(
+                    clock
+                )
+            );
+
+        if (retryNotBefore.isPresent()) {
+
+            return PublicationResult.failedTransientWithRetryNotBefore(
+                errorCode,
+                retryNotBefore.orElseThrow()
+            );
+        }
+
+        return PublicationResult.failedTransient(
+            errorCode
         );
     }
 
