@@ -153,6 +153,13 @@ class OperationalCliTest {
         assertTrue(
             console.stderr()
                 .contains(
+                    "Usage error: unknown command"
+                )
+        );
+
+        assertFalse(
+            console.stderr()
+                .contains(
                     "unknown command: unknown"
                 )
         );
@@ -162,6 +169,45 @@ class OperationalCliTest {
                 .contains(
                     "Uso:"
                 )
+        );
+    }
+
+    @Test
+    void shouldNotEchoUnrecognizedTopLevelCommandContainingSecret() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String secret =
+            "BOT_TOKEN_SECRET_DO_NOT_PRINT_987654321";
+
+        OperationalCli cli =
+            console.createCli(
+                Map.of()
+            );
+
+        CliExitCode result =
+            cli.run(
+                new String[]{
+                    secret
+                }
+            );
+
+        assertEquals(
+            CliExitCode.USAGE_ERROR,
+            result
+        );
+
+        assertTrue(
+            console.stderr().contains(
+                "Usage error: unknown command"
+            )
+        );
+
+        assertFalse(
+            console.stderr().contains(
+                secret
+            )
         );
     }
 

@@ -114,9 +114,10 @@ public final class OperationalCli {
 
         if (handler == null) {
 
+            // Nunca refletir a entrada nao reconhecida no terminal:
+            // um argumento pode conter uma credencial colada por engano.
             return usageError(
-                "unknown command: "
-                    + commandName
+                "unknown command"
             );
         }
 
