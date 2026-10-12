@@ -1,6 +1,8 @@
 package com.raspingamazon.application.orchestration.failure;
 
 import com.raspingamazon.application.collection.contract.CollectionException;
+import com.raspingamazon.application.collection.contract.SourceChangedException;
+import com.raspingamazon.application.collection.contract.SourceDataUnavailableException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionException;
 import com.raspingamazon.application.collection.contract.SourceRestrictionType;
 import com.raspingamazon.application.observability.OperationalFailureOrigin;
@@ -1045,4 +1047,152 @@ class DefaultProcessingFailureClassifierTest {
         );
     }
 
+
+    @Test
+    void shouldPreserveValidSourceChangedCode() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceChangedException(
+                    "AMAZON_PRODUCT_PAGE_STRUCTURE_UNRECOGNIZED",
+                    "structure changed"
+                )
+            );
+
+        assertEquals(
+            "AMAZON_PRODUCT_PAGE_STRUCTURE_UNRECOGNIZED",
+            result.code()
+        );
+
+        assertEquals(
+            FailureCategory.SOURCE_CHANGED,
+            result.category()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldRejectSensitiveSourceChangedCode() {
+
+        String secret =
+            "fake-source-secret-B45";
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceChangedException(
+                    "Authorization: Bearer " + secret,
+                    "structure changed"
+                )
+            );
+
+        assertEquals(
+            "SOURCE_CHANGED_INVALID_CODE",
+            result.code()
+        );
+
+        assertFalse(
+            result.code().contains(secret)
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+
+        assertTrue(
+            result.requires(
+                FailureHandlingAction.PAUSE
+            )
+        );
+    }
+
+    @Test
+    void shouldRejectOverlongSourceChangedCode() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceChangedException(
+                    "AMAZON_" + "A".repeat(100),
+                    "structure changed"
+                )
+            );
+
+        assertEquals(
+            "SOURCE_CHANGED_INVALID_CODE",
+            result.code()
+        );
+    }
+
+    @Test
+    void shouldPreserveValidSourceDataUnavailableCode() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceDataUnavailableException(
+                    "AMAZON_PRODUCT_PAGE_NOT_FOUND",
+                    "product absent"
+                )
+            );
+
+        assertEquals(
+            "AMAZON_PRODUCT_PAGE_NOT_FOUND",
+            result.code()
+        );
+
+        assertEquals(
+            FailureCategory.DATA_UNAVAILABLE,
+            result.category()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldRejectSensitiveSourceDataUnavailableCode() {
+
+        String secret =
+            "fake-source-token-B45";
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceDataUnavailableException(
+                    "https://example.invalid/?token=" + secret,
+                    "product unavailable"
+                )
+            );
+
+        assertEquals(
+            "DATA_UNAVAILABLE_INVALID_CODE",
+            result.code()
+        );
+
+        assertFalse(
+            result.code().contains(secret)
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldRejectLowercaseSourceDataUnavailableCode() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SourceDataUnavailableException(
+                    "amazon_product_page_not_found",
+                    "product unavailable"
+                )
+            );
+
+        assertEquals(
+            "DATA_UNAVAILABLE_INVALID_CODE",
+            result.code()
+        );
+    }
 }
