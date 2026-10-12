@@ -2,6 +2,12 @@ package com.raspingamazon.infrastructure.config;
 
 import java.util.Objects;
 
+/**
+ * Configuracao basica da aplicacao.
+ *
+ * <p>A senha de banco permanece acessivel ao composition root por meio do
+ * accessor do record, mas nunca aparece na representacao textual.</p>
+ */
 public record ApplicationConfig(
         String environment,
         String databaseHost,
@@ -18,6 +24,18 @@ public record ApplicationConfig(
         databaseName = requireValue("databaseName", databaseName);
         databaseUser = requireValue("databaseUser", databaseUser);
         databasePassword = requireValue("databasePassword", databasePassword);
+    }
+
+    @Override
+    public String toString() {
+        return "ApplicationConfig["
+                + "environment=" + environment
+                + ", databaseHost=" + databaseHost
+                + ", databasePort=" + databasePort
+                + ", databaseName=" + databaseName
+                + ", databaseUser=" + databaseUser
+                + ", databasePassword=<redacted>"
+                + "]";
     }
 
     private static String requireValue(String name, String value) {
