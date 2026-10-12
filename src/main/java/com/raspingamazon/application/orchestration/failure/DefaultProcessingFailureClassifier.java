@@ -542,9 +542,33 @@ public final class DefaultProcessingFailureClassifier
                     Locale.ROOT
                 );
 
-        return normalized.isEmpty()
-            ? null
-            : normalized;
+        /*
+         * SQLSTATE e um codigo ASCII de exatamente cinco caracteres.
+         * Valores arbitrarios podem carregar segredos e jamais devem
+         * participar da construcao de codigos diagnosticos.
+         */
+        if (normalized.length() != 5) {
+            return null;
+        }
+
+        for (int index = 0;
+             index < normalized.length();
+             index++) {
+
+            char character = normalized.charAt(
+                index
+            );
+
+            boolean valid =
+                (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9');
+
+            if (!valid) {
+                return null;
+            }
+        }
+
+        return normalized;
     }
 
     private <T extends Throwable> T findCause(

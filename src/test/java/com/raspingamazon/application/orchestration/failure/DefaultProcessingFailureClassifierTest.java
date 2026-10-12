@@ -963,4 +963,86 @@ class DefaultProcessingFailureClassifierTest {
         );
     }
 
+
+    @Test
+    void shouldRejectSqlStateContainingSensitiveText() {
+
+        String secret =
+            "test-database-password-987654";
+
+        FailureClassification result =
+            classifier.classify(
+                new SQLException(
+                    "database error with " + secret,
+                    "ZZ" + secret
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            FailureCategory.DATABASE,
+            result.category()
+        );
+
+        assertEquals(
+            "DATABASE_FAILURE",
+            result.code()
+        );
+
+        assertFalse(
+            result.code().contains(secret)
+        );
+
+        assertFalse(
+            result.message().contains(secret)
+        );
+    }
+
+    @Test
+    void shouldRejectMalformedConnectionSqlStatePrefix() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SQLException(
+                    "connection unavailable",
+                    "08INVALID_CONNECTION_STATE"
+                )
+            );
+
+        assertEquals(
+            ProcessingFailureType.PERMANENT,
+            result.type()
+        );
+
+        assertEquals(
+            "DATABASE_FAILURE",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+    }
+
+    @Test
+    void shouldNormalizeValidLowercaseSqlStateWithOuterSpaces() {
+
+        FailureClassification result =
+            classifier.classify(
+                new SQLException(
+                    "sql error",
+                    " 23p01 "
+                )
+            );
+
+        assertEquals(
+            "DATABASE_SQLSTATE_23P01",
+            result.code()
+        );
+    }
+
 }
