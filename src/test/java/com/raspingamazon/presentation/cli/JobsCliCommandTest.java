@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -251,7 +252,13 @@ class JobsCliCommandTest {
 
         assertTrue(
             output.contains(
-                "\tTRANSIENT\tERR_HTTP\tFalha temporaria sem quebrar TSV\t"
+                "\tTRANSIENT\tERR_HTTP\t[REDACTED]\t"
+            )
+        );
+
+        assertFalse(
+            output.contains(
+                "Falha temporaria"
             )
         );
 
@@ -272,6 +279,87 @@ class JobsCliCommandTest {
                 "NEXT_CURSOR\t"
                     + CREATED_AT
                     + "\t404"
+            )
+        );
+    }
+
+    @Test
+    void shouldRedactHistoricJobFailureMessageContainingSecrets() {
+
+        String secret =
+            "fake-stored-token-B43";
+
+        ProcessingJobSummary persisted =
+            summaryWithErrorMessage(
+                "password=" + secret
+                    + " Authorization: Bearer " + secret
+            );
+
+        JobsCliCommand command =
+            command(
+                criteria ->
+                    new ProcessingJobPage(
+                        List.of(persisted),
+                        null
+                    )
+            );
+
+        TestConsole console =
+            new TestConsole();
+
+        CliExitCode result =
+            command.execute(
+                List.of("list"),
+                console.out(),
+                console.err()
+            );
+
+        assertEquals(
+            CliExitCode.SUCCESS,
+            result
+        );
+
+        assertTrue(
+            console.stdout().contains(
+                "\tTRANSIENT\tERR_HTTP\t[REDACTED]\t"
+            )
+        );
+
+        assertFalse(
+            console.stdout().contains(secret)
+        );
+
+        assertFalse(
+            console.stdout().contains("Bearer")
+        );
+    }
+
+    @Test
+    void shouldRenderAbsentHistoricJobFailureMessageAsDash() {
+
+        JobsCliCommand command =
+            command(
+                criteria ->
+                    new ProcessingJobPage(
+                        List.of(
+                            summaryWithErrorMessage(null)
+                        ),
+                        null
+                    )
+            );
+
+        TestConsole console =
+            new TestConsole();
+
+        command.execute(
+            List.of("list"),
+            console.out(),
+            console.err()
+        );
+
+        assertTrue(
+            console.stdout().contains(
+                "\tTRANSIENT\tERR_HTTP\t-\t"
             )
         );
     }
@@ -601,6 +689,15 @@ class JobsCliCommandTest {
 
     private ProcessingJobSummary summary() {
 
+        return summaryWithErrorMessage(
+            "Falha temporaria\nsem quebrar TSV"
+        );
+    }
+
+    private ProcessingJobSummary summaryWithErrorMessage(
+        String errorMessage
+    ) {
+
         return new ProcessingJobSummary(
             404L,
             ProcessingJobType.EVALUATE_DEAL,
@@ -616,7 +713,7 @@ class JobsCliCommandTest {
             "worker\t01",
             ProcessingFailureType.TRANSIENT,
             "ERR_HTTP",
-            "Falha temporaria\nsem quebrar TSV",
+            errorMessage,
             CREATED_AT,
             UPDATED_AT,
             null

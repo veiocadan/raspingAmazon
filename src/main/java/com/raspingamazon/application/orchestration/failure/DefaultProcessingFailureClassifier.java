@@ -510,18 +510,21 @@ public final class DefaultProcessingFailureClassifier
         Throwable failure
     ) {
 
-        String message =
-            failure.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            return failure
-                .getClass()
+        /*
+         * Mensagens de excecoes sao dados nao confiaveis e podem
+         * conter tokens, senhas, URLs ou respostas externas.
+         * Apenas o nome do tipo Java e persistido. O codigo,
+         * a categoria e a politica de retry sao preservados.
+         */
+        String typeName =
+            failure.getClass()
                 .getSimpleName();
+
+        if (typeName.isBlank()) {
+            return "OperationalFailure";
         }
 
-        return message;
+        return typeName;
     }
 
     private String normalizeSqlState(

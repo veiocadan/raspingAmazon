@@ -798,4 +798,169 @@ class DefaultProcessingFailureClassifierTest {
             result.message()
         );
     }
+    @Test
+    void shouldNotPersistCollectionTokenInFailureMessage() {
+
+        String secret =
+            "fake-collection-token-B43";
+
+        FailureClassification result =
+            classifier.classify(
+                new CollectionException(
+                    "Authorization: Bearer " + secret,
+                    401,
+                    "authentication failed"
+                )
+            );
+
+        assertEquals(
+            "COLLECTION_HTTP_401",
+            result.code()
+        );
+
+        assertEquals(
+            FailureCategory.AUTHENTICATION,
+            result.category()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+
+        assertEquals(
+            "CollectionException",
+            result.message()
+        );
+
+        assertFalse(
+            result.message().contains(secret)
+        );
+    }
+
+    @Test
+    void shouldNotPersistNetworkTokenInFailureMessage() {
+
+        String secret =
+            "fake-network-token-B43";
+
+        FailureClassification result =
+            classifier.classify(
+                new HttpTimeoutException(
+                    "Authorization: Bearer " + secret
+                )
+            );
+
+        assertEquals(
+            "NETWORK_TIMEOUT",
+            result.code()
+        );
+
+        assertTrue(
+            result.retryable()
+        );
+
+        assertEquals(
+            "HttpTimeoutException",
+            result.message()
+        );
+
+        assertFalse(
+            result.message().contains(secret)
+        );
+    }
+
+    @Test
+    void shouldNotPersistSqlPasswordFromNestedCause() {
+
+        String secret =
+            "fake-database-password-B43";
+
+        FailureClassification result =
+            classifier.classify(
+                new RuntimeException(
+                    "outer wrapper: " + secret,
+                    new SQLTransientConnectionException(
+                        "password=" + secret
+                    )
+                )
+            );
+
+        assertEquals(
+            "DATABASE_TRANSIENT",
+            result.code()
+        );
+
+        assertEquals(
+            FailureCategory.DATABASE,
+            result.category()
+        );
+
+        assertTrue(
+            result.retryable()
+        );
+
+        assertEquals(
+            "SQLTransientConnectionException",
+            result.message()
+        );
+
+        assertFalse(
+            result.message().contains(secret)
+        );
+    }
+
+    @Test
+    void shouldNotPersistUnknownExceptionMessage() {
+
+        String secret =
+            "fake-unknown-secret-B43";
+
+        FailureClassification result =
+            classifier.classify(
+                new RuntimeException(
+                    "token=" + secret
+                )
+            );
+
+        assertEquals(
+            "UNCLASSIFIED_FAILURE",
+            result.code()
+        );
+
+        assertFalse(
+            result.retryable()
+        );
+
+        assertEquals(
+            "RuntimeException",
+            result.message()
+        );
+
+        assertFalse(
+            result.message().contains(secret)
+        );
+    }
+
+    @Test
+    void shouldUseSafeFallbackForAnonymousExceptionType() {
+
+        FailureClassification result =
+            classifier.classify(
+                new RuntimeException(
+                    "fake-secret-B43"
+                ) {
+                }
+            );
+
+        assertEquals(
+            "UNCLASSIFIED_FAILURE",
+            result.code()
+        );
+
+        assertEquals(
+            "OperationalFailure",
+            result.message()
+        );
+    }
+
 }
