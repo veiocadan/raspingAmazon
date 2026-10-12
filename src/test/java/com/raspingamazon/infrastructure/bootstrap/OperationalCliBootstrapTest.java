@@ -179,6 +179,31 @@ class OperationalCliBootstrapTest {
         );
     }
 
+    @Test
+    void shouldRedactBootstrapOperationalErrorBeforePrinting() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String secret =
+            "TOP_SECRET_DB_PASSWORD";
+
+        CliExitCode result =
+            OperationalCliBootstrap.operationalError(
+                new IllegalStateException(
+                    "password=" + secret
+                ),
+                console.err()
+            );
+
+        assertEquals(CliExitCode.OPERATIONAL_ERROR, result);
+        assertEquals(
+            "Operational error: IllegalStateException (details suppressed)",
+            console.stderr().trim()
+        );
+        assertFalse(console.stderr().contains(secret));
+    }
+
     private static final class TestConsole {
 
         private final ByteArrayOutputStream stdout =

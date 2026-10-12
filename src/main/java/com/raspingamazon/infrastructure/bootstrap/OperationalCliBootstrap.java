@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.bootstrap;
 
+import com.raspingamazon.application.operation.observability.SafeOperationalError;
+
 import com.raspingamazon.infrastructure.composition.OperationalInterfaceComposition;
 import com.raspingamazon.presentation.cli.CliExitCode;
 import com.raspingamazon.presentation.cli.OperationalCli;
@@ -153,25 +155,16 @@ public final class OperationalCliBootstrap {
         );
     }
 
-    private static CliExitCode operationalError(
+    static CliExitCode operationalError(
         RuntimeException exception,
         PrintWriter err
     ) {
 
-        String message =
-            exception.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            message =
-                exception.getClass()
-                    .getSimpleName();
-        }
-
         err.println(
             "Operational error: "
-                + message
+                + SafeOperationalError.describe(
+                    exception
+                )
         );
 
         err.flush();

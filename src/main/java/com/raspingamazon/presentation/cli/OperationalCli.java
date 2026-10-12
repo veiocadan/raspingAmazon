@@ -1,5 +1,7 @@
 package com.raspingamazon.presentation.cli;
 
+import com.raspingamazon.application.operation.observability.SafeOperationalError;
+
 import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -199,20 +201,11 @@ public final class OperationalCli {
         RuntimeException exception
     ) {
 
-        String message =
-            exception.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            message =
-                exception.getClass()
-                    .getSimpleName();
-        }
-
         err.println(
             "Operational error: "
-                + message
+                + SafeOperationalError.describe(
+                    exception
+                )
         );
 
         err.flush();

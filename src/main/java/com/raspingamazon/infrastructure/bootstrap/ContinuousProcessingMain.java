@@ -1,5 +1,7 @@
 package com.raspingamazon.infrastructure.bootstrap;
 
+import com.raspingamazon.application.operation.observability.SafeOperationalError;
+
 import java.io.PrintWriter;
 
 /**
@@ -197,20 +199,12 @@ public final class ContinuousProcessingMain {
         }
     }
 
-    private static String failureMessage(
+    static String failureMessage(
         RuntimeException exception
     ) {
 
-        String message =
-            exception.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            return exception.getClass()
-                .getSimpleName();
-        }
-
-        return message;
+        return SafeOperationalError.describe(
+            exception
+        );
     }
 }

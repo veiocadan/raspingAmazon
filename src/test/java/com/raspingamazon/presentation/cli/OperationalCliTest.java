@@ -321,7 +321,7 @@ class OperationalCliTest {
         assertTrue(
             console.stderr()
                 .contains(
-                    "Operational error: database unavailable"
+                    "Operational error: IllegalStateException (details suppressed)"
                 )
         );
 
@@ -331,6 +331,52 @@ class OperationalCliTest {
                     "Uso:"
                 )
         );
+    }
+
+    @Test
+    void shouldNotExposeSecretsEmbeddedInOperationalExceptions() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String password =
+            "postgres_password_TOP_SECRET_123";
+
+        String token =
+            "bot_token_TOP_SECRET_456";
+
+        OperationalCli cli =
+            console.createCli(
+                Map.of(
+                    "jobs",
+                    (
+                        arguments,
+                        out,
+                        err
+                    ) -> {
+                        throw new IllegalStateException(
+                            "jdbc password=" + password,
+                            new RuntimeException(
+                                "Authorization: Bearer " + token
+                            )
+                        );
+                    }
+                )
+            );
+
+        CliExitCode result =
+            cli.run(
+                new String[]{"jobs", "list"}
+            );
+
+        String stderr = console.stderr();
+
+        assertEquals(CliExitCode.OPERATIONAL_ERROR, result);
+        assertTrue(stderr.contains("Operational error:"));
+        assertFalse(stderr.contains(password));
+        assertFalse(stderr.contains(token));
+        assertFalse(stderr.contains("password="));
+        assertFalse(stderr.contains("Authorization:"));
     }
 
     @Test
