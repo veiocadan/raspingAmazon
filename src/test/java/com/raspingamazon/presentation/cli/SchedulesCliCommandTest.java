@@ -352,7 +352,54 @@ class SchedulesCliCommandTest {
         assertTrue(
             fixture.stderr()
                 .contains(
+                    "Usage error: unknown schedules action"
+                )
+        );
+
+        assertFalse(
+            fixture.stderr()
+                .contains(
                     "unknown schedules action: unknown"
+                )
+        );
+    }
+
+    @Test
+    void shouldNotEchoSensitiveUnknownScheduleAction() {
+
+        TestFixture fixture =
+            createFixture(
+                activeSchedule()
+            );
+
+        String secret =
+            "TOKEN_DE_TESTE_NAO_EXIBIR_ABC123";
+
+        CliExitCode result =
+            fixture.cli()
+                .run(
+                    new String[]{
+                        "schedules",
+                        secret
+                    }
+                );
+
+        assertEquals(
+            CliExitCode.USAGE_ERROR,
+            result
+        );
+
+        assertTrue(
+            fixture.stderr()
+                .contains(
+                    "Usage error: unknown schedules action"
+                )
+        );
+
+        assertFalse(
+            fixture.stderr()
+                .contains(
+                    secret
                 )
         );
     }

@@ -27,6 +27,27 @@ import java.util.Objects;
  */
 public final class OperationalCli {
 
+    /**
+     * Prefixos de diagnósticos cujos sufixos vêm de argumentos do usuário.
+     *
+     * <p>Preservar os identificadores estáticos de erro mantém a CLI
+     * diagnosticável sem repetir valores arbitrários no stderr.</p>
+     */
+    private static final List<String> UNSAFE_USAGE_PREFIXES = List.of(
+        "unknown alerts action: ",
+        "unknown evaluations action: ",
+        "unknown jobs action: ",
+        "unknown publications action: ",
+        "unknown runs action: ",
+        "unknown schedules action: ",
+        "unknown evaluations list option: ",
+        "unknown jobs list option: ",
+        "unknown publications list option: ",
+        "unknown runs list option: ",
+        "unexpected argument: ",
+        "duplicate option: "
+    );
+
     private final Map<String, CliCommandHandler> handlers;
 
     private final PrintWriter out;
@@ -184,7 +205,9 @@ public final class OperationalCli {
 
         err.println(
             "Usage error: "
-                + message
+                + safeUsageMessage(
+                    message
+                )
         );
 
         err.println();
@@ -196,6 +219,28 @@ public final class OperationalCli {
         err.flush();
 
         return CliExitCode.USAGE_ERROR;
+    }
+
+    /**
+     * Não exibe o sufixo originado de uma ação/opção arbitrária.
+     * Mensagens estáticas válidas continuam intactas.
+     */
+    private String safeUsageMessage(
+        String message
+    ) {
+
+        for (String prefix : UNSAFE_USAGE_PREFIXES) {
+
+            if (message.startsWith(prefix)) {
+
+                return prefix.substring(
+                    0,
+                    prefix.length() - 2
+                );
+            }
+        }
+
+        return message;
     }
 
     private CliExitCode operationalError(
