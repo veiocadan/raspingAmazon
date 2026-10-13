@@ -70,7 +70,7 @@ if ($useCase -notmatch '(?s)return\s+schedulePort\s*\.saveIfAbsent\s*\(' -or
     $adapter -notmatch 'validateExistingIdentity\s*\(' -or
     $bootstrap -notmatch 'ensureProcessingScheduleUseCase\s*\.execute\s*\(' -or
     $bootstrap -notmatch '(?s)startupRecoveryService\s*\(\s*\)\s*\.recover\s*\(' -or
-    $main -notmatch 'ContinuousProcessingBootstrap\s*\.open\s*\(' -or
+    $main -notmatch '(?s)ContinuousProcessingBootstrap\s*(?:\.\s*open\s*\(|::\s*open\b)' -or
     $provider -notmatch '"amazon-deals"' -or
     $provider -notmatch 'https://www\.amazon\.com\.br/deals') {
     throw 'D-D: contrato Java divergente; revisar o bootstrap antes da ativacao'

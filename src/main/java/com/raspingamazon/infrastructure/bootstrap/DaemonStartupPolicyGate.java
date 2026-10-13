@@ -14,30 +14,19 @@ import java.nio.file.Path;
 import java.util.Set;
 
 /**
- * Barreira fail-closed, dentro da JVM, anterior ao bootstrap produtivo.
- *
- * <p>O supervisor Windows valida o mesmo plano, mas nao e a unica barreira:
- * uma invocacao direta de ContinuousProcessingMain tambem precisa de
- * autorizacao explicita. Nao ha bypass por variavel de ambiente ou argumentos.
- *
- * <p>Esta classe nao conecta JDBC, nao faz recovery e nao executa integracoes.
- * Erros nao incluem valores nem o caminho do arquivo de configuracao.</p>
+ * Contrato unico de politica para a entrada produtiva e a verificacao
+ * preparatoria. Falha de modo fechado, sem expor valores ou caminhos.
+ * Nenhum metodo deste tipo abre JDBC ou executa integracoes.
  */
 final class DaemonStartupPolicyGate {
 
     private static final String POLICY_FILE =
         "config/operacao/continuous-startup-policy.v1.json";
-
     private static final long MAX_POLICY_BYTES = 16_384L;
-
     private static final Set<String> REQUIRED_KEYS = Set.of(
-        "schema_version",
-        "execution_mode",
-        "initial_schedule_interval",
-        "daemon_start_authorized",
-        "flyway_migrate_authorized",
-        "external_actions_authorized",
-        "automatic_restart_authorized",
+        "schema_version", "execution_mode", "initial_schedule_interval",
+        "daemon_start_authorized", "flyway_migrate_authorized",
+        "external_actions_authorized", "automatic_restart_authorized",
         "shutdown_grace_seconds"
     );
 
@@ -48,9 +37,35 @@ final class DaemonStartupPolicyGate {
         return Path.of(POLICY_FILE);
     }
 
+    /** O entrypoint produtivo continua a exigir autorizacao de efeitos. */
     static void requireAuthorized(Path policyPath) {
-        // Valores ausentes, tipos divergentes, chaves extras e JSON invalido
-        // devem bloquear a execucao, em vez de assumir defaults permissivos.
+        Policy plan = parse(policyPath);
+        if (!"supervised".equals(plan.mode())
+            || !plan.daemonStart()
+            || !plan.externalActions()
+            || plan.flywayMigrate()
+            || plan.automaticRestart()) {
+            throw rejected();
+        }
+    }
+
+    /**
+     * Diagnostico JDBC: permitida apenas a configuracao de preparacao,
+     * com todas as quatro autorizacoes desligadas. Nao e um bypass do
+     * metodo requireAuthorized nem libera ContinuousProcessingMain.
+     */
+    static void requirePreparationOnly(Path policyPath) {
+        Policy plan = parse(policyPath);
+        if (!"preparation_only".equals(plan.mode())
+            || plan.daemonStart()
+            || plan.externalActions()
+            || plan.flywayMigrate()
+            || plan.automaticRestart()) {
+            throw rejected();
+        }
+    }
+
+    private static Policy parse(Path policyPath) {
         if (policyPath == null) {
             throw rejected();
         }
@@ -87,18 +102,22 @@ final class DaemonStartupPolicyGate {
             JsonNode grace = root.get("shutdown_grace_seconds");
 
             if (!version.isInt() || version.intValue() != 1
-                || !mode.isTextual() || !"supervised".equals(mode.textValue())
-                || !interval.isTextual() || !"PT1H".equals(interval.textValue())
-                || !grace.isInt() || grace.intValue() != 30
-                || !flag(root, "daemon_start_authorized")
-                || !flag(root, "external_actions_authorized")
-                || flag(root, "flyway_migrate_authorized")
-                || flag(root, "automatic_restart_authorized")) {
+                || !mode.isTextual()
+                || !interval.isTextual()
+                || !"PT1H".equals(interval.textValue())
+                || !grace.isInt() || grace.intValue() != 30) {
                 throw rejected();
             }
 
+            return new Policy(
+                mode.textValue(),
+                flag(root, "daemon_start_authorized"),
+                flag(root, "flyway_migrate_authorized"),
+                flag(root, "external_actions_authorized"),
+                flag(root, "automatic_restart_authorized")
+            );
+
         } catch (IOException | SecurityException exception) {
-            // Nao propagar o conteudo, caminho ou mensagem da excecao.
             throw rejected();
         }
     }
@@ -113,5 +132,14 @@ final class DaemonStartupPolicyGate {
 
     private static IllegalStateException rejected() {
         return new IllegalStateException("Daemon startup authorization denied");
+    }
+
+    private record Policy(
+        String mode,
+        boolean daemonStart,
+        boolean flywayMigrate,
+        boolean externalActions,
+        boolean automaticRestart
+    ) {
     }
 }
