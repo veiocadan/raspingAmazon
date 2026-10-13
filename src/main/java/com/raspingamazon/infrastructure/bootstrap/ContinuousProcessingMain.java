@@ -52,10 +52,10 @@ public final class ContinuousProcessingMain {
         ContinuousProcessingApplication application = null;
         SupervisedStopSignal stopSignal = null;
         Thread shutdownHook = null;
+        int exitCode = 0;
 
         try {
-            // Esta verificacao DEVE anteceder qualquer bootstrap, JDBC,
-            // recovery, worker, scheduler ou integracao externa.
+            // A politica antecede JDBC, recovery, threads e efeitos externos.
             DaemonStartupPolicyGate.requireAuthorized(policyPath);
 
             application = applicationOpener.get();
@@ -75,26 +75,42 @@ public final class ContinuousProcessingMain {
             if (stopSignal.failure() != null) {
                 throw stopSignal.failure();
             }
-            return 0;
 
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             err.println("Continuous processing interrupted");
             err.flush();
-            return EXIT_INTERRUPTED;
+            exitCode = EXIT_INTERRUPTED;
 
         } catch (RuntimeException exception) {
             err.println("Continuous processing failed: " + failureMessage(exception));
             err.flush();
-            return EXIT_OPERATIONAL_FAILURE;
+            exitCode = EXIT_OPERATIONAL_FAILURE;
 
         } finally {
             if (stopSignal != null) {
                 stopSignal.close();
             }
             removeShutdownHookBestEffort(shutdownHook);
-            closeApplicationBestEffort(application, err);
+
+            // Nao devolver codigo 0 antes de verificar o fechamento fisico.
+            // Se o processamento terminou com sucesso mas close() falhou,
+            // o supervisor deve receber falha (sem detalhar segredos).
+            if (application != null) {
+                try {
+                    application.close();
+                } catch (RuntimeException exception) {
+                    err.println("Continuous processing cleanup failed: "
+                        + failureMessage(exception));
+                    err.flush();
+                    if (exitCode == 0) {
+                        exitCode = EXIT_OPERATIONAL_FAILURE;
+                    }
+                }
+            }
         }
+
+        return exitCode;
     }
 
     private static void closeFromShutdownHook(
@@ -105,22 +121,6 @@ public final class ContinuousProcessingMain {
             application.close();
         } catch (RuntimeException exception) {
             err.println("Continuous processing shutdown failed: "
-                + failureMessage(exception));
-            err.flush();
-        }
-    }
-
-    private static void closeApplicationBestEffort(
-        ContinuousProcessingApplication application,
-        PrintWriter err
-    ) {
-        if (application == null) {
-            return;
-        }
-        try {
-            application.close();
-        } catch (RuntimeException exception) {
-            err.println("Continuous processing cleanup failed: "
                 + failureMessage(exception));
             err.flush();
         }
