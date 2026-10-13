@@ -2,6 +2,7 @@ package com.raspingamazon.application.scheduling.port;
 
 import com.raspingamazon.application.scheduling.ProcessingSchedule;
 import com.raspingamazon.application.scheduling.ProcessingScheduleLease;
+import com.raspingamazon.application.scheduling.ScheduleAdministrativeContext;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -166,4 +167,36 @@ public interface ProcessingSchedulePort {
         OffsetDateTime nextRunAt,
         OffsetDateTime changedAt
     );
+
+    /** Uma operacao contextualizada deve ser atomica com seu registro de auditoria no adapter. */
+    default ProcessingSchedule pause(
+        String scheduleKey,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        java.util.Objects.requireNonNull(context, "context must not be null");
+        return pause(scheduleKey, changedAt);
+    }
+
+    default ProcessingSchedule resume(
+        String scheduleKey,
+        OffsetDateTime nextRunAt,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        java.util.Objects.requireNonNull(context, "context must not be null");
+        return resume(scheduleKey, nextRunAt, changedAt);
+    }
+
+    default ProcessingSchedule changeInterval(
+        String scheduleKey,
+        Duration interval,
+        OffsetDateTime nextRunAt,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        java.util.Objects.requireNonNull(context, "context must not be null");
+        return changeInterval(scheduleKey, interval, nextRunAt, changedAt);
+    }
+
 }

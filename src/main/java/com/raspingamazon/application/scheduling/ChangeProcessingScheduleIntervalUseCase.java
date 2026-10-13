@@ -54,6 +54,15 @@ public final class ChangeProcessingScheduleIntervalUseCase {
         String scheduleKey,
         Duration interval
     ) {
+        return execute(scheduleKey, interval, ScheduleAdministrativeContext.useCaseReference("interval"));
+    }
+
+    public ProcessingSchedule execute(
+        String scheduleKey,
+        Duration interval,
+        ScheduleAdministrativeContext context
+    ) {
+        Objects.requireNonNull(context, "context must not be null");
 
         String validatedScheduleKey =
             requireExistingSchedule(
@@ -80,7 +89,8 @@ public final class ChangeProcessingScheduleIntervalUseCase {
             validatedScheduleKey,
             validatedInterval,
             nextRunAt,
-            changedAt
+            changedAt,
+            context
         );
     }
 
