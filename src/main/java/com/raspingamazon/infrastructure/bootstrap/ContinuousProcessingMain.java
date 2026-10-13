@@ -3,13 +3,17 @@ package com.raspingamazon.infrastructure.bootstrap;
 import com.raspingamazon.application.operation.observability.SafeOperationalError;
 
 import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.util.function.Supplier;
 
 /**
  * Entrypoint do daemon de processamento continuo.
  *
- * <p>Sem configuracao de supervisao, preserva o lifecycle historico.
- * Com o arquivo de pedido configurado, habilita parada cooperativa
- * atraves do fechamento normal da aplicacao, sem taskkill.</p>
+ * <p>Antes de abrir qualquer conexao ou executar recovery, exige a politica
+ * versionada com autorizacoes explicitas. O launcher Windows possui um
+ * bloqueio adicional; chamar esta classe diretamente nao o contorna.</p>
+ *
+ * <p>A parada supervisionada continua cooperativa e sem taskkill.</p>
  */
 public final class ContinuousProcessingMain {
 
@@ -29,12 +33,32 @@ public final class ContinuousProcessingMain {
     }
 
     static int run(PrintWriter err) {
+        return run(
+            err,
+            DaemonStartupPolicyGate.defaultPolicyPath(),
+            ContinuousProcessingBootstrap::open
+        );
+    }
+
+    /**
+     * Injetar caminho e abertura somente nos testes do mesmo pacote.
+     * O main publico nunca aceita override de politica via argumento/env.
+     */
+    static int run(
+        PrintWriter err,
+        Path policyPath,
+        Supplier<ContinuousProcessingApplication> applicationOpener
+    ) {
         ContinuousProcessingApplication application = null;
         SupervisedStopSignal stopSignal = null;
         Thread shutdownHook = null;
 
         try {
-            application = ContinuousProcessingBootstrap.open();
+            // Esta verificacao DEVE anteceder qualquer bootstrap, JDBC,
+            // recovery, worker, scheduler ou integracao externa.
+            DaemonStartupPolicyGate.requireAuthorized(policyPath);
+
+            application = applicationOpener.get();
             ContinuousProcessingApplication hookApplication = application;
             PrintWriter hookErr = err;
 
@@ -44,8 +68,6 @@ public final class ContinuousProcessingMain {
             );
             Runtime.getRuntime().addShutdownHook(shutdownHook);
 
-            // A ponte usa apenas um arquivo local; nunca registra senhas.
-            // O plano do supervisor decide separadamente se a partida e autorizada.
             stopSignal = SupervisedStopSignal.startIfConfigured(application::close);
             application.start();
             application.awaitTermination();
@@ -116,8 +138,7 @@ public final class ContinuousProcessingMain {
     }
 
     // Visibilidade package-private preservada para os testes historicos.
-    // Jamais expor getMessage()/toString() de excecoes operacionais:
-    // podem conter senha JDBC, token, endpoint ou outros dados sensiveis.
+    // Nao usar getMessage() nem toString() em falhas operacionais.
     static String failureMessage(RuntimeException exception) {
         return SafeOperationalError.describe(exception);
     }
