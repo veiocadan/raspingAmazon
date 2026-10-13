@@ -164,3 +164,22 @@ function Exigir-SemSolicitacaoAntiga-C-C {
         throw 'C2-E-D-D-D-C-C: pedido antigo de parada presente; investigar antes de partida'
     }
 }
+
+
+# FASE 21-C2-E-D-D-D-D-G - remocao de credenciais privilegiadas herdadas.
+# Recebe o dicionario do PROCESSO FILHO, sem alterar o ambiente do PowerShell.
+# Nao armazena, devolve ou registra o valor de qualquer variavel removida.
+function Remover-VariaveisPrivilegiadas-C-C {
+    param(
+        [Parameter(Mandatory=$true)]
+        [System.Collections.Specialized.StringDictionary]$Variaveis
+    )
+
+    # ProcessStartInfo.EnvironmentVariables inclui valores herdados da sessao.
+    # Nao basta evitar atribuir DB_MIGRATION_PASSWORD explicitamente.
+    foreach ($nome in @($Variaveis.Keys)) {
+        if ($nome -match '^(DB_MIGRATION_|FLYWAY_|PG(HOST|PORT|DATABASE|USER|PASSWORD|PASSFILE|SERVICE|SERVICEFILE)$)') {
+            [void]$Variaveis.Remove($nome)
+        }
+    }
+}

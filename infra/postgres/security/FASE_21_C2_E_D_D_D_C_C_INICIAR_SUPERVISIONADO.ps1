@@ -42,12 +42,12 @@ if ($classpath.Contains('"') -or [string]::IsNullOrWhiteSpace($dependencias)) {
     throw 'C2-E-D-D-D-C-C: classpath invalido; daemon nao iniciado'
 }
 
-$runtime = $null; $migrator = $null; $processo = $null
+$runtime = $null; $processo = $null
 $registroCriado = $false
 try {
+    # O daemon usa APENAS a identidade rasping_runtime. A senha de migracao
+    # nao e acessada nem enviada ao processo filho.
     $runtime = Ler-SenhaDPAPI-C-C (Join-Path $DiretorioSegredos 'rasping_runtime.dpapi')
-    $migrator = Ler-SenhaDPAPI-C-C (Join-Path $DiretorioSegredos 'rasping_migrator.dpapi')
-    if ($runtime -ceq $migrator) { throw 'C2-E-D-D-D-C-C: credenciais iguais; abortar partida' }
     $java = (Get-Command java.exe -ErrorAction Stop).Source
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $java
@@ -56,13 +56,14 @@ try {
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $envs = $psi.EnvironmentVariables
+    # ProcessStartInfo herda o ambiente do PowerShell: remova quaisquer
+    # credenciais/parametros de migracao ANTES da criacao da JVM filha.
+    Remover-VariaveisPrivilegiadas-C-C -Variaveis $envs
     $envs['DB_HOST'] = '127.0.0.1'
     $envs['DB_PORT'] = '5432'
     $envs['DB_NAME'] = 'rasping_amazon'
     $envs['DB_USER'] = 'rasping_runtime'
     $envs['DB_PASSWORD'] = $runtime
-    $envs['DB_MIGRATION_USER'] = 'rasping_migrator'
-    $envs['DB_MIGRATION_PASSWORD'] = $migrator
     $envs['PROCESSING_SCHEDULE_INTERVAL'] = $plano.initial_schedule_interval
     $envs['RASPING_SUPERVISED_STOP_REQUEST_FILE'] = $stop
     foreach ($chave in @('ALERT_REPEATED_EXTERNAL_FAILURE_THRESHOLD',
@@ -76,8 +77,7 @@ try {
     $processo = [System.Diagnostics.Process]::Start($psi)
     if ($null -eq $processo) { throw 'C2-E-D-D-D-C-C: processo Java nao foi criado' }
     $envs.Remove('DB_PASSWORD')
-    $envs.Remove('DB_MIGRATION_PASSWORD')
-    $runtime = $null; $migrator = $null
+    $runtime = $null
 
     $processoCim = $null
     for ($i=0; $i -lt 15; $i++) {
@@ -110,7 +110,7 @@ try {
     if ($processo.ExitCode -ne 0) { throw 'C2-E-D-D-D-C-C: daemon terminou com falha; verificar estado antes de nova partida' }
     Write-Host '=== C2-E-D-D-D-C-C ENCERRAMENTO PASS - daemon terminou normalmente ==='
 } finally {
-    $runtime = $null; $migrator = $null
+    $runtime = $null
     # Nunca remover registro se Java ainda estiver vivo: facilita parada segura em outra janela.
     if ($null -ne $processo -and $processo.HasExited -and $registroCriado) {
         if (Test-Path -LiteralPath $registro -PathType Leaf) {
