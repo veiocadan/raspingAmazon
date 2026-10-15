@@ -1603,19 +1603,7 @@ class PublicationDeliveryCompositionEndToEndTest {
                 scenario.productId()
             );
 
-            deleteProfile(
-                connection,
-                "publication_selection_profile",
-                scenario.channel(),
-                scenario.destination()
-            );
 
-            deleteProfile(
-                connection,
-                "publication_quota_profile",
-                scenario.channel(),
-                scenario.destination()
-            );
 
             connection.commit();
 
@@ -1651,37 +1639,6 @@ class PublicationDeliveryCompositionEndToEndTest {
             statement.setLong(
                 1,
                 id
-            );
-
-            statement.executeUpdate();
-        }
-    }
-
-    private void deleteProfile(
-        Connection connection,
-        String tableName,
-        String channel,
-        String destination
-    ) throws Exception {
-
-        String sql =
-            "DELETE FROM "
-                + tableName
-                + " WHERE channel = ? AND destination = ?";
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(
-                     sql
-                 )) {
-
-            statement.setString(
-                1,
-                channel
-            );
-
-            statement.setString(
-                2,
-                destination
             );
 
             statement.executeUpdate();

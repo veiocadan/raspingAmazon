@@ -1199,10 +1199,6 @@ class JdbcPublicationOutboxQueueConcurrencyTest {
                     testData.productId()
                 );
 
-                deleteProfiles(
-                    connection,
-                    testData.destination()
-                );
 
                 connection.commit();
 
@@ -1268,56 +1264,6 @@ class JdbcPublicationOutboxQueueConcurrencyTest {
             statement.setLong(
                 1,
                 id
-            );
-
-            statement.executeUpdate();
-        }
-    }
-
-    private void deleteProfiles(
-        Connection connection,
-        String destination
-    ) throws Exception {
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(
-                     """
-                     DELETE FROM publication_selection_profile
-                     WHERE channel = ?
-                       AND destination = ?
-                     """
-                 )) {
-
-            statement.setString(
-                1,
-                CHANNEL
-            );
-
-            statement.setString(
-                2,
-                destination
-            );
-
-            statement.executeUpdate();
-        }
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(
-                     """
-                     DELETE FROM publication_quota_profile
-                     WHERE channel = ?
-                       AND destination = ?
-                     """
-                 )) {
-
-            statement.setString(
-                1,
-                CHANNEL
-            );
-
-            statement.setString(
-                2,
-                destination
             );
 
             statement.executeUpdate();
