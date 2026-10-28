@@ -63,7 +63,7 @@ $segredo = $null
 $linhas = @()
 try {
     $segredo = Ler-SenhaDPAPI-C-C -Caminho (Join-Path $caminhoSegredos 'rasping_runtime.dpapi')
-    $linhas = @($segredo | & docker compose -f infra/compose.yml exec -T postgres sh '/tmp/FASE_21_C2_E_D_D_D_D_B_CONSULTAR_INVENTARIO.sh' 2>$null)
+    $linhas = @($segredo | & docker exec -i $NomeContainer sh '/tmp/FASE_21_C2_E_D_D_D_D_B_CONSULTAR_INVENTARIO.sh' 2>$null)
     if ($LASTEXITCODE -ne 0) {
         throw 'D-B: inventario SQL reprovado; nao executar daemon'
     }
