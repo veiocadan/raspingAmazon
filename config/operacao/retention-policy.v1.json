@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "execution_mode": "inventory_only",
+  "destructive_actions_authorized": false,
+  "continuous_log_capture_authorized": false,
+  "github_probe_artifact_days": 3,
+  "local_rules": [
+    {
+      "id": "amazon-diagnostics",
+      "relative_path": "target/diagnostics",
+      "proposed_max_age_days": 7
+    },
+    {
+      "id": "maven-test-reports",
+      "relative_path": "target/surefire-reports",
+      "proposed_max_age_days": 7
+    }
+  ],
+  "continuous_logs_proposal": {
+    "external_directory": "C:\\dev\\rasping-amazon-operacao\\logs",
+    "proposed_max_age_days": 30,
+    "proposed_max_segment_bytes": 16777216,
+    "proposed_max_total_bytes": 536870912
+  }
+}

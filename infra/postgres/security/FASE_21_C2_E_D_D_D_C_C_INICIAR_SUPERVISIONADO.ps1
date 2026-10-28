@@ -19,6 +19,15 @@ if (-not $ConfirmarPartida) { throw 'C2-E-D-D-D-C-C: partida exige -ConfirmarPar
 # PRIMEIRO bloqueio: na politica atual nenhuma acao de startup ocorre.
 Exigir-PartidaAutorizada-C-C -Plano $plano
 Exigir-GitPronto-C-C
+# FASE 21-E: importar sem efeitos e recusar partida sem autorizacao da captura.
+# Nenhum arquivo externo e criado antes de passar pelos gates versionados.
+. 'infra/retencao/FASE_21_E_B1_FUNCOES_SEGMENTACAO.ps1'
+. 'infra/retencao/FASE_21_E_B3_FUNCOES_COMPATIBILIDADE.ps1'
+. 'infra/retencao/FASE_21_E_B8_FUNCOES_CATALOGO.ps1'
+. 'infra/retencao/FASE_21_E_B9_FUNCOES_CAPTURA_CATALOGADA.ps1'
+. 'infra/retencao/FASE_21_E_D2_FUNCOES_ESCRITOR_OFFLINE.ps1'
+. 'infra/retencao/FASE_21_E_FUNCOES_CAPTURA_OPERACIONAL.ps1'
+$capturaPlano = Assert-21E-AutorizacaoCaptura
 
 $dir = Exigir-CaminhoSupervisao-C-C -Diretorio $DiretorioSupervisao
 $registro = Join-Path $dir 'rasping-amazon-daemon.v1.json'
@@ -44,6 +53,7 @@ if ($classpath.Contains('"') -or [string]::IsNullOrWhiteSpace($dependencias)) {
     throw 'C2-E-D-D-D-C-C: classpath invalido; daemon nao iniciado'
 }
 
+$capturaSessao = $null
 $runtime = $null; $processo = $null
 $envs = $null
 $registroCriado = $false
@@ -64,6 +74,11 @@ try {
     $psi.WorkingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
+    # Leitura concorrente de ambos os canais; nao deixar texto bruto no console.
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false,$true)
+    $psi.StandardErrorEncoding = [Text.Encoding]::GetEncoding(28591)
     $envs = $psi.EnvironmentVariables
     # ProcessStartInfo herda o ambiente do PowerShell: remova quaisquer
     # credenciais/parametros de migracao ANTES da criacao da JVM filha.
@@ -93,6 +108,9 @@ try {
     # em disco durante esta janela de vulnerabilidade.
     $ticks = Confirmar-ProcessoJavaCriado-D-I -Processo $processo -ClassePrincipal 'com.raspingamazon.infrastructure.bootstrap.ContinuousProcessingMain'
     if ($processo.HasExited) { throw 'C2-E-D-D-D-C-C: daemon terminou antes de registrar supervisao' }
+    # Identidade comprovada ANTES de criar sessao privada de logs.
+    $capturaSessao = New-21E-SessaoCapturaOperacional -Plano $capturaPlano `
+        -Processo $processo -CreationTicks ([long]$ticks)
     $obj = [ordered]@{ schema_version = 1; pid = [long]$processo.Id;
         creation_utc_ticks = [long]$ticks;
         java_main_class = 'com.raspingamazon.infrastructure.bootstrap.ContinuousProcessingMain' }
@@ -109,10 +127,35 @@ try {
     }
     Write-Host '=== C2-E-D-D-D-C-C PARTIDA SUPERVISIONADA - daemon identificado; para encerrar usar script PARAR_SUPERVISIONADO ==='
     # A janela supervisionadora espera o termino. Nao reinicia e nao mata Java.
-    $processo.WaitForExit()
+    $capturaResultado = Invoke-21E-CapturarProcessoSupervisionado `
+        -Processo $processo -Sessao $capturaSessao -CaminhoStop $stop `
+        -PrazoParadaSegundos ([int]$plano.shutdown_grace_seconds)
+    $capturaSessao = $null
+    Write-Host ('=== CAPTURA SEGURA: stdout={0}; stderr={1} ===' -f `
+        $capturaResultado.Stdout,$capturaResultado.Stderr)
     if ($processo.ExitCode -ne 0) { throw 'C2-E-D-D-D-C-C: daemon terminou com falha; verificar estado antes de nova partida' }
     Write-Host '=== C2-E-D-D-D-C-C ENCERRAMENTO PASS - daemon terminou normalmente ==='
+ } catch {
+    # Uma falha apos registrar a JVM nao deve abandona-la em execucao.
+    # O pedido cooperativo nunca remove um pedido anterior nem encerra a forca.
+    if ($registroCriado -and $null -ne $processo -and -not $processo.HasExited) {
+        try {
+            if (-not (Test-Path -LiteralPath $stop)) {
+                $pedido = [IO.FileStream]::new($stop,[IO.FileMode]::CreateNew,
+                    [IO.FileAccess]::Write,[IO.FileShare]::None)
+                try {
+                    $b = [Text.Encoding]::ASCII.GetBytes('STOP')
+                    $pedido.Write($b,0,$b.Length);$pedido.Flush($true)
+                } finally { $pedido.Dispose() }
+            }
+            [void]$processo.WaitForExit(([int]$plano.shutdown_grace_seconds)*1000)
+        } catch { }
+    }
+    throw
 } finally {
+    if ($null -ne $capturaSessao) {
+        try { Close-21E-SessaoCapturaOperacional -Sessao $capturaSessao } catch { }
+    }
     $runtime = $null
     if ($null -ne $envs) { [void]$envs.Remove('DB_PASSWORD') }
     if ($null -ne $tokenReserva) {

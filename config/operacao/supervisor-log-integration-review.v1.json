@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "execution_mode": "static_review_only",
+  "daemon_start_authorized": false,
+  "supervisor_integration_authorized": false,
+  "continuous_log_capture_authorized": false,
+  "destructive_actions_authorized": false,
+  "production_adapter_status": "implemented_policy_gated",
+  "expected_sources": [
+    {
+      "path": "infra/postgres/security/FASE_21_C2_E_D_D_D_C_C_INICIAR_SUPERVISIONADO.ps1",
+      "sha256": "A5C2BAE88EB22F5D821C97B85749F35821C4306B8DF084ABB1019F6D93C2B197"
+    },
+    {
+      "path": "infra/postgres/security/FASE_21_C2_E_D_D_D_C_C_FUNCOES_SUPERVISOR.ps1",
+      "sha256": "208CD858F8265FBBC6E9C74F7D8EBAE1EBE3579BCD98698045315FE1CFA85C75"
+    },
+    {
+      "path": "infra/retencao/FASE_21_E_B9_FUNCOES_CAPTURA_CATALOGADA.ps1",
+      "sha256": "6ED0F24B1ECFB5D42D85B12D9E6CE88DECF4918F8D551415680C984B16A230E9"
+    },
+    {
+      "path": "src/main/java/com/raspingamazon/infrastructure/bootstrap/ContinuousProcessingMain.java",
+      "sha256": "04AAF72F17F3E5830280D8F9B2CBC2AA80AD75BAB61A881ADDB6DF049ECE51D3"
+    },
+    {
+      "path": "src/main/java/com/raspingamazon/infrastructure/observability/JsonStructuredOperationalLogAdapter.java",
+      "sha256": "D623F1584184D0DBB46539ED0B33ED5AB9143F02860FBDBBE4BD308809768766"
+    }
+  ]
+}
