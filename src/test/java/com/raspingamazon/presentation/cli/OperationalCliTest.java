@@ -153,6 +153,13 @@ class OperationalCliTest {
         assertTrue(
             console.stderr()
                 .contains(
+                    "Usage error: unknown command"
+                )
+        );
+
+        assertFalse(
+            console.stderr()
+                .contains(
                     "unknown command: unknown"
                 )
         );
@@ -162,6 +169,45 @@ class OperationalCliTest {
                 .contains(
                     "Uso:"
                 )
+        );
+    }
+
+    @Test
+    void shouldNotEchoUnrecognizedTopLevelCommandContainingSecret() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String secret =
+            "BOT_TOKEN_SECRET_DO_NOT_PRINT_987654321";
+
+        OperationalCli cli =
+            console.createCli(
+                Map.of()
+            );
+
+        CliExitCode result =
+            cli.run(
+                new String[]{
+                    secret
+                }
+            );
+
+        assertEquals(
+            CliExitCode.USAGE_ERROR,
+            result
+        );
+
+        assertTrue(
+            console.stderr().contains(
+                "Usage error: unknown command"
+            )
+        );
+
+        assertFalse(
+            console.stderr().contains(
+                secret
+            )
         );
     }
 
@@ -283,6 +329,83 @@ class OperationalCliTest {
     }
 
     @Test
+    void shouldNotExposeUnknownActionsOrOptionsInUsageErrors() {
+
+        String secret = "PASSWORD_TOKEN_SHOULD_NOT_APPEAR_987";
+
+        for (String prefix : List.of(
+            "unknown alerts action: ",
+            "unknown evaluations action: ",
+            "unknown jobs action: ",
+            "unknown publications action: ",
+            "unknown runs action: ",
+            "unknown schedules action: ",
+            "unknown evaluations list option: ",
+            "unknown jobs list option: ",
+            "unknown publications list option: ",
+            "unknown runs list option: "
+        )) {
+
+            assertUsageErrorDoesNotExposeInput(
+                prefix,
+                secret
+            );
+        }
+    }
+
+    @Test
+    void shouldNotExposeUnexpectedOrDuplicateArgumentsInUsageErrors() {
+
+        String secret = "AUTHORIZATION_BEARER_SECRET_123";
+
+        for (String prefix : List.of(
+            "unexpected argument: ",
+            "duplicate option: "
+        )) {
+
+            assertUsageErrorDoesNotExposeInput(
+                prefix,
+                secret
+            );
+        }
+    }
+
+    private void assertUsageErrorDoesNotExposeInput(
+        String prefix,
+        String secret
+    ) {
+
+        TestConsole console = new TestConsole();
+
+        OperationalCli cli = console.createCli(
+            Map.of(
+                "jobs",
+                (arguments, out, err) -> {
+                    throw new CliUsageException(
+                        prefix + secret
+                    );
+                }
+            )
+        );
+
+        CliExitCode result = cli.run(
+            new String[]{"jobs", "list"}
+        );
+
+        String stderr = console.stderr();
+
+        assertEquals(CliExitCode.USAGE_ERROR, result);
+        assertTrue(
+            stderr.contains(
+                "Usage error: "
+                    + prefix.substring(0, prefix.length() - 2)
+            )
+        );
+        assertFalse(stderr.contains(secret));
+        assertTrue(stderr.contains("Uso:"));
+    }
+
+    @Test
     void shouldConvertRuntimeFailureToOperationalError() {
 
         TestConsole console =
@@ -321,7 +444,7 @@ class OperationalCliTest {
         assertTrue(
             console.stderr()
                 .contains(
-                    "Operational error: database unavailable"
+                    "Operational error: IllegalStateException (details suppressed)"
                 )
         );
 
@@ -331,6 +454,52 @@ class OperationalCliTest {
                     "Uso:"
                 )
         );
+    }
+
+    @Test
+    void shouldNotExposeSecretsEmbeddedInOperationalExceptions() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String password =
+            "postgres_password_TOP_SECRET_123";
+
+        String token =
+            "bot_token_TOP_SECRET_456";
+
+        OperationalCli cli =
+            console.createCli(
+                Map.of(
+                    "jobs",
+                    (
+                        arguments,
+                        out,
+                        err
+                    ) -> {
+                        throw new IllegalStateException(
+                            "jdbc password=" + password,
+                            new RuntimeException(
+                                "Authorization: Bearer " + token
+                            )
+                        );
+                    }
+                )
+            );
+
+        CliExitCode result =
+            cli.run(
+                new String[]{"jobs", "list"}
+            );
+
+        String stderr = console.stderr();
+
+        assertEquals(CliExitCode.OPERATIONAL_ERROR, result);
+        assertTrue(stderr.contains("Operational error:"));
+        assertFalse(stderr.contains(password));
+        assertFalse(stderr.contains(token));
+        assertFalse(stderr.contains("password="));
+        assertFalse(stderr.contains("Authorization:"));
     }
 
     @Test

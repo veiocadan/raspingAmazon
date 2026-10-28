@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "execution_mode": "offline_validation_only",
+  "continuous_log_capture_authorized": false,
+  "destructive_actions_authorized": false,
+  "events": [
+    { "code": "processing.job.claimed", "component": "processing-worker", "operation": "execute-job", "level": "INFO", "outcomes": ["CLAIMED"] },
+    { "code": "processing.job.succeeded", "component": "processing-worker", "operation": "execute-job", "level": "INFO", "outcomes": ["SUCCEEDED"] },
+    { "code": "processing.job.retry-scheduled", "component": "processing-worker", "operation": "execute-job", "level": "WARN", "outcomes": ["RETRY_WAIT"] },
+    { "code": "processing.job.dead", "component": "processing-worker", "operation": "execute-job", "level": "ERROR", "outcomes": ["DEAD"] },
+    { "code": "processing.job.failure-handled", "component": "processing-worker", "operation": "execute-job", "level": "WARN", "outcomes": ["PENDING", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "DEAD"] },
+    { "code": "integration.observation.persistence-failed", "component": "integration-observation-recorder", "operation": "persist-observation", "level": "ERROR", "outcomes": ["FAILURE"] }
+  ]
+}

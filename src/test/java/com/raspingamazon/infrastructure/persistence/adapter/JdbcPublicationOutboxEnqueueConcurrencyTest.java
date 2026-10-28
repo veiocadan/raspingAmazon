@@ -1121,15 +1121,7 @@ class JdbcPublicationOutboxEnqueueConcurrencyTest {
                         .productId()
                 );
 
-                deleteSelectionProfile(
-                    connection,
-                    testData.destination()
-                );
 
-                deleteQuotaProfile(
-                    connection,
-                    testData.destination()
-                );
 
                 connection.commit();
 
@@ -1304,62 +1296,6 @@ class JdbcPublicationOutboxEnqueueConcurrencyTest {
             statement.setLong(
                 1,
                 productId
-            );
-
-            statement.executeUpdate();
-        }
-    }
-
-    private void deleteSelectionProfile(
-        Connection connection,
-        String destination
-    ) throws Exception {
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(
-                     """
-                     DELETE FROM publication_selection_profile
-                     WHERE channel = ?
-                       AND destination = ?
-                     """
-                 )) {
-
-            statement.setString(
-                1,
-                CHANNEL
-            );
-
-            statement.setString(
-                2,
-                destination
-            );
-
-            statement.executeUpdate();
-        }
-    }
-
-    private void deleteQuotaProfile(
-        Connection connection,
-        String destination
-    ) throws Exception {
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(
-                     """
-                     DELETE FROM publication_quota_profile
-                     WHERE channel = ?
-                       AND destination = ?
-                     """
-                 )) {
-
-            statement.setString(
-                1,
-                CHANNEL
-            );
-
-            statement.setString(
-                2,
-                destination
             );
 
             statement.executeUpdate();

@@ -1428,27 +1428,7 @@ class JdbcPublicationAttemptCompletionAdapterTest {
             scenario.productId()
         );
 
-        executeDelete(
-            connection,
-            """
-            DELETE FROM publication_selection_profile
-            WHERE channel = ?
-              AND destination = ?
-            """,
-            CHANNEL,
-            scenario.destination()
-        );
 
-        executeDelete(
-            connection,
-            """
-            DELETE FROM publication_quota_profile
-            WHERE channel = ?
-              AND destination = ?
-            """,
-            CHANNEL,
-            scenario.destination()
-        );
     }
 
     private void executeDelete(

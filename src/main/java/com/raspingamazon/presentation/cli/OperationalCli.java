@@ -1,5 +1,7 @@
 package com.raspingamazon.presentation.cli;
 
+import com.raspingamazon.application.operation.observability.SafeOperationalError;
+
 import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -24,6 +26,27 @@ import java.util.Objects;
  * ou implementação dos casos de uso.</p>
  */
 public final class OperationalCli {
+
+    /**
+     * Prefixos de diagnósticos cujos sufixos vêm de argumentos do usuário.
+     *
+     * <p>Preservar os identificadores estáticos de erro mantém a CLI
+     * diagnosticável sem repetir valores arbitrários no stderr.</p>
+     */
+    private static final List<String> UNSAFE_USAGE_PREFIXES = List.of(
+        "unknown alerts action: ",
+        "unknown evaluations action: ",
+        "unknown jobs action: ",
+        "unknown publications action: ",
+        "unknown runs action: ",
+        "unknown schedules action: ",
+        "unknown evaluations list option: ",
+        "unknown jobs list option: ",
+        "unknown publications list option: ",
+        "unknown runs list option: ",
+        "unexpected argument: ",
+        "duplicate option: "
+    );
 
     private final Map<String, CliCommandHandler> handlers;
 
@@ -112,9 +135,10 @@ public final class OperationalCli {
 
         if (handler == null) {
 
+            // Nunca refletir a entrada nao reconhecida no terminal:
+            // um argumento pode conter uma credencial colada por engano.
             return usageError(
-                "unknown command: "
-                    + commandName
+                "unknown command"
             );
         }
 
@@ -181,7 +205,9 @@ public final class OperationalCli {
 
         err.println(
             "Usage error: "
-                + message
+                + safeUsageMessage(
+                    message
+                )
         );
 
         err.println();
@@ -195,24 +221,37 @@ public final class OperationalCli {
         return CliExitCode.USAGE_ERROR;
     }
 
+    /**
+     * Não exibe o sufixo originado de uma ação/opção arbitrária.
+     * Mensagens estáticas válidas continuam intactas.
+     */
+    private String safeUsageMessage(
+        String message
+    ) {
+
+        for (String prefix : UNSAFE_USAGE_PREFIXES) {
+
+            if (message.startsWith(prefix)) {
+
+                return prefix.substring(
+                    0,
+                    prefix.length() - 2
+                );
+            }
+        }
+
+        return message;
+    }
+
     private CliExitCode operationalError(
         RuntimeException exception
     ) {
 
-        String message =
-            exception.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            message =
-                exception.getClass()
-                    .getSimpleName();
-        }
-
         err.println(
             "Operational error: "
-                + message
+                + SafeOperationalError.describe(
+                    exception
+                )
         );
 
         err.flush();

@@ -95,8 +95,44 @@ class OperationalCliBootstrapTest {
         assertTrue(
             console.stderr()
                 .contains(
-                    "unknown command: unknown"
+                    "Usage error: unknown command"
                 )
+        );
+    }
+
+    @Test
+    void shouldNotEchoUnknownCommandContainingSecretBeforeComposition() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String secret =
+            "DB_PASSWORD_EXPOSED_IF_ECHOED_987654321";
+
+        CliExitCode result =
+            OperationalCliBootstrap.run(
+                new String[]{
+                    secret
+                },
+                console.out(),
+                console.err()
+            );
+
+        assertEquals(
+            CliExitCode.USAGE_ERROR,
+            result
+        );
+
+        assertTrue(
+            console.stderr().contains(
+                "Usage error: unknown command"
+            )
+        );
+
+        assertFalse(
+            console.stderr().contains(
+                secret
+            )
         );
     }
 
@@ -177,6 +213,31 @@ class OperationalCliBootstrapTest {
                 new String[0]
             )
         );
+    }
+
+    @Test
+    void shouldRedactBootstrapOperationalErrorBeforePrinting() {
+
+        TestConsole console =
+            new TestConsole();
+
+        String secret =
+            "TOP_SECRET_DB_PASSWORD";
+
+        CliExitCode result =
+            OperationalCliBootstrap.operationalError(
+                new IllegalStateException(
+                    "password=" + secret
+                ),
+                console.err()
+            );
+
+        assertEquals(CliExitCode.OPERATIONAL_ERROR, result);
+        assertEquals(
+            "Operational error: IllegalStateException (details suppressed)",
+            console.stderr().trim()
+        );
+        assertFalse(console.stderr().contains(secret));
     }
 
     private static final class TestConsole {

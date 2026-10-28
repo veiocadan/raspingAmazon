@@ -3,6 +3,13 @@ package com.raspingamazon.infrastructure.migration;
 import com.raspingamazon.infrastructure.config.ApplicationConfig;
 import org.flywaydb.core.Flyway;
 
+/**
+ * Execucao das migracoes com a identidade exclusiva do Flyway.
+ *
+ * <p>Os parametros de rede seguem ApplicationConfig. Apenas usuario e senha
+ * sao selecionados do contrato de migracao. Durante a transicao, o construtor
+ * legado da configuracao preserva o comportamento anterior.</p>
+ */
 public final class DatabaseMigration {
 
     private DatabaseMigration() {
@@ -19,8 +26,8 @@ public final class DatabaseMigration {
         Flyway flyway = Flyway.configure()
                 .dataSource(
                         jdbcUrl,
-                        config.databaseUser(),
-                        config.databasePassword()
+                        config.databaseMigrationUser(),
+                        config.databaseMigrationPassword()
                 )
                 .load();
 

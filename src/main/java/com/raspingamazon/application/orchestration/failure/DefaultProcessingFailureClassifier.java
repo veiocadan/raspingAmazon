@@ -88,7 +88,10 @@ public final class DefaultProcessingFailureClassifier
             return permanentFailure(
                 OperationalFailureOrigin.EXTERNAL,
                 FailureCategory.SOURCE_CHANGED,
-                sourceChanged.errorCode(),
+                safeSourceErrorCode(
+                    sourceChanged.errorCode(),
+                    "SOURCE_CHANGED_INVALID_CODE"
+                ),
                 sourceChanged,
                 FailureHandlingAction.REJECT,
                 FailureHandlingAction.PAUSE,
@@ -108,7 +111,10 @@ public final class DefaultProcessingFailureClassifier
             return permanentFailure(
                 OperationalFailureOrigin.EXTERNAL,
                 FailureCategory.DATA_UNAVAILABLE,
-                dataUnavailable.errorCode(),
+                safeSourceErrorCode(
+                    dataUnavailable.errorCode(),
+                    "DATA_UNAVAILABLE_INVALID_CODE"
+                ),
                 dataUnavailable,
                 FailureHandlingAction.REJECT
             );
@@ -510,18 +516,66 @@ public final class DefaultProcessingFailureClassifier
         Throwable failure
     ) {
 
-        String message =
-            failure.getMessage();
-
-        if (message == null
-            || message.isBlank()) {
-
-            return failure
-                .getClass()
+        /*
+         * Mensagens de excecoes sao dados nao confiaveis e podem
+         * conter tokens, senhas, URLs ou respostas externas.
+         * Apenas o nome do tipo Java e persistido. O codigo,
+         * a categoria e a politica de retry sao preservados.
+         */
+        String typeName =
+            failure.getClass()
                 .getSimpleName();
+
+        if (typeName.isBlank()) {
+            return "OperationalFailure";
         }
 
-        return message;
+        return typeName;
+    }
+
+    /**
+     * Apenas codigos estruturados de fonte podem ser persistidos.
+     * A excecao de origem pode conter texto nao confiavel no codigo,
+     * portanto a classificacao substitui valores fora do contrato
+     * por um identificador diagnostico constante.
+     */
+    private String safeSourceErrorCode(
+        String errorCode,
+        String fallback
+    ) {
+
+        if (errorCode == null
+            || errorCode.length() < 3
+            || errorCode.length() > 64) {
+
+            return fallback;
+        }
+
+        if (errorCode.charAt(0) < 'A'
+            || errorCode.charAt(0) > 'Z') {
+
+            return fallback;
+        }
+
+        for (int index = 1;
+             index < errorCode.length();
+             index++) {
+
+            char character = errorCode.charAt(
+                index
+            );
+
+            boolean valid =
+                (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9')
+                    || character == '_';
+
+            if (!valid) {
+                return fallback;
+            }
+        }
+
+        return errorCode;
     }
 
     private String normalizeSqlState(
@@ -539,9 +593,33 @@ public final class DefaultProcessingFailureClassifier
                     Locale.ROOT
                 );
 
-        return normalized.isEmpty()
-            ? null
-            : normalized;
+        /*
+         * SQLSTATE e um codigo ASCII de exatamente cinco caracteres.
+         * Valores arbitrarios podem carregar segredos e jamais devem
+         * participar da construcao de codigos diagnosticos.
+         */
+        if (normalized.length() != 5) {
+            return null;
+        }
+
+        for (int index = 0;
+             index < normalized.length();
+             index++) {
+
+            char character = normalized.charAt(
+                index
+            );
+
+            boolean valid =
+                (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9');
+
+            if (!valid) {
+                return null;
+            }
+        }
+
+        return normalized;
     }
 
     private <T extends Throwable> T findCause(

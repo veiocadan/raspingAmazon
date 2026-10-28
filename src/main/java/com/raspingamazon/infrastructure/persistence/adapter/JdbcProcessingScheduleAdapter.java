@@ -2,6 +2,7 @@ package com.raspingamazon.infrastructure.persistence.adapter;
 
 import com.raspingamazon.application.scheduling.ProcessingSchedule;
 import com.raspingamazon.application.scheduling.ProcessingScheduleLease;
+import com.raspingamazon.application.scheduling.ScheduleAdministrativeContext;
 import com.raspingamazon.application.scheduling.port.ProcessingSchedulePort;
 
 import java.net.URI;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Implementação JDBC da persistência e coordenação dos agendamentos
@@ -30,6 +32,8 @@ public final class JdbcProcessingScheduleAdapter
 
     private final Connection connection;
 
+    private final JdbcTransactionAdapter administrativeTransaction;
+
     public JdbcProcessingScheduleAdapter(
         Connection connection
     ) {
@@ -39,6 +43,8 @@ public final class JdbcProcessingScheduleAdapter
                 connection,
                 "connection must not be null"
             );
+
+        this.administrativeTransaction = new JdbcTransactionAdapter(connection);
     }
 
     @Override
@@ -1033,6 +1039,96 @@ public final class JdbcProcessingScheduleAdapter
             throw new IllegalArgumentException(
                 name + " must be positive"
             );
+        }
+    }
+
+    @Override
+    public ProcessingSchedule pause(
+        String scheduleKey,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        return withAdministrativeContext(context, () -> pause(scheduleKey, changedAt));
+    }
+
+    @Override
+    public ProcessingSchedule resume(
+        String scheduleKey,
+        OffsetDateTime nextRunAt,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        return withAdministrativeContext(
+            context, () -> resume(scheduleKey, nextRunAt, changedAt)
+        );
+    }
+
+    @Override
+    public ProcessingSchedule changeInterval(
+        String scheduleKey,
+        Duration interval,
+        OffsetDateTime nextRunAt,
+        OffsetDateTime changedAt,
+        ScheduleAdministrativeContext context
+    ) {
+        return withAdministrativeContext(
+            context, () -> changeInterval(scheduleKey, interval, nextRunAt, changedAt)
+        );
+    }
+
+    /**
+     * O contexto pertence a mesma transacao que a mutacao; o trigger
+     * PostgreSQL insere o evento de auditoria na mesma unidade atomica.
+     * Restauramos valores anteriores para nao contaminar transacoes externas.
+     */
+    private ProcessingSchedule withAdministrativeContext(
+        ScheduleAdministrativeContext context,
+        Supplier<ProcessingSchedule> operation
+    ) {
+        Objects.requireNonNull(context, "context must not be null");
+        return administrativeTransaction.execute(() -> {
+            String priorActor = currentAuditSetting("rasping.schedule_actor");
+            String priorReason = currentAuditSetting("rasping.schedule_reason");
+            setAuditSetting("rasping.schedule_actor", context.actor());
+            setAuditSetting("rasping.schedule_reason", context.reason());
+
+            // Em erro, a propria transacao/savepoint faz rollback do contexto.
+            ProcessingSchedule updated = operation.get();
+            setAuditSetting("rasping.schedule_actor", priorActor);
+            setAuditSetting("rasping.schedule_reason", priorReason);
+            return updated;
+        });
+    }
+
+    private String currentAuditSetting(String name) {
+        try (PreparedStatement stmt = connection.prepareStatement(
+                "SELECT current_setting(?, true)"
+            )) {
+            stmt.setString(1, name);
+            try (ResultSet result = stmt.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("Cannot read schedule audit context");
+                }
+                return result.getString(1);
+            }
+        } catch (SQLException exception) {
+            throw persistenceFailure("read schedule audit context", exception);
+        }
+    }
+
+    private void setAuditSetting(String name, String value) {
+        try (PreparedStatement stmt = connection.prepareStatement(
+                "SELECT set_config(?, ?, true)"
+            )) {
+            stmt.setString(1, name);
+            stmt.setString(2, value == null ? "" : value);
+            try (ResultSet result = stmt.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("Cannot set schedule audit context");
+                }
+            }
+        } catch (SQLException exception) {
+            throw persistenceFailure("set schedule audit context", exception);
         }
     }
 

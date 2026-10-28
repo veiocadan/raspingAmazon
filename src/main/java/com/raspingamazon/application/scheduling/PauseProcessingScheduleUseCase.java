@@ -40,6 +40,14 @@ public final class PauseProcessingScheduleUseCase {
     public ProcessingSchedule execute(
         String scheduleKey
     ) {
+        return execute(scheduleKey, ScheduleAdministrativeContext.useCaseReference("pause"));
+    }
+
+    public ProcessingSchedule execute(
+        String scheduleKey,
+        ScheduleAdministrativeContext context
+    ) {
+        Objects.requireNonNull(context, "context must not be null");
 
         String validatedScheduleKey =
             requireExistingSchedule(
@@ -53,7 +61,8 @@ public final class PauseProcessingScheduleUseCase {
 
         return schedulePort.pause(
             validatedScheduleKey,
-            changedAt
+            changedAt,
+            context
         );
     }
 

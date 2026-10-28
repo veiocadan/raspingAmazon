@@ -2,7 +2,7 @@
 
 Sistema em desenvolvimento para **coleta, interpretação, enriquecimento, validação, filtragem, score, ranking, histórico, seleção e publicação automatizada de ofertas da Amazon Brasil**, com PostgreSQL como fonte principal de estado e foco em separação de responsabilidades, rastreabilidade, idempotência, auditabilidade, resiliência e evolução incremental.
 
-> **Estado atual:** FASE 20 concluída localmente na branch `feat/fase-20-resiliencia-recuperacao`. O pipeline já cobre processamento durável, geração versionada de `Publication`, interface operacional não bloqueante, observabilidade, execução contínua, seleção operacional, outbox de publicação, adapters de Telegram e WhatsApp, classificação operacional de falhas, recuperação após restart, `DELIVERY_UNKNOWN`, dead-letter lógico, reprocessamento controlado, `Retry-After`, rate limit persistente compartilhado e testes destrutivos de recuperação. O gate local final executou **1786 testes**, com **0 falhas, 0 erros e 0 ignorados**. O schema PostgreSQL/Flyway está em **V37**. O `external-probe` está verde. O fechamento remoto da FASE 20 ainda depende de commit documental final, push da branch e CI remoto. A próxima fase oficial é a **FASE 21 — Segurança, governança e fechamento da v1.0**.
+> **Estado atual (2026-10-12):** FASE 21 — Segurança, governança e fechamento da v1.0 — em andamento na branch `feat/fase-21-seguranca-governanca-v1`. A FASE 20 foi concluída local e remotamente: PR #11 mesclado em 2026-10-06 e CI pós-merge verde. O baseline da FASE 21 confirmou **1786 testes**, com **0 falhas, 0 erros e 0 ignorados**; schema Flyway **V37**. A ADR-0018 foi aceita nesta fase. A probe externa local da FASE 20 teve sucesso; as probes agendadas de 2026-10-08 a 2026-10-11 falharam e exigem investigação antes do release v1.0.0.
 
 ---
 
@@ -126,10 +126,10 @@ README.md
 | FASE 17 | Agendamento e execução contínua | CONCLUÍDA |
 | FASE 18 | Contrato de canais e outbox de publicação | CONCLUÍDA |
 | FASE 19 | Telegram e WhatsApp | CONCLUÍDA |
-| FASE 20 | Resiliência, recuperação e falhas de produção | CONCLUÍDA LOCALMENTE |
-| FASE 21 | Segurança, governança e fechamento da v1.0 | PRÓXIMA |
+| FASE 20 | Resiliência, recuperação e falhas de produção | CONCLUÍDA LOCAL E REMOTAMENTE |
+| FASE 21 | Segurança, governança e fechamento da v1.0 | EM ANDAMENTO |
 
-O gate remoto da FASE 20 ainda está pendente.
+O gate remoto da FASE 20 foi fechado em 2026-10-06, após o merge do PR #11 e a confirmação do CI pós-merge.
 
 ---
 
@@ -1738,12 +1738,14 @@ external-probe
 → diagnóstico da fonte real
 ```
 
-Na FASE 20:
+No gate local da FASE 20:
 
 ```text
 external-probe
 → BUILD SUCCESS
 ```
+
+Depois desse gate, as execuções agendadas da `Amazon source probe` em 2026-10-08, 2026-10-09, 2026-10-10 e 2026-10-11 terminaram com falha. A causa ainda não foi estabelecida nesta revisão. A investigação da fonte real permanece como pendência do gate externo da v1.0, separada da suíte hermética.
 
 Falhas externas não devem ser mascaradas como regras de negócio internas.
 
@@ -1765,26 +1767,26 @@ PostgreSQL
 Maven Wrapper
 ```
 
-A FASE 20 está concluída localmente.
+A FASE 20 está concluída local e remotamente.
 
-O fechamento remoto ainda depende de:
+Evidências verificadas:
 
 ```text
-commit dos documentos finais
-push da branch
-CI remoto
-Pull Request conforme fluxo do repositório
-merge em main
-CI pós-merge quando aplicável
+PR #11: MERGED em 2026-10-06
+CI #43: SUCCESS — pull request
+CI #44: SUCCESS — push após merge
+CI #46: SUCCESS — main
 ```
 
-Até esse ciclo terminar, o status correto é:
+Status consolidado:
 
 ```text
 FASE 20
 → GATE LOCAL FECHADO
-→ GATE REMOTO PENDENTE
+→ GATE REMOTO FECHADO
 ```
+
+O CI hermético verde não substitui a validação da fonte Amazon real, acompanhada separadamente pelo workflow de probe externa.
 
 ---
 
@@ -2067,14 +2069,14 @@ b748e85 feat: introduce operational failure taxonomy
 e19515c docs: define resilience and recovery semantics for phase 20
 ```
 
-Documentação final da fase deve ser versionada antes do push.
+A documentação final da FASE 20 foi versionada antes do fechamento remoto.
 
 ---
 
-## 56. Estado consolidado
+## 56. Registro histórico do encerramento da FASE 20
 
 ```text
-FASE ATUAL:
+FASE DOCUMENTADA NESTE REGISTRO:
 20 — Resiliência, recuperação e falhas de produção
 
 STATUS LOCAL:
@@ -2201,7 +2203,7 @@ DAEMON:
 NÃO EXECUTADO
 
 FECHAMENTO REMOTO DA FASE 20:
-PENDENTE
+FECHADO EM 2026-10-06
 
 PRÓXIMA FASE:
 21 — Segurança, governança e fechamento da v1.0
@@ -2209,9 +2211,9 @@ PRÓXIMA FASE:
 
 ---
 
-## 57. Próxima fase — FASE 21
+## 57. FASE 21 — Em andamento
 
-A próxima fase oficial é:
+A fase oficial em execução é:
 
 ```text
 FASE 21 — Segurança, governança e fechamento da v1.0
@@ -2230,27 +2232,26 @@ operação reproduzível
 fechamento da v1.0
 ```
 
-A FASE 21 não deve reimplementar decisões de resiliência já fechadas na FASE 20.
+A FASE 21 não deve reimplementar decisões de resiliência já fechadas na FASE 20. Seu planejamento é regido pela ADR-0018 aceita e pelo escopo do roadmap, reinterpretado à luz das ADRs aceitas e dos resultados posteriores.
 
 ---
 
-## 58. Gate antes da FASE 21
+## 58. Gate remoto da FASE 20 — Concluído
 
-Antes de iniciar a FASE 21:
+O fechamento remoto da FASE 20 foi realizado antes do início da FASE 21.
+
+Evidências verificadas:
 
 ```text
-1. versionar FASE_20_RESULTADO.md;
-2. versionar este README atualizado;
-3. confirmar git diff --check;
-4. confirmar working tree limpa após os commits;
-5. push da branch da FASE 20;
-6. validar CI remoto;
-7. abrir/atualizar Pull Request conforme fluxo do repositório;
-8. confirmar merge e CI pós-merge quando aplicável;
-9. somente então declarar gate remoto da FASE 20 fechado.
+PR #11: MERGED
+Data do merge: 2026-10-06
+Commit de merge: f2975296965c5990e88c31c9ce0bea09dd071d31
+CI #44: SUCCESS
+CI #46: SUCCESS
+Gate remoto da FASE 20: FECHADO
 ```
 
-O daemon de produção não faz parte desse gate.
+A execução contínua como daemon de produção não integrou esse gate. Sua preparação operacional permanece sujeita aos critérios da FASE 21.
 
 ---
 
@@ -2306,7 +2307,7 @@ Não reescrever retrospectivamente documentos históricos para esconder decisõe
 
 ---
 
-## 61. Encerramento local da FASE 20
+## 61. Registro do gate local da FASE 20 e fechamento remoto posterior
 
 ```text
 FASE 20 — RESILIÊNCIA, RECUPERAÇÃO E FALHAS DE PRODUÇÃO
@@ -2374,7 +2375,7 @@ NÃO BLOQUEANTE
 SEM THREAD DA APLICAÇÃO PRESA
 
 GATE REMOTO:
-PENDENTE
+FECHADO EM 2026-10-06
 
 DAEMON:
 NÃO EXECUTADO

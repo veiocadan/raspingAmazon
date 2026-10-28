@@ -6,6 +6,7 @@ import com.raspingamazon.application.scheduling.PauseProcessingScheduleUseCase;
 import com.raspingamazon.application.scheduling.ProcessingSchedule;
 import com.raspingamazon.application.scheduling.ProcessingScheduleNotFoundException;
 import com.raspingamazon.application.scheduling.ResumeProcessingScheduleUseCase;
+import com.raspingamazon.application.scheduling.ScheduleAdministrativeContext;
 
 import java.io.PrintWriter;
 import java.time.Duration;
@@ -222,10 +223,8 @@ public final class SchedulesCliCommand
         PrintWriter err
     ) {
 
-        requireExactlyOneScheduleKey(
-            arguments,
-            "schedules pause"
-        );
+        ScheduleAdministrativeContext context =
+            contextForMutation(arguments, 1, "pause");
 
         String scheduleKey =
             arguments.getFirst();
@@ -234,7 +233,8 @@ public final class SchedulesCliCommand
 
             ProcessingSchedule schedule =
                 pauseProcessingScheduleUseCase.execute(
-                    scheduleKey
+                    scheduleKey,
+                    context
                 );
 
             render(
@@ -259,10 +259,8 @@ public final class SchedulesCliCommand
         PrintWriter err
     ) {
 
-        requireExactlyOneScheduleKey(
-            arguments,
-            "schedules resume"
-        );
+        ScheduleAdministrativeContext context =
+            contextForMutation(arguments, 1, "resume");
 
         String scheduleKey =
             arguments.getFirst();
@@ -271,7 +269,8 @@ public final class SchedulesCliCommand
 
             ProcessingSchedule schedule =
                 resumeProcessingScheduleUseCase.execute(
-                    scheduleKey
+                    scheduleKey,
+                    context
                 );
 
             render(
@@ -296,13 +295,8 @@ public final class SchedulesCliCommand
         PrintWriter err
     ) {
 
-        if (arguments.size() != 2) {
-
-            throw new CliUsageException(
-                "schedules interval requires "
-                    + "<schedule-key> <duration>"
-            );
-        }
+        ScheduleAdministrativeContext context =
+            contextForMutation(arguments, 2, "interval");
 
         String scheduleKey =
             arguments.get(
@@ -322,7 +316,8 @@ public final class SchedulesCliCommand
             ProcessingSchedule schedule =
                 changeProcessingScheduleIntervalUseCase.execute(
                     scheduleKey,
-                    interval
+                    interval,
+                    context
                 );
 
             render(
@@ -338,6 +333,41 @@ public final class SchedulesCliCommand
                 scheduleKey,
                 err
             );
+        }
+    }
+
+    /** Permite --reason mantendo compativeis os comandos historicos. */
+    private ScheduleAdministrativeContext contextForMutation(
+        List<String> arguments,
+        int required,
+        String action
+    ) {
+        if (arguments.size() != required
+            && arguments.size() != required + 2) {
+            throw new CliUsageException(
+                "schedules " + action + " requires positional arguments and optional --reason <text>"
+            );
+        }
+
+        String reason = "cli-command:schedules-" + action;
+        if (arguments.size() == required + 2) {
+            if (!"--reason".equals(arguments.get(required))) {
+                throw new CliUsageException("Only --reason <text> is supported");
+            }
+            reason = arguments.get(required + 1);
+        }
+
+        String localUser = System.getProperty("user.name", "unknown");
+        if (localUser == null || localUser.isBlank()
+            || localUser.length() > 90
+            || localUser.chars().anyMatch(Character::isISOControl)) {
+            localUser = "unknown";
+        }
+
+        try {
+            return new ScheduleAdministrativeContext("local-cli:" + localUser, reason);
+        } catch (IllegalArgumentException exception) {
+            throw new CliUsageException("Invalid administrative reason or local actor");
         }
     }
 

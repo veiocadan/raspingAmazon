@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "execution_mode": "preparation_only",
+  "initial_schedule_interval": "PT1H",
+  "daemon_start_authorized": false,
+  "flyway_migrate_authorized": false,
+  "external_actions_authorized": false,
+  "automatic_restart_authorized": false,
+  "shutdown_grace_seconds": 30
+}

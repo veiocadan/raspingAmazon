@@ -31,8 +31,44 @@ jobs:
       - name: Show Maven Wrapper version
         run: ./mvnw --version
 
-      - name: Run external Amazon probe
-        run: ./mvnw --batch-mode -Pexternal-probe test
+      - name: Run Amazon deals source probe
+        run: ./mvnw --batch-mode -Pexternal-probe -Dtest=AmazonDealsExternalProbeIT test
+
+      - name: Require conclusive source result
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path(
+              "target/surefire-reports/"
+              "TEST-com.raspingamazon.infrastructure.amazon."
+              "AmazonDealsExternalProbeIT.xml"
+          )
+
+          if not report.is_file():
+              raise SystemExit("FAIL: source probe report missing")
+
+          suite = ET.parse(report).getroot()
+
+          counts = {
+              key: int(suite.get(key, "0"))
+              for key in ("tests", "failures", "errors", "skipped")
+          }
+
+          if counts != {
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+          }:
+              raise SystemExit(
+                  "INCONCLUSIVE: Amazon source not validated: "
+                  + str(counts)
+              )
+
+          print("PASS - Amazon source probe conclusive")
+          PY
 
       - name: Upload diagnostic artifacts
         if: always()

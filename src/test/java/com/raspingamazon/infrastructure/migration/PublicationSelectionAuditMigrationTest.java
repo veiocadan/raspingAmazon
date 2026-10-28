@@ -187,7 +187,14 @@ class PublicationSelectionAuditMigrationTest {
                 "hard_cooldown_seconds",
                 "preferred_cooldown_seconds",
                 "active",
-                "created_at"
+                "created_at",
+                "activation_previous_version",
+                "activation_actor",
+                "activation_reference",
+                "activated_at",
+                "deactivated_at",
+                "deactivation_actor",
+                "deactivation_reference"
             )
         );
     }
@@ -207,7 +214,14 @@ class PublicationSelectionAuditMigrationTest {
                 "max_publications_per_day",
                 "quota_zone",
                 "active",
-                "created_at"
+                "created_at",
+                "activation_previous_version",
+                "activation_actor",
+                "activation_reference",
+                "activated_at",
+                "deactivated_at",
+                "deactivation_actor",
+                "deactivation_reference"
             )
         );
     }

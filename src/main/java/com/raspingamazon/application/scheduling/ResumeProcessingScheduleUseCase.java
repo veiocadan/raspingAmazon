@@ -43,6 +43,14 @@ public final class ResumeProcessingScheduleUseCase {
     public ProcessingSchedule execute(
         String scheduleKey
     ) {
+        return execute(scheduleKey, ScheduleAdministrativeContext.useCaseReference("resume"));
+    }
+
+    public ProcessingSchedule execute(
+        String scheduleKey,
+        ScheduleAdministrativeContext context
+    ) {
+        Objects.requireNonNull(context, "context must not be null");
 
         String validatedScheduleKey =
             requireExistingSchedule(
@@ -65,7 +73,8 @@ public final class ResumeProcessingScheduleUseCase {
         return schedulePort.resume(
             validatedScheduleKey,
             nextRunAt,
-            resumedAt
+            resumedAt,
+            context
         );
     }
 

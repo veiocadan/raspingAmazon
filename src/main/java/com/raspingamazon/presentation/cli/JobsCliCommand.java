@@ -29,6 +29,9 @@ import java.util.Set;
 public final class JobsCliCommand
     implements CliCommandHandler {
 
+    private static final String REDACTED_ERROR_MESSAGE =
+        "[REDACTED]";
+
     private static final String HEADER =
         String.join(
             "\t",
@@ -588,7 +591,7 @@ public final class JobsCliCommand
             CliText.text(
                 summary.lastErrorCode()
             ),
-            CliText.text(
+            safePersistedErrorMessage(
                 summary.lastErrorMessage()
             ),
             summary.createdAt()
@@ -602,6 +605,22 @@ public final class JobsCliCommand
                 summary.idempotencyKey()
             )
         );
+    }
+
+    private String safePersistedErrorMessage(
+        String message
+    ) {
+
+        /*
+         * Registros historicos podem conter mensagens de excecao
+         * gravadas antes das protecoes de seguranca. Nao publicar
+         * esse conteudo na CLI, mesmo quando parece inofensivo.
+         */
+        if (message == null) {
+            return "-";
+        }
+
+        return REDACTED_ERROR_MESSAGE;
     }
 
     private String nullableLong(
